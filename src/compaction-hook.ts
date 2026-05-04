@@ -1,0 +1,257 @@
+// Compaction hook: unified compaction that runs OM observer, VCC summarization, and merges them
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { Entry, ObservationEntryData, MemoryReflection, ObservationRecord } from "./types.js";
+import { OBSERVATION_CUSTOM_TYPE } from "./types.js";
+import {
+  collectObservationsByCoverage,
+  findLastCompactionIndex,
+  gapRawEntries,
+  getMemoryState,
+} from "./om/branch.js";
+import { estimateEntryTokens, estimateStringTokens } from "./om/tokens.js";
+import { serializeSourceAddressedBranchEntries } from "./om/serialize.js";
+import { observationsToPromptLines, runObserver } from "./om/observer.js";
+import { runPruner, runReflector, renderSummary, reflectionContent } from "./om/compaction.js";
+import { formatRelevanceHistogram } from "./om/relevance.js";
+import { normalize } from "./vcc/normalizer.js";
+import { extractGoals, extractFiles, extractCommits, extractPreferences, extractOutstandingContext, formatCommits } from "./vcc/extractor.js";
+import { buildBriefSections, stringifyBrief, capBrief } from "./vcc/transcript.js";
+import { formatVccSections } from "./vcc/formatter.js";
+import { mergeVccSummaries } from "./vcc/merger.js";
+import { mergePipelines } from "./merge/pipeline.js";
+import type { Runtime } from "./runtime.js";
+import type { Message } from "@mariozechner/pi-ai";
+
+export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void {
+  pi.on("session_before_compact", async (event, ctx) => {
+    if (runtime.compactHookInFlight) {
+      if (ctx.hasUI) ctx.ui.notify(
+        "Hybrid memory: another compaction is already in progress; cancelling duplicate",
+        "warning",
+      );
+      return { cancel: true };
+    }
+    runtime.compactHookInFlight = true;
+    try {
+      runtime.ensureConfig(ctx.cwd);
+      const { preparation, branchEntries, signal } = event;
+      const { firstKeptEntryId, tokensBefore } = preparation;
+
+      const resolved = await runtime.resolveModel(ctx as any);
+      if (!resolved.ok) {
+        if (ctx.hasUI) ctx.ui.notify(
+          `Hybrid memory: cannot compact — ${resolved.reason}. Fix the model/API key and try /compact manually.`,
+          "error",
+        );
+        return { cancel: true };
+      }
+      runtime.resolveFailureNotified = false;
+
+      let entries = branchEntries as Entry[];
+
+      // ── Step 1: Run observer on any gap (catch-up) ──
+      if (runtime.observerPromise) {
+        try { await runtime.observerPromise; } catch { /* already notified */ }
+        entries = ctx.sessionManager.getBranch() as Entry[];
+      }
+
+      const memoryState = getMemoryState(entries);
+      let gapObservationData: ObservationEntryData | null = null;
+      const gap = gapRawEntries(entries, firstKeptEntryId);
+      if (gap.length > 0) {
+        const { text: gapChunk, sourceEntryIds } = serializeSourceAddressedBranchEntries(gap);
+        if (gapChunk.trim() && sourceEntryIds.length > 0) {
+          const gapFromId = gap[0].id;
+          const gapUpToId = gap[gap.length - 1].id;
+          const priorObservationLines = observationsToPromptLines([
+            ...memoryState.committedObs,
+            ...memoryState.pendingObs,
+          ]);
+          const gapTokenEstimate = gap.reduce((s, e) => s + estimateEntryTokens(e), 0);
+          if (ctx.hasUI) ctx.ui.notify(
+            `Hybrid memory: sync catch-up observer running on ~${gapTokenEstimate.toLocaleString()}-token gap`,
+            "info",
+          );
+          runtime.observerInFlight = true;
+          const gapCall = runObserver({
+            model: resolved.model as any,
+            apiKey: resolved.apiKey,
+            headers: resolved.headers,
+            priorReflections: memoryState.reflections.map(r => reflectionContent(r)),
+            priorObservations: priorObservationLines,
+            chunk: gapChunk,
+            allowedSourceEntryIds: sourceEntryIds,
+            signal,
+          });
+          const gapPromise: Promise<void> = gapCall.then(() => undefined, () => undefined);
+          runtime.observerPromise = gapPromise;
+          try {
+            const records = await gapCall;
+            if (records && records.length > 0) {
+              const observationTokens = records.reduce((sum, r) => sum + estimateStringTokens(r.content), 0);
+              gapObservationData = {
+                records,
+                coversFromId: gapFromId,
+                coversUpToId: gapUpToId,
+                tokenCount: observationTokens,
+              };
+              pi.appendEntry(OBSERVATION_CUSTOM_TYPE, gapObservationData);
+              if (ctx.hasUI) ctx.ui.notify(
+                `Hybrid memory: sync catch-up recorded ${records.length} observation(s) (~${observationTokens.toLocaleString()} tokens)`,
+                "info",
+              );
+            } else if (ctx.hasUI) {
+              ctx.ui.notify("Hybrid memory: sync catch-up observer returned empty — proceeding with compaction", "warning");
+            }
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (ctx.hasUI) ctx.ui.notify(
+              `Hybrid memory: sync catch-up observer failed: ${msg}. Cancelling compaction.`,
+              "warning",
+            );
+            return { cancel: true };
+          } finally {
+            runtime.observerInFlight = false;
+            if (runtime.observerPromise === gapPromise) runtime.observerPromise = null;
+          }
+        }
+      }
+
+      // ── Step 2: Collect delta observations ──
+      const priorCompactionIdx = findLastCompactionIndex(entries);
+      const priorFirstKeptEntryId = priorCompactionIdx >= 0 ? entries[priorCompactionIdx].firstKeptEntryId : undefined;
+      const deltaObservationData = collectObservationsByCoverage(entries, priorFirstKeptEntryId, firstKeptEntryId);
+      if (gapObservationData) deltaObservationData.push(gapObservationData);
+
+      if (deltaObservationData.length === 0) {
+        // No new observations — but we still need to produce a VCC summary
+        if (ctx.hasUI) ctx.ui.notify("Hybrid memory: no new observations; building VCC summary only", "info");
+      }
+
+      const workingReflections: MemoryReflection[] = [...memoryState.reflections];
+      const workingObservations: ObservationRecord[] = [
+        ...memoryState.committedObs,
+        ...deltaObservationData.flatMap((d) => d.records),
+      ];
+
+      // ── Step 3: Run reflector/pruner if needed ──
+      const observationTokens = workingObservations.reduce((sum, o) => sum + estimateStringTokens(o.content), 0);
+      let finalReflections = workingReflections;
+      let finalObservations = workingObservations;
+
+      if (observationTokens >= runtime.config.hybrid.reflectionThresholdTokens) {
+        if (ctx.hasUI) ctx.ui.notify("Hybrid memory: running reflector + pruner...", "info");
+        try {
+          finalReflections = await runReflector(
+            { model: resolved.model as any, apiKey: resolved.apiKey, headers: resolved.headers, signal },
+            workingReflections,
+            workingObservations,
+          );
+          const prunerResult = await runPruner(
+            { model: resolved.model as any, apiKey: resolved.apiKey, headers: resolved.headers, signal },
+            finalReflections,
+            workingObservations,
+            runtime.config.hybrid.reflectionThresholdTokens,
+          );
+          finalObservations = prunerResult.observations;
+          if (prunerResult.fellBack && ctx.hasUI) {
+            ctx.ui.notify("Hybrid memory: pruner run failed; kept observation set unchanged", "warning");
+          }
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          if (ctx.hasUI) ctx.ui.notify(`Hybrid memory: reflect/prune failed: ${msg}`, "warning");
+        }
+      }
+
+      // ── Step 4: Build VCC summary ──
+      if (ctx.hasUI) ctx.ui.notify("Hybrid memory: building structural VCC summary...", "info");
+
+      // Extract from branch entries since last compaction
+      const tailStart = priorCompactionIdx >= 0 ? liveTailStartIndex(entries) : 0;
+      const tailEntries = entries.slice(tailStart);
+      const tailMessages: Message[] = [];
+      for (const e of tailEntries) {
+        if (e.type === "message" && e.message) {
+          tailMessages.push(e.message as Message);
+        }
+      }
+
+      const blocks = normalize(tailMessages);
+      const sessionGoal = extractGoals(blocks);
+      const fileOps = extractFiles(blocks);
+      const commits = extractCommits(blocks);
+      const preferences = extractPreferences(blocks);
+      const outstandingContext = extractOutstandingContext(blocks);
+      const briefSections = buildBriefSections(blocks, runtime.config.hybrid.transcriptLines);
+      const briefText = capBrief(stringifyBrief(briefSections), runtime.config.hybrid.transcriptLines);
+
+      const fileLines: string[] = [];
+      if (fileOps.modified.size > 0) fileLines.push(`Modified: ${[...fileOps.modified].slice(0, 10).join(", ")}`);
+      if (fileOps.created.size > 0) fileLines.push(`Created: ${[...fileOps.created].slice(0, 10).join(", ")}`);
+      if (fileOps.read.size > 0) fileLines.push(`Read: ${[...fileOps.read].slice(0, 10).join(", ")}`);
+
+      const vccSectionData = {
+        sessionGoal,
+        filesAndChanges: fileLines,
+        commits: formatCommits(commits, runtime.config.hybrid.maxCommits),
+        outstandingContext,
+        userPreferences: preferences,
+        briefTranscript: briefText,
+        transcriptEntries: [],
+      };
+
+      let freshVccSummary = formatVccSections(vccSectionData);
+
+      // Merge with prior VCC summary if exists
+      const prevSummary = preparation.previousSummary;
+      if (prevSummary) {
+        // Extract the VCC section from the previous summary (after the --- separator if present)
+        const vccSeparator = "\n\n---\n\n";
+        const prevVccIdx = prevSummary.indexOf(vccSeparator);
+        const prevVccPart = prevVccIdx >= 0 ? prevSummary.slice(prevVccIdx + vccSeparator.length) : "";
+        // Try to identify VCC section — it's the part after "## Session State"
+        const sessionStateIdx = prevVccPart.indexOf("## Session State");
+        const prevVccCore = sessionStateIdx >= 0 ? prevVccPart.slice(sessionStateIdx) : prevVccPart;
+        if (prevVccCore.trim()) {
+          freshVccSummary = mergeVccSummaries(prevVccCore, freshVccSummary);
+        }
+      }
+
+      // ── Step 5: Merge OM + VCC into unified summary ──
+      const merged = mergePipelines({
+        observations: finalObservations,
+        reflections: finalReflections,
+        vccSummary: freshVccSummary,
+        settings: {
+          maxSummaryTokens: runtime.config.hybrid.maxSummaryTokens,
+        },
+      });
+
+      if (ctx.hasUI) ctx.ui.notify(
+        `Hybrid memory: compaction assembled — ${finalObservations.length} observations, ${finalReflections.length} reflections, ~${merged.tokenCount.toLocaleString()} token summary${merged.trimmed ? " (trimmed to fit budget)" : ""}`,
+        "info",
+      );
+
+      return {
+        compaction: {
+          summary: merged.summary,
+          firstKeptEntryId,
+          tokensBefore,
+          details: merged.details,
+        },
+      };
+    } finally {
+      runtime.compactHookInFlight = false;
+    }
+  });
+}
+
+const liveTailStartIndex = (entries: Entry[]): number => {
+  const compactionIdx = findLastCompactionIndex(entries);
+  if (compactionIdx === -1) return 0;
+  const firstKept = entries[compactionIdx].firstKeptEntryId;
+  if (!firstKept) return 0;
+  const firstKeptIdx = entries.findIndex((e) => e.id === firstKept);
+  if (firstKeptIdx === -1) return 0;
+  return firstKeptIdx;
+};
