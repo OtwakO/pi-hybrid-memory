@@ -13,18 +13,39 @@ The two layers are merged into one summary via a budget-aware pipeline that trim
 
 ## Installation
 
+### Option 1: Local copy (quickest)
+
 ```bash
-# Install via pi's package system or symlink
-npm link  # from this directory
+cp -r pi-hybrid-memory ~/.pi/agent/extensions/pi-hybrid-memory
 ```
 
-Then add to your pi config:
+Then run `/reload` in Pi. The extension is auto-discovered — no settings edit needed.
 
-```json
-{
-  "extensions": ["pi-hybrid-memory"]
-}
+### Option 2: `pi install` from local path
+
+```bash
+pi install ./path/to/pi-hybrid-memory
 ```
+
+### Option 3: Git repository
+
+```bash
+pi install git:github.com/elpapi42/pi-hybrid-memory
+```
+
+### Option 4: npm package
+
+```bash
+pi install npm:pi-hybrid-memory
+```
+
+### Verify it loaded
+
+```bash
+/hm-status
+```
+
+If the command returns memory metrics, the extension is active.
 
 ## Configuration
 
