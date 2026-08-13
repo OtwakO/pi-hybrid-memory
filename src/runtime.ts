@@ -1,5 +1,5 @@
 // Runtime: holds config, in-flight state, and model resolution
-import type { ExtensionConfig, HybridSettings, ResolveResult, UnifiedConfig } from "./types.js";
+import type { ResolveResult, UnifiedConfig } from "./types.js";
 import { loadConfig } from "./config.js";
 
 export class Runtime {
@@ -25,7 +25,7 @@ export class Runtime {
       hybrid: {
         observationThresholdTokens: 1000,
         compactionThresholdTokens: 50000,
-        compactionThresholdPercentage: null,
+        compactionThresholdPercentage: 80,
         reflectionThresholdTokens: 30000,
         compactionModel: null,
         transcriptLines: 120,

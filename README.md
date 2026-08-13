@@ -51,14 +51,26 @@ If the command returns memory metrics, the extension is active.
 
 ## Configuration
 
-### Extension Config (`pi-hybrid-memory-config.json`)
+All extension settings live in `pi-hybrid-memory-config.json`:
 
-Place in `~/.pi/agent/` (global) or `<project>/.pi/` (project-level):
+- Global: `~/.pi/agent/pi-hybrid-memory-config.json`
+- Project overrides: `<project>/.pi/pi-hybrid-memory-config.json`
+
+The global file is created automatically. Project files override individual fields rather than replacing the entire global config.
 
 ```json
 {
   "overrideDefaultCompaction": true,
-  "debug": false
+  "debug": false,
+  "observationThresholdTokens": 1000,
+  "compactionThresholdTokens": 50000,
+  "compactionThresholdPercentage": 80,
+  "reflectionThresholdTokens": 30000,
+  "compactionModel": { "provider": "openai", "id": "gpt-4o-mini" },
+  "transcriptLines": 120,
+  "maxFiles": 40,
+  "maxCommits": 8,
+  "maxSummaryTokens": 16000
 }
 ```
 
@@ -66,32 +78,9 @@ Place in `~/.pi/agent/` (global) or `<project>/.pi/` (project-level):
 |---|---|---|
 | `overrideDefaultCompaction` | `true` | Set to `false` to let Pi's default compaction run instead |
 | `debug` | `false` | Enable debug logging |
-
-### Settings (`settings.json`)
-
-In `~/.pi/agent/settings.json` or `<project>/.pi/settings.json`:
-
-```json
-{
-  "hybrid-memory": {
-    "observationThresholdTokens": 1000,
-    "compactionThresholdTokens": 50000,
-    "compactionThresholdPercentage": null,
-    "reflectionThresholdTokens": 30000,
-    "compactionModel": { "provider": "openai", "id": "gpt-4o-mini" },
-    "transcriptLines": 120,
-    "maxFiles": 40,
-    "maxCommits": 8,
-    "maxSummaryTokens": 16000
-  }
-}
-```
-
-| Setting | Default | Description |
-|---|---|---|
 | `observationThresholdTokens` | 1000 | New tokens of raw conversation before the observer runs |
 | `compactionThresholdTokens` | 50000 | Auto-compact after a completed agent run when current context exceeds this many tokens |
-| `compactionThresholdPercentage` | `null` | Optional whole percentage from 1–99 (for example `80`); overrides `compactionThresholdTokens` and uses the active model's context window |
+| `compactionThresholdPercentage` | `80` | Whole percentage from 1–99; auto-compacts after a completed agent run when context exceeds this share of the active model's window. Set to `null` to use `compactionThresholdTokens` instead |
 | `reflectionThresholdTokens` | 30000 | Observation tokens before reflector/pruner runs |
 | `compactionModel` | `null` | Override model for LLM-heavy ops (observer, reflector, pruner). Falls back to session model |
 | `transcriptLines` | 120 | Max lines in the VCC brief transcript |
@@ -101,7 +90,7 @@ In `~/.pi/agent/settings.json` or `<project>/.pi/settings.json`:
 
 Automatic threshold checks run only after the full agent run settles, not between tool calls. Invalid percentage values are ignored and the token threshold is used instead.
 
-**Backward compatibility:** `observational-memory.*` settings are read as fallback if `hybrid-memory.*` is not set.
+The extension does not read hybrid-memory configuration from Pi's `settings.json`; `pi-hybrid-memory-config.json` is the only configuration surface.
 
 ## Commands
 
@@ -130,24 +119,28 @@ Opens an interactive TUI overlay to browse all memory content:
 
 ### `hm_recall(<id>)`
 
-Recovers the full content and source context behind a compacted observation or reflection ID.
+`hm_recall` has two lookup modes:
 
+| ID | Mode | Result |
+|---|---|---|
+| 12 lowercase alphanumeric characters, e.g. `moszb0o30001` | Memory lookup | Recalls an observation or reflection with provenance and bounded source previews |
+| 8 lowercase hexadecimal characters, e.g. `1aabb792` | Exact source lookup | Returns that original Pi session entry from the current branch |
+
+```text
+hm_recall("moszb0o30001")  # memory + source previews
+hm_recall("1aabb792")      # exact original source entry
 ```
-hm_recall(a1b2c3d4e5f6)
-```
 
-Returns:
-- Observation/reflection content
-- Source entries (user messages, tool calls) that generated it
-- Provenance chain for reflections
+Memory lookup previews are chronological and allocated fairly so later sources are not starved by earlier entries:
 
-### `vcc_recall` (inherited from pi-vcc)
+- Up to 1,200 characters per source
+- Up to 8,000 characters across all previews
+- Explicit `… [truncated]` markers
+- Source ID, role, timestamp, and token estimate remain visible
 
-Search session history by regex. Defaults to active lineage.
+Use an 8-character source ID from the Sources section when exact wording, paths, errors, commands, or decisions matter. Direct source lookup uses a separate 20,000-character safety cap and returns `source_unavailable` if the entry has been pruned from the current branch.
 
-```
-vcc_recall(query: "auth|login", scope: "all")
-```
+Reflection lookup follows supporting observation IDs to their available source entries, preserving the provenance chain.
 
 ## How It Works
 
@@ -168,7 +161,7 @@ Raw conversation → (Observer → Observations) → (Reflector → Reflections)
 src/
 ├── index.ts              # Extension entry point
 ├── types.ts              # Unified type definitions
-├── config.ts             # Config loading (extension + settings)
+├── config.ts             # Unified flat config loading
 ├── runtime.ts            # Runtime state (config, in-flight tracking)
 ├── compaction-hook.ts    # Unified compaction (OM + VCC + merge)
 ├── observer-trigger.ts   # Proactive observer at turn_end

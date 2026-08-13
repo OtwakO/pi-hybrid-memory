@@ -100,3 +100,5 @@ cd reference/pi-request-inspector && git diff 6786b67..HEAD
 When evaluating changes, favour minimal, backwards-compatible adoption of
 upstream wins (coverage tags, reflection strengthening, structured fields,
 TUI patterns) — same philosophy as the prior merge sessions.
+
+Dated comparison reports live in [`docs/upstream-reviews/`](./docs/upstream-reviews/).

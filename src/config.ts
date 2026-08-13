@@ -1,12 +1,10 @@
-// Unified config loading: scaffolds extension config on first load, reads numeric thresholds from Pi settings
+// Unified config loading from pi-hybrid-memory-config.json.
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionConfig, HybridSettings, UnifiedConfig } from "./types.js";
 
 const EXTENSION_CONFIG_FILENAME = "pi-hybrid-memory-config.json";
-const SETTINGS_KEY = "hybrid-memory";
-const DEPRECATED_SETTINGS_KEY = "observational-memory";
 
 export const DEFAULT_EXTENSION_CONFIG: ExtensionConfig = {
   overrideDefaultCompaction: true,
@@ -16,7 +14,7 @@ export const DEFAULT_EXTENSION_CONFIG: ExtensionConfig = {
 export const DEFAULT_HYBRID_SETTINGS: HybridSettings = {
   observationThresholdTokens: 1000,
   compactionThresholdTokens: 50000,
-  compactionThresholdPercentage: null,
+  compactionThresholdPercentage: 80,
   reflectionThresholdTokens: 30000,
   compactionModel: null,
   transcriptLines: 120,
@@ -25,8 +23,14 @@ export const DEFAULT_HYBRID_SETTINGS: HybridSettings = {
   maxSummaryTokens: 16000,
 };
 
+export type ConfigFile = ExtensionConfig & HybridSettings;
+
+export const DEFAULT_CONFIG_FILE: ConfigFile = {
+  ...DEFAULT_EXTENSION_CONFIG,
+  ...DEFAULT_HYBRID_SETTINGS,
+};
+
 const globalExtensionConfigPath = (): string => join(getAgentDirSafe(), EXTENSION_CONFIG_FILENAME);
-const globalSettingsPath = (): string => join(getAgentDirSafe(), "settings.json");
 
 function getAgentDirSafe(): string {
   try {
@@ -47,36 +51,14 @@ function readJson(path: string): Record<string, unknown> | null {
   }
 }
 
-function scaffoldExtensionConfig(path: string): void {
+function writeJson(path: string, value: Record<string, unknown>): void {
   try {
     const dir = dirname(path);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    if (!existsSync(path)) {
-      writeFileSync(path, `${JSON.stringify(DEFAULT_EXTENSION_CONFIG, null, 2)}\n`);
-    }
+    writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
   } catch {
-    // best-effort
+    // Best-effort scaffolding. Runtime defaults remain usable if disk writes fail.
   }
-}
-
-function loadExtensionConfig(cwd: string): ExtensionConfig {
-  const globalPath = globalExtensionConfigPath();
-  const projectPath = join(cwd, ".pi", EXTENSION_CONFIG_FILENAME);
-
-  // Scaffold global config if absent
-  scaffoldExtensionConfig(globalPath);
-
-  const project = readJson(projectPath);
-  if (project && typeof project === "object") {
-    return { ...DEFAULT_EXTENSION_CONFIG, ...(project as Partial<ExtensionConfig>) };
-  }
-
-  const global_ = readJson(globalPath);
-  if (global_ && typeof global_ === "object") {
-    return { ...DEFAULT_EXTENSION_CONFIG, ...(global_ as Partial<ExtensionConfig>) };
-  }
-
-  return { ...DEFAULT_EXTENSION_CONFIG };
 }
 
 export const validCompactionThresholdPercentage = (value: unknown): number | null =>
@@ -84,79 +66,76 @@ export const validCompactionThresholdPercentage = (value: unknown): number | nul
     ? value
     : null;
 
-function loadHybridSettings(cwd: string): HybridSettings {
-  const globalPath = globalSettingsPath();
-  const projectPath = join(cwd, ".pi", "settings.json");
+const normalizeConfig = (value: ConfigFile): ConfigFile => ({
+  ...value,
+  compactionThresholdPercentage: validCompactionThresholdPercentage(
+    value.compactionThresholdPercentage,
+  ),
+});
 
-  // Read project settings first (higher priority), then global
-  const project = readJson(projectPath);
-  const global_ = readJson(globalPath);
-
-  // Merge: defaults < global < project
-  let merged = { ...DEFAULT_HYBRID_SETTINGS };
-
-  if (global_ && typeof global_ === "object") {
-    const hybridGlobal = (global_ as Record<string, unknown>)[SETTINGS_KEY];
-    if (hybridGlobal && typeof hybridGlobal === "object" && hybridGlobal !== null) {
-      merged = { ...merged, ...(hybridGlobal as Partial<HybridSettings>) };
-    }
-  }
-
-  if (project && typeof project === "object") {
-    const hybridProject = (project as Record<string, unknown>)[SETTINGS_KEY];
-    if (hybridProject && typeof hybridProject === "object" && hybridProject !== null) {
-      merged = { ...merged, ...(hybridProject as Partial<HybridSettings>) };
-    }
-  }
-
-  // Backward compat: read observational-memory.* as fallback
-  for (const [fallbackKey, targetKey] of [
-    ["observationThresholdTokens", "observationThresholdTokens"],
-    ["compactionThresholdTokens", "compactionThresholdTokens"],
-    ["reflectionThresholdTokens", "reflectionThresholdTokens"],
-    ["compactionModel", "compactionModel"],
-  ] as const) {
-    if (merged[targetKey] === DEFAULT_HYBRID_SETTINGS[targetKey] || merged[targetKey] === null) {
-      // Check deprecated key in both global and project
-      for (const settings of [global_, project]) {
-        if (!settings || typeof settings !== "object") continue;
-        const deprecated = (settings as Record<string, unknown>)[DEPRECATED_SETTINGS_KEY];
-        if (deprecated && typeof deprecated === "object" && deprecated !== null) {
-          const val = (deprecated as Record<string, unknown>)[fallbackKey];
-          if (val !== undefined) {
-            (merged as Record<string, unknown>)[targetKey] = val;
-          }
-        }
-      }
-    }
-  }
-
-  merged.compactionThresholdPercentage = validCompactionThresholdPercentage(
-    merged.compactionThresholdPercentage,
-  );
-
-  return merged;
+interface ConfigPaths {
+  globalConfigPath: string;
+  projectConfigPath: string;
 }
 
-export function loadConfig(cwd: string, notify?: (msg: string, level?: "info" | "warning" | "error") => void): UnifiedConfig {
-  const extension = loadExtensionConfig(cwd);
-  const hybrid = loadHybridSettings(cwd);
+export function loadConfigFromPaths(
+  paths: ConfigPaths,
+  notify?: (msg: string, level?: "info" | "warning" | "error") => void,
+): UnifiedConfig {
+  const globalExisting = readJson(paths.globalConfigPath) ?? {};
+  const globalConfig = normalizeConfig({
+    ...DEFAULT_CONFIG_FILE,
+    ...globalExisting,
+  } as ConfigFile);
+
+  // Keep the global file complete so it is the single discoverable config surface.
+  writeJson(paths.globalConfigPath, globalConfig as unknown as Record<string, unknown>);
+
+  const projectExisting = readJson(paths.projectConfigPath) ?? {};
+  const merged = normalizeConfig({
+    ...globalConfig,
+    ...projectExisting,
+  } as ConfigFile);
 
   if (notify) {
-    if (!extension.overrideDefaultCompaction) {
+    if (!merged.overrideDefaultCompaction) {
       notify(
         "pi-hybrid-memory: override is disabled. Pi's default compaction will run. Set overrideDefaultCompaction: true in pi-hybrid-memory-config.json to enable.",
         "info",
       );
-    } else {
-      if (!hybrid.compactionModel) {
-        notify(
-          "pi-hybrid-memory: observer is using your session model. Set hybrid-memory.compactionModel in settings.json to a cheaper model to reduce cost.",
-          "info",
-        );
-      }
+    } else if (!merged.compactionModel) {
+      notify(
+        "pi-hybrid-memory: observer is using your session model. Set compactionModel in pi-hybrid-memory-config.json to a cheaper model to reduce cost.",
+        "info",
+      );
     }
   }
 
+  const extension: ExtensionConfig = {
+    overrideDefaultCompaction: merged.overrideDefaultCompaction,
+    debug: merged.debug,
+  };
+  const hybrid: HybridSettings = {
+    observationThresholdTokens: merged.observationThresholdTokens,
+    compactionThresholdTokens: merged.compactionThresholdTokens,
+    compactionThresholdPercentage: merged.compactionThresholdPercentage,
+    reflectionThresholdTokens: merged.reflectionThresholdTokens,
+    compactionModel: merged.compactionModel,
+    transcriptLines: merged.transcriptLines,
+    maxFiles: merged.maxFiles,
+    maxCommits: merged.maxCommits,
+    maxSummaryTokens: merged.maxSummaryTokens,
+  };
+
   return { extension, hybrid };
+}
+
+export function loadConfig(
+  cwd: string,
+  notify?: (msg: string, level?: "info" | "warning" | "error") => void,
+): UnifiedConfig {
+  return loadConfigFromPaths({
+    globalConfigPath: globalExtensionConfigPath(),
+    projectConfigPath: join(cwd, ".pi", EXTENSION_CONFIG_FILENAME),
+  }, notify);
 }

@@ -23,3 +23,13 @@
 - **Reason**: This provides model-relative thresholds while triggering only after the complete agent run, avoiding interruption between tool-call turns.
 - **Verified**: Focused tests cover percentage validation and precedence, token fallback, exact boundary behavior, unavailable usage, disabled override, duplicate suppression, completion, and error recovery. TypeScript compiles clean; 71/71 tests pass; Bun bundle succeeds.
 - **Watch out**: The active Pi runtime is 0.84.1, but the legacy `@mariozechner/pi-coding-agent` development package available to this project is 0.66.1 and lacks the newer `agent_settled` event type. The implementation isolates a typed compatibility interface in `auto-compaction.ts`; Pi 0.84+ is documented as required.
+
+### [2026-08-13] Unified extension configuration
+- **Context**: Extension-owned settings were split between `pi-hybrid-memory-config.json` and Pi's `settings.json`, making discovery and maintenance harder.
+- **Change**: All extension settings now live in one flat `pi-hybrid-memory-config.json`. The global file is auto-scaffolded and expanded with missing defaults; optional project files remain sparse field-by-field overrides. Upstream reviews now live under `docs/upstream-reviews/` with an index.
+- **Reason**: There are no existing users requiring settings migration, so a direct single-source config is simpler and avoids permanent fallback complexity.
+- **Verified**: Config tests cover scaffolding, preservation of existing values, sparse project precedence, and percentage normalization.
+
+### [2026-08-13] Percentage compaction enabled by default
+- **Change**: `compactionThresholdPercentage` now defaults to `80`; setting it to `null` opts into the absolute `compactionThresholdTokens` fallback. README now documents both `hm_recall` ID modes, fair bounded previews, exact source lookup, safety caps, and source availability behavior.
+- **Verified**: Config scaffolding test locks the 80% default; full typecheck, tests, and bundle build completed with the change.
