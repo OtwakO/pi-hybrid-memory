@@ -63,6 +63,7 @@ The global file is created automatically. Project files override individual fiel
   "overrideDefaultCompaction": true,
   "debug": false,
   "observationThresholdTokens": 1000,
+  "observerChunkMaxTokens": 60000,
   "compactionThresholdTokens": 50000,
   "compactionThresholdPercentage": 80,
   "reflectionThresholdTokens": 30000,
@@ -79,6 +80,7 @@ The global file is created automatically. Project files override individual fiel
 | `overrideDefaultCompaction` | `true` | Set to `false` to let Pi's default compaction run instead |
 | `debug` | `false` | Enable debug logging |
 | `observationThresholdTokens` | 1000 | New tokens of raw conversation before the observer runs |
+| `observerChunkMaxTokens` | 60000 | Maximum serialized source tokens per observer call; large backlogs are processed oldest-first and oversized single entries use marked head/tail excerpts |
 | `compactionThresholdTokens` | 50000 | Auto-compact after a completed agent run when current context exceeds this many tokens |
 | `compactionThresholdPercentage` | `80` | Whole percentage from 1–99; auto-compacts after a completed agent run when context exceeds this share of the active model's window. Set to `null` to use `compactionThresholdTokens` instead |
 | `reflectionThresholdTokens` | 30000 | Observation tokens before reflector/pruner runs |
@@ -101,6 +103,22 @@ Shows current memory state:
 - Relevance histogram
 - Activity progress (how close to next trigger thresholds)
 - VCC settings summary
+
+### `/hm-cache-info`
+
+Shows session-local telemetry for LLM calls owned by hybrid memory: observer, reflector, and pruner. It does not include the main Pi conversation.
+
+The command displays:
+
+- Whole-session aggregates per operation
+- The 10 most recent extension LLM calls
+- Input, output, cache-read, and cache-write tokens
+- Cache-read ratio as `cacheRead / (input + cacheRead)` when usage is available
+- Provider-reported cost from the response
+- A separate price-based estimate calculated from the active model's configured per-million-token prices
+- `unknown` when usage or pricing is unavailable, rather than treating missing data as zero
+
+Telemetry contains only model/operation metadata, usage, outcome, timestamp, and costs. It is held in memory, resets on `session_start`, and does not persist prompts, observations, source text, API keys, or headers.
 
 ### `/hm-memory`
 

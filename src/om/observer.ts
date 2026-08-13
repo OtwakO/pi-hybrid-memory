@@ -1,7 +1,8 @@
 // OM Observer: LLM-based observation extraction using agentLoop + tool calling
 // Matches pi-observational-memory's design — no JSON parsing, structured via tool schema
 import { agentLoop, type AgentContext, type AgentLoopConfig, type AgentTool } from "@mariozechner/pi-agent-core";
-import type { Message } from "@mariozechner/pi-ai";
+import type { Message, Model, Usage } from "@mariozechner/pi-ai";
+import type { CacheTelemetry } from "../cache-telemetry.js";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import type { ObservationRecord, Relevance } from "../types.js";
@@ -38,6 +39,7 @@ export interface ObserverParams {
   chunk: string;
   allowedSourceEntryIds: string[];
   signal?: AbortSignal;
+  telemetry?: CacheTelemetry;
 }
 
 export type ObserverResult =
@@ -52,6 +54,36 @@ const makeId = (): string => {
 };
 
 const joinOrEmpty = (items: string[]): string => items.length ? items.join("\n") : "(none yet)";
+
+interface TerminalAssistantMessage {
+  role?: string;
+  stopReason?: string;
+  errorMessage?: string;
+}
+
+const terminalAssistantMessages = (event: unknown): TerminalAssistantMessage[] => {
+  if (!event || typeof event !== "object") return [];
+  const value = event as { type?: string; message?: unknown; messages?: unknown[] };
+  if (value.type === "message_end" || value.type === "turn_end") {
+    return value.message && typeof value.message === "object"
+      ? [value.message as TerminalAssistantMessage]
+      : [];
+  }
+  if (value.type === "agent_end" && Array.isArray(value.messages)) {
+    return value.messages.filter((message): message is TerminalAssistantMessage =>
+      !!message && typeof message === "object" && (message as TerminalAssistantMessage).role === "assistant");
+  }
+  return [];
+};
+
+const terminalFailure = (event: unknown): string | null => {
+  for (const message of terminalAssistantMessages(event)) {
+    if (message.role !== "assistant") continue;
+    if (message.stopReason !== "error" && message.stopReason !== "aborted") continue;
+    return message.errorMessage?.trim() || `assistant stream ${message.stopReason}`;
+  }
+  return null;
+};
 
 export const runObserver = async (params: ObserverParams): Promise<ObserverResult> => {
   const { model, apiKey, headers, priorReflections, priorObservations, chunk, signal } = params;
@@ -87,11 +119,11 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
 
   const system = OBSERVER_SYSTEM;
   const userText =
-    `CURRENT REFLECTIONS:\n${joinOrEmpty(priorReflections)}\n\n` +
-    `CURRENT OBSERVATIONS:\n${joinOrEmpty(priorObservations)}\n\n` +
-    `Compress the following new conversation chunk into observations by calling record_observations one or more times. ` +
+    `Compress the new conversation chunk into observations by calling record_observations one or more times. ` +
     `Do not restate facts already present in current reflections or current observations. ` +
     `Stop calling the tool and reply with a short plain-text confirmation once the chunk is fully covered.\n\n` +
+    `CURRENT REFLECTIONS:\n${joinOrEmpty(priorReflections)}\n\n` +
+    `CURRENT OBSERVATIONS:\n${joinOrEmpty(priorObservations)}\n\n` +
     `NEW CONVERSATION CHUNK:\n${conversation}`;
 
   const prompts: Message[] = [{ role: "user", content: userText, timestamp: Date.now() } as Message];
@@ -112,11 +144,22 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
   try {
     const stream = agentLoop(prompts, context, config, signal);
 
-    for await (const _event of stream) {
-      // Drain events; the tool's execute already collects records.
+    let streamFailure: string | null = null;
+    for await (const event of stream) {
+      streamFailure ??= terminalFailure(event);
+      if (event.type === "message_end" && event.message.role === "assistant") {
+        const assistant = event.message as { stopReason?: string; usage?: Usage };
+        const outcome = assistant.stopReason === "error" ? "error"
+          : assistant.stopReason === "aborted" ? "aborted"
+            : "success";
+        params.telemetry?.record("observer", params.model as Model<any>, outcome, assistant.usage);
+      }
     }
     await stream.result();
 
+    if (streamFailure) {
+      return { ok: false, reason: `agentLoop stream failed: ${streamFailure}`, rawResponse: "" };
+    }
     return { ok: true, records: accumulated };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

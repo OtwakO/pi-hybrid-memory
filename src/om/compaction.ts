@@ -1,5 +1,6 @@
 // Reflector and pruner: LLM-based reflection synthesis and observation pruning
-import { completeSimple, type Context, type Message } from "@mariozechner/pi-ai";
+import { completeSimple, type Context, type Message, type Model } from "@mariozechner/pi-ai";
+import type { CacheOperation, CacheTelemetry } from "../cache-telemetry.js";
 import type { MemoryReflection, ObservationRecord, Relevance } from "../types.js";
 import {
   PRUNER_PROMPT,
@@ -9,7 +10,6 @@ import {
 } from "./prompts.js";
 import { observationsToPromptLines } from "./observer.js";
 
-import { estimateStringTokens } from "./tokens.js";
 
 export const reflectionContent = (r: MemoryReflection): string =>
   typeof r === "string" ? r : r.content;
@@ -57,7 +57,13 @@ const makeId = (): string => {
   return `${Date.now().toString(36).slice(-8)}${idCounter.toString(36).padStart(4, "0")}`;
 };
 
-type ModelParams = { model: unknown; apiKey: string; headers?: Record<string, string>; signal?: AbortSignal };
+type ModelParams = {
+  model: unknown;
+  apiKey: string;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  telemetry?: CacheTelemetry;
+};
 
 const extractTextFromAssistantMessage = (msg: unknown): string => {
   if (!msg || typeof msg !== "object") return "";
@@ -85,7 +91,12 @@ const extractJsonFromText = (text: string): string | null => {
   return null;
 };
 
-const callModel = async (params: ModelParams, systemPrompt: string, userPrompt: string): Promise<string | null> => {
+const callModel = async (
+  params: ModelParams,
+  operation: Extract<CacheOperation, "reflector" | "pruner">,
+  systemPrompt: string,
+  userPrompt: string,
+): Promise<string | null> => {
   const context: Context = {
     systemPrompt,
     messages: [{ role: "user", content: userPrompt, timestamp: Date.now() } as Message],
@@ -96,8 +107,12 @@ const callModel = async (params: ModelParams, systemPrompt: string, userPrompt: 
       context,
       { apiKey: params.apiKey, headers: params.headers, signal: params.signal },
     );
+    const outcome = response.stopReason === "error" ? "error"
+      : response.stopReason === "aborted" ? "aborted"
+        : "success";
+    params.telemetry?.record(operation, params.model as Model<any>, outcome, response.usage);
     const text = extractTextFromAssistantMessage(response);
-    if (!text) return null;
+    if (!text || outcome !== "success") return null;
     return extractJsonFromText(text);
   } catch {
     return null;
@@ -109,7 +124,7 @@ export const runReflector = async (
   reflections: MemoryReflection[],
   observations: ObservationRecord[],
 ): Promise<MemoryReflection[]> => {
-  const jsonStr = await callModel(params, REFLECTOR_SYSTEM, REFLECTOR_PROMPT(reflections, observations));
+  const jsonStr = await callModel(params, "reflector", REFLECTOR_SYSTEM, REFLECTOR_PROMPT(reflections, observations));
   if (!jsonStr) return reflections;
 
   try {
@@ -169,7 +184,7 @@ export const runPruner = async (
     ? renderObservationsWithCoverage(observations, coverageTags)
     : observationsToPromptLines(observations).join("\n");
 
-  const jsonStr = await callModel(params, PRUNER_SYSTEM, PRUNER_PROMPT(reflections, observations, obsText));
+  const jsonStr = await callModel(params, "pruner", PRUNER_SYSTEM, PRUNER_PROMPT(reflections, observations, obsText));
   if (!jsonStr) return { observations, fellBack: true };
 
   try {
@@ -187,7 +202,6 @@ export const runPruner = async (
         const uncited = observations.filter((o) => (coverageTags.get(o.id) ?? "uncited") === "uncited");
         const cited = observations.filter((o) => (coverageTags.get(o.id) ?? "uncited") !== "uncited");
         // Drop low-priority cited observations first
-        const relevanceOrder: Relevance[] = ["low", "medium", "high", "critical"];
         const toDrop = cited.filter((o) => o.relevance === "low" || o.relevance === "medium");
         if (toDrop.length > 0) {
           const dropIds = new Set(toDrop.map((o) => o.id));

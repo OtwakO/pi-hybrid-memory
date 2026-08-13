@@ -31,6 +31,7 @@ describe("unified hybrid-memory config", () => {
       overrideDefaultCompaction: true,
       debug: false,
       observationThresholdTokens: 1000,
+      observerChunkMaxTokens: 60000,
       compactionThresholdTokens: 50000,
       compactionThresholdPercentage: 80,
       maxSummaryTokens: 16000,
@@ -77,14 +78,16 @@ describe("unified hybrid-memory config", () => {
     expect(readJson(paths.projectConfigPath)).toEqual({ maxFiles: 90 });
   });
 
-  it("normalizes invalid percentage values after merging", () => {
+  it("normalizes unsafe observer and percentage values after merging", () => {
     const paths = fixture();
     writeJson(paths.globalConfigPath, {
+      observerChunkMaxTokens: 0,
       compactionThresholdPercentage: 100,
     });
 
     const config = loadConfigFromPaths(paths);
 
+    expect(config.hybrid.observerChunkMaxTokens).toBe(256);
     expect(config.hybrid.compactionThresholdPercentage).toBeNull();
   });
 });

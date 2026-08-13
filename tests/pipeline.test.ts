@@ -8,6 +8,7 @@ import { mergeVccSummaries } from "../src/vcc/merger.js";
 import { estimateStringTokens } from "../src/om/tokens.js";
 import { countByRelevance, formatRelevanceHistogram } from "../src/om/relevance.js";
 import { mergePipelines } from "../src/merge/pipeline.js";
+import { vccMessagesFromEntries } from "../src/compaction-hook.js";
 
 // ── VCC Normalizer ──
 
@@ -37,6 +38,23 @@ describe("normalize", () => {
     expect(blocks[0].text).toBe("");
   });
 
+  it("normalizes bashExecution into existing bash tool blocks", () => {
+    const blocks = normalize([{
+      role: "bashExecution",
+      command: "npm test",
+      output: "1 test failed",
+      exitCode: 1,
+      cancelled: false,
+      truncated: false,
+      timestamp: Date.now(),
+    } as any]);
+
+    expect(blocks).toEqual([
+      { kind: "tool_call", name: "bash", args: { command: "npm test" }, sourceIndex: 0 },
+      { kind: "tool_result", name: "bash", text: "1 test failed", isError: true, sourceIndex: 0 },
+    ]);
+  });
+
   it("flattens assistant content blocks correctly", () => {
     const msg = {
       role: "assistant",
@@ -49,6 +67,27 @@ describe("normalize", () => {
     expect(blocks).toHaveLength(2);
     expect(blocks[0]).toMatchObject({ kind: "assistant", text: "Hello" });
     expect(blocks[1]).toMatchObject({ kind: "tool_call", name: "Read" });
+  });
+});
+
+describe("vccMessagesFromEntries", () => {
+  it("includes message, custom message, and branch summary entries in order", () => {
+    const messages = vccMessagesFromEntries([
+      { type: "message", id: "a", timestamp: "2026-01-01T00:00:00Z", message: { role: "user", content: "normal" } },
+      { type: "custom_message", id: "b", timestamp: "2026-01-01T00:00:01Z", content: "custom context", customType: "test" },
+      { type: "custom_message", id: "c", timestamp: "2026-01-01T00:00:02Z", content: [{ type: "text", text: "structured custom context" }], customType: "test" },
+      { type: "branch_summary", id: "d", timestamp: "2026-01-01T00:00:03Z", summary: "abandoned branch details" },
+      { type: "custom", id: "e", timestamp: "2026-01-01T00:00:04Z", customType: "hybrid-memory.observation", data: {} },
+      { type: "compaction", id: "f", timestamp: "2026-01-01T00:00:05Z", summary: "old compaction" },
+    ]);
+
+    expect(messages).toHaveLength(4);
+    expect(messages.map((message: any) => message.content)).toEqual([
+      "normal",
+      "custom context",
+      [{ type: "text", text: "structured custom context" }],
+      "Branch summary:\nabandoned branch details",
+    ]);
   });
 });
 
@@ -101,6 +140,37 @@ describe("extractFiles", () => {
     ]);
     const files = extractFiles(blocks);
     expect(files.created.has("src/new.ts")).toBe(true);
+  });
+
+  it("matches modern file tools case-insensitively", () => {
+    const blocks = normalize([
+      {
+        role: "assistant",
+        content: [
+          { type: "toolCall", name: "read", arguments: { path: "src/lower.ts" } },
+          { type: "toolCall", name: "Quick_Edit", arguments: { path: "src/quick.ts" } },
+          { type: "toolCall", name: "TARGET_EDIT", arguments: { filePath: "src/target.ts" } },
+          { type: "toolCall", name: "apply_patch", arguments: { file: "src/patched.ts" } },
+        ],
+      } as any,
+    ]);
+
+    const files = extractFiles(blocks);
+
+    expect(files.read.has("src/lower.ts")).toBe(true);
+    expect(files.modified).toEqual(new Set(["src/quick.ts", "src/target.ts", "src/patched.ts"]));
+  });
+
+  it("merges Pi's authoritative file operations with extracted activity", () => {
+    const files = extractFiles([], {
+      read: new Set(["src/read.ts", "src/edited.ts"]),
+      written: new Set(["src/new.ts"]),
+      edited: new Set(["src/edited.ts"]),
+    });
+
+    expect(files.read).toEqual(new Set(["src/read.ts"]));
+    expect(files.created).toEqual(new Set(["src/new.ts"]));
+    expect(files.modified).toEqual(new Set(["src/edited.ts"]));
   });
 });
 

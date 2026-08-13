@@ -7,6 +7,7 @@ import { registerAutoCompactionTrigger } from "./auto-compaction.js";
 import { registerStatusCommand } from "./status.js";
 import { registerMemoryCommand } from "./memory.js";
 import { registerRecallTool } from "./tools/recall.js";
+import { registerCacheInfoCommand } from "./cache-telemetry.js";
 
 const runtime = new Runtime();
 
@@ -20,8 +21,9 @@ export default function extension(pi: ExtensionAPI): void {
   registerObserverTrigger(pi, runtime);
   registerAutoCompactionTrigger(pi, runtime);
 
-  // Register the /hm-status command
+  // Register status and cache telemetry commands
   registerStatusCommand(pi, runtime);
+  registerCacheInfoCommand(pi, runtime.cacheTelemetry);
 
   // Register the /hm-memory command
   registerMemoryCommand(pi);

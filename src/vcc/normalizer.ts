@@ -21,6 +21,35 @@ function sanitize(text: string): string {
 }
 
 const normalizeOne = (msg: Message, msgIndex: number): NormalizedBlock[] => {
+  const role = (msg as { role?: string }).role;
+  if (role === "bashExecution") {
+    const bash = msg as unknown as {
+      command?: string;
+      output?: string;
+      exitCode?: number;
+      cancelled?: boolean;
+    };
+    const blocks: NormalizedBlock[] = [];
+    if (bash.command?.trim()) {
+      blocks.push({
+        kind: "tool_call",
+        name: "bash",
+        args: { command: sanitize(bash.command) },
+        sourceIndex: msgIndex,
+      });
+    }
+    if (bash.output?.trim()) {
+      blocks.push({
+        kind: "tool_result",
+        name: "bash",
+        text: sanitize(bash.output),
+        isError: bash.cancelled === true || (typeof bash.exitCode === "number" && bash.exitCode !== 0),
+        sourceIndex: msgIndex,
+      });
+    }
+    return blocks;
+  }
+
   if (msg.role === "user") {
     const blocks: NormalizedBlock[] = [];
     const text = sanitize(textOf(msg.content));

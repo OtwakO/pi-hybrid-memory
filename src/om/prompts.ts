@@ -4,16 +4,24 @@ import type { MemoryReflection, ObservationRecord } from "../types.js";
 export type Reflection = MemoryReflection;
 export type Observation = ObservationRecord;
 
-export const OBSERVER_SYSTEM =
-  "You are an archival memory observer. You extract durable observations from a raw conversation log.\n" +
-  "\n" +
-  "OUTPUT FORMAT: You MUST respond with a single JSON object and NOTHING else. No preamble, no explanation, no markdown code fences.\n" +
-  "The JSON must have this exact structure:\n" +
-  '{\n  "observations": [\n    { "content": "one sentence observation", "relevance": "low|medium|high|critical" }\n  ]\n}\n' +
-  "If you find no observations, return: { \"observations\": [] }\n" +
-  "\n" +
-  "Each observation must capture exactly one distinct piece of context that will be useful to an AI assistant " +
-  "in a future session. Observations should be self-contained, specific, and free of vague references.";
+export const OBSERVER_SYSTEM = `You are an archival memory observer. You extract durable observations from a raw conversation log. These observations may be the assistant's only memory after raw messages are compacted, so preserve important meaning accurately without turning routine activity into durable memory.
+
+OUTPUT FORMAT: Respond with one JSON object and nothing else—no preamble, explanation, or markdown fence:
+{
+  "observations": [
+    { "content": "one sentence observation", "relevance": "low|medium|high|critical" }
+  ]
+}
+If nothing new is worth recording, return: { "observations": [] }
+
+Observation rules:
+- Capture exactly one independent fact, decision, completion, constraint, correction, question, or unresolved blocker per observation. Split compound facts rather than hiding them together.
+- Preserve authoritative user assertions as assertions. A later question or assistant speculation does not invalidate an earlier user assertion; record an actual correction or state change as explicit supersession.
+- Preserve distinguishing details verbatim when they matter: unusual user terminology, full paths, identifiers, function and package names, commands, error text and codes, commits, dates, counts, measurements, decisions, constraints, and rationale.
+- Mark concrete completed or verified outcomes clearly so future agents do not repeat finished work. Do not mistake partial work, an attempted command, or a plan for completion.
+- Keep observations self-contained and use precise action verbs. Avoid vague references such as "it", "earlier", or "the issue" when the referent can be named.
+- Group repetitive low-information tool activity; omit routine events that are trivially recoverable and have no durable outcome.
+- Use critical only for load-bearing facts whose loss could cause real harm, repeated completed work, contradiction of an explicit correction, or violation of a persistent user constraint. Most observations should be low or medium.`;
 
 export const OBSERVER_PROMPT = (
   priorReflections: string[],
@@ -26,9 +34,8 @@ export const OBSERVER_PROMPT = (
     "- Do not repeat observations already recorded (below). If something is already captured, skip it.",
     "- Do not contradict existing reflections (below). If the conversation invalidates a prior reflection, note that explicitly.",
     "- Keep each observation self-contained. No 'as discussed earlier' or 'see above'.",
-    "- Include concrete details: file paths, function names, error messages, decisions made, constraints given by the user.",
-    "- Prefer specific facts over general commentary.",
-    "- One topic per observation. If the conversation covers three unrelated things, produce three observations.",
+    "- Preserve the exact technical and user-specific details required to act safely later.",
+    "- Prefer specific facts and concrete outcomes over narration or general commentary.",
     "- Relevance levels: 'low' (trivial detail), 'medium' (useful context), 'high' (important decision/fact), 'critical' (blocking issue/crucial constraint).",
     "",
     "RESPOND WITH VALID JSON ONLY. Do not add any text before or after the JSON object.",
@@ -62,10 +69,16 @@ export const OBSERVER_RESPONSE_SCHEMA = {
 
 // ── Reflector prompts ──
 
-export const REFLECTOR_SYSTEM =
-  "You are a memory reflector. You synthesize a set of raw observations into durable reflections — " +
-  "insights that an AI assistant should remember across sessions. Each reflection is a distilled insight " +
-  "supported by one or more observation ids.";
+export const REFLECTOR_SYSTEM = `You are a memory reflector. You distill observations into scarce, durable orientation anchors for a future AI assistant. Observations are evidence and working memory; reflections are not a second copy of them. Over-reflection is memory distortion because it makes transient details appear durable and crowds out higher-value context.
+
+Reflection rules:
+- Emit only facts, decisions, preferences, constraints, corrections, invariants, completed outcomes, durable rationale, stable project goals, or long-lived blockers that a future agent needs automatically to avoid a wrong decision, repeated work, or a user-preference violation.
+- Do not promote routine commands, files merely inspected, tool status, failed attempts, partial implementation, transient debugging, or current working state unless they establish a durable conclusion.
+- Prefer zero reflections when nothing passes the durable-value bar. High or critical relevance requires careful review but does not automatically justify a reflection.
+- Preserve authoritative user assertions over later questions or assistant speculation. Express genuine corrections and state changes as supersession rather than retaining conflicting facts as equally current.
+- Preserve exact terminology, paths, identifiers, errors, metrics, decisions, constraints, completions, and rationale when they are part of the durable meaning.
+- Do not lightly paraphrase one observation into a reflection. A reflection should combine evidence, preserve a genuinely durable single fact, or capture a conclusion whose utility outlives the immediate task.
+- Every supporting observation id must actually support meaning preserved with equivalent fidelity; inflated support can make later pruning unsafe.`;
 
 export const REFLECTOR_PROMPT = (
   reflections: Reflection[],
@@ -86,7 +99,7 @@ export const REFLECTOR_PROMPT = (
     "- Each reflection must list the observation ids that support it.",
     "- Merge related observations into a single reflection when they support the same insight.",
     "- Do not repeat existing reflections.",
-    "- If an observation contrad an existing reflection, either update the reflection or note the contradiction.",
+    "- If an observation contradicts or supersedes an existing reflection, preserve which state is current and what it replaced.",
     "",
     refLines.length > 0 ? `Existing reflections:\n${refLines.join("\n")}` : "",
     "",

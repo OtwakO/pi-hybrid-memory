@@ -21,6 +21,31 @@ import { mergePipelines } from "./merge/pipeline.js";
 import type { Runtime } from "./runtime.js";
 import type { Message } from "@mariozechner/pi-ai";
 
+export const vccMessagesFromEntries = (entries: Entry[]): Message[] => {
+  const messages: Message[] = [];
+  for (const entry of entries) {
+    if (entry.type === "message" && entry.message) {
+      messages.push(entry.message as Message);
+    } else if (
+      entry.type === "custom_message" &&
+      (typeof entry.content === "string" || Array.isArray(entry.content))
+    ) {
+      messages.push({
+        role: "user",
+        content: entry.content,
+        timestamp: new Date(entry.timestamp ?? 0).getTime(),
+      } as Message);
+    } else if (entry.type === "branch_summary" && typeof entry.summary === "string") {
+      messages.push({
+        role: "user",
+        content: `Branch summary:\n${entry.summary}`,
+        timestamp: new Date(entry.timestamp ?? 0).getTime(),
+      } as Message);
+    }
+  }
+  return messages;
+};
+
 export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void {
   pi.on("session_before_compact", async (event, ctx) => {
     if (runtime.compactHookInFlight) {
@@ -68,63 +93,93 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       const isBootstrap = memoryState.reflections.length === 0 && memoryState.committedObs.length === 0;
 
       if (gap.length > 0 && !isBootstrap) {
-        // Normal mode: gap exists and we have prior OM state — run catch-up observer
-        const { text: gapChunk, sourceEntryIds } = serializeSourceAddressedBranchEntries(gap);
-        if (gapChunk.trim() && sourceEntryIds.length > 0) {
-          const gapFromId = gap[0].id;
-          const gapUpToId = gap[gap.length - 1].id;
-          const priorObservationLines = observationsToPromptLines([
-            ...memoryState.committedObs,
-            ...memoryState.pendingObs,
-          ]);
-          const gapTokenEstimate = gap.reduce((s, e) => s + estimateEntryTokens(e), 0);
-          if (ctx.hasUI) ctx.ui.notify(
-            `Hybrid memory: sync catch-up observer running on ~${gapTokenEstimate.toLocaleString()}-token gap`,
-            "info",
-          );
-          runtime.observerInFlight = true;
-          const gapCall = runObserver({
-            model: resolved.model as any,
-            apiKey: resolved.apiKey,
-            headers: resolved.headers,
-            priorReflections: memoryState.reflections.map(r => reflectionContent(r)),
-            priorObservations: priorObservationLines,
-            chunk: gapChunk,
-            allowedSourceEntryIds: sourceEntryIds,
-            signal,
-          });
-          const gapPromise: Promise<void> = gapCall.then(() => undefined, () => undefined);
-          runtime.observerPromise = gapPromise;
-          try {
-            const result = await gapCall;
-            if (result.ok && result.records.length > 0) {
-              const observationTokens = result.records.reduce((sum, r) => sum + estimateStringTokens(r.content), 0);
-              gapObservationData = {
-                records: result.records,
-                coversFromId: gapFromId,
-                coversUpToId: gapUpToId,
-                tokenCount: observationTokens,
-              };
-              pi.appendEntry(OBSERVATION_CUSTOM_TYPE, gapObservationData);
-              if (ctx.hasUI) ctx.ui.notify(
-                `Hybrid memory: sync catch-up recorded ${result.records.length} observation(s) (~${observationTokens.toLocaleString()} tokens)`,
-                "info",
-              );
-            } else if (ctx.hasUI) {
-              const reason = result.ok ? "found nothing worth recording" : result.reason;
-              ctx.ui.notify(`Hybrid memory: sync catch-up observer skipped (${reason}) — proceeding with compaction`, "warning");
+        // Normal mode: process the entire gap in bounded chunks before allowing
+        // compaction. This preserves fail-closed coverage without sending one
+        // unbounded observer request.
+        const priorObservationLines = observationsToPromptLines([
+          ...memoryState.committedObs,
+          ...memoryState.pendingObs,
+        ]);
+        const gapTokenEstimate = gap.reduce((sum, entry) => sum + estimateEntryTokens(entry), 0);
+        if (ctx.hasUI) ctx.ui.notify(
+          `Hybrid memory: sync catch-up observer running on ~${gapTokenEstimate.toLocaleString()}-token gap`,
+          "info",
+        );
+
+        runtime.observerInFlight = true;
+        const accumulatedRecords: ObservationRecord[] = [];
+        let remainingGap = gap;
+        let gapFailedReason: string | null = null;
+        try {
+          while (remainingGap.length > 0) {
+            const serialized = serializeSourceAddressedBranchEntries(
+              remainingGap,
+              runtime.config.hybrid.observerChunkMaxTokens,
+            );
+            if (!serialized.text.trim() || serialized.sourceEntryIds.length === 0 || !serialized.coversUpToId) {
+              gapFailedReason = "could not serialize the remaining source entries within the observer budget";
+              break;
             }
-          } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
+
+            const result = await runObserver({
+              model: resolved.model as any,
+              apiKey: resolved.apiKey,
+              headers: resolved.headers,
+              priorReflections: memoryState.reflections.map(r => reflectionContent(r)),
+              priorObservations: priorObservationLines,
+              chunk: serialized.text,
+              allowedSourceEntryIds: serialized.sourceEntryIds,
+              signal,
+              telemetry: runtime.cacheTelemetry,
+            });
+            if (!result.ok) {
+              gapFailedReason = result.reason;
+              break;
+            }
+            accumulatedRecords.push(...result.records);
+
+            const coveredIndex = remainingGap.findIndex(entry => entry.id === serialized.coversUpToId);
+            if (coveredIndex < 0) {
+              gapFailedReason = `observer coverage marker ${serialized.coversUpToId} was not found in the remaining gap`;
+              break;
+            }
+            remainingGap = remainingGap.slice(coveredIndex + 1);
+          }
+
+          if (gapFailedReason) {
             if (ctx.hasUI) ctx.ui.notify(
-              `Hybrid memory: sync catch-up observer failed: ${msg}. Cancelling compaction.`,
+              `Hybrid memory: sync catch-up observer failed: ${gapFailedReason}. Cancelling compaction.`,
               "warning",
             );
             return { cancel: true };
-          } finally {
-            runtime.observerInFlight = false;
-            if (runtime.observerPromise === gapPromise) runtime.observerPromise = null;
           }
+
+          if (accumulatedRecords.length > 0) {
+            const observationTokens = accumulatedRecords.reduce((sum, record) => sum + estimateStringTokens(record.content), 0);
+            gapObservationData = {
+              records: accumulatedRecords,
+              coversFromId: gap[0].id,
+              coversUpToId: gap[gap.length - 1].id,
+              tokenCount: observationTokens,
+            };
+            pi.appendEntry(OBSERVATION_CUSTOM_TYPE, gapObservationData);
+            if (ctx.hasUI) ctx.ui.notify(
+              `Hybrid memory: sync catch-up recorded ${accumulatedRecords.length} observation(s) (~${observationTokens.toLocaleString()} tokens)`,
+              "info",
+            );
+          } else if (ctx.hasUI) {
+            ctx.ui.notify("Hybrid memory: sync catch-up examined the full gap and found nothing worth recording", "info");
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (ctx.hasUI) ctx.ui.notify(
+            `Hybrid memory: sync catch-up observer failed: ${message}. Cancelling compaction.`,
+            "warning",
+          );
+          return { cancel: true };
+        } finally {
+          runtime.observerInFlight = false;
+          runtime.observerPromise = null;
         }
       } else if (gap.length > 0 && isBootstrap) {
         // Bootstrap mode: skip gap observer — VCC will handle structural summary of old content
@@ -165,13 +220,13 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         if (ctx.hasUI) ctx.ui.notify("Hybrid memory: running reflector + pruner...", "info");
         try {
           finalReflections = await runReflector(
-            { model: resolved.model as any, apiKey: resolved.apiKey, headers: resolved.headers, signal },
+            { model: resolved.model as any, apiKey: resolved.apiKey, headers: resolved.headers, signal, telemetry: runtime.cacheTelemetry },
             workingReflections,
             workingObservations,
           );
           const coverageTags = deriveCoverageTags(finalReflections, workingObservations);
           const prunerResult = await runPruner(
-            { model: resolved.model as any, apiKey: resolved.apiKey, headers: resolved.headers, signal },
+            { model: resolved.model as any, apiKey: resolved.apiKey, headers: resolved.headers, signal, telemetry: runtime.cacheTelemetry },
             finalReflections,
             workingObservations,
             runtime.config.hybrid.reflectionThresholdTokens,
@@ -193,16 +248,11 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       // Extract from branch entries since last compaction
       const tailStart = priorCompactionIdx >= 0 ? liveTailStartIndex(entries) : 0;
       const tailEntries = entries.slice(tailStart);
-      const tailMessages: Message[] = [];
-      for (const e of tailEntries) {
-        if (e.type === "message" && e.message) {
-          tailMessages.push(e.message as Message);
-        }
-      }
+      const tailMessages = vccMessagesFromEntries(tailEntries);
 
       const blocks = normalize(tailMessages);
       const sessionGoal = extractGoals(blocks);
-      const fileOps = extractFiles(blocks);
+      const fileOps = extractFiles(blocks, preparation.fileOps);
       const commits = extractCommits(blocks);
       const preferences = extractPreferences(blocks);
       const outstandingContext = extractOutstandingContext(blocks);

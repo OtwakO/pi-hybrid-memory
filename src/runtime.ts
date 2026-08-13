@@ -1,10 +1,22 @@
 // Runtime: holds config, in-flight state, and model resolution
 import type { ResolveResult, UnifiedConfig } from "./types.js";
 import { loadConfig } from "./config.js";
+import { CacheTelemetry } from "./cache-telemetry.js";
+
+const hasUsableAuth = (auth: {
+  ok: boolean;
+  apiKey?: string;
+  headers?: Record<string, string>;
+}): boolean => {
+  if (!auth.ok) return false;
+  if (auth.apiKey?.trim()) return true;
+  return Object.values(auth.headers ?? {}).some(value => value.trim().length > 0);
+};
 
 export class Runtime {
   config: UnifiedConfig;
   loadedConfig = false;
+  readonly cacheTelemetry = new CacheTelemetry();
 
   // In-flight state
   observerInFlight = false;
@@ -12,6 +24,7 @@ export class Runtime {
   autoCompactionInFlight = false;
   resolveFailureNotified = false;
   observerPromise: Promise<void> | null = null;
+  observerEmptyBackoff: { boundaryId: string; tokensAtEmpty: number } | null = null;
 
   // One-shot notice: set when we've surfaced the "old compaction boundary
   // unresolved" recovery notice. Only the first firing after a (re)load should
@@ -24,6 +37,7 @@ export class Runtime {
       extension: { overrideDefaultCompaction: true, debug: false },
       hybrid: {
         observationThresholdTokens: 1000,
+        observerChunkMaxTokens: 60000,
         compactionThresholdTokens: 50000,
         compactionThresholdPercentage: 80,
         reflectionThresholdTokens: 30000,
@@ -43,6 +57,23 @@ export class Runtime {
     }
   }
 
+  shouldBackOffEmptyObserver(boundaryId: string, currentTokens: number, threshold: number): boolean {
+    const backoff = this.observerEmptyBackoff;
+    if (!backoff || backoff.boundaryId !== boundaryId) {
+      this.observerEmptyBackoff = null;
+      return false;
+    }
+    return currentTokens < backoff.tokensAtEmpty + threshold;
+  }
+
+  recordEmptyObserverResult(boundaryId: string, currentTokens: number): void {
+    this.observerEmptyBackoff = { boundaryId, tokensAtEmpty: currentTokens };
+  }
+
+  clearEmptyObserverBackoff(): void {
+    this.observerEmptyBackoff = null;
+  }
+
   async resolveModel(ctx: {
     model: unknown;
     modelRegistry: {
@@ -57,12 +88,16 @@ export class Runtime {
         return { ok: false, reason: `configured compaction model ${overrideModel.provider}/${overrideModel.id} not found` };
       }
       const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-      if (!auth.ok) return { ok: false, reason: "cannot resolve API key for configured compaction model" };
+      if (!hasUsableAuth(auth)) {
+        return { ok: false, reason: "configured compaction model has no usable API key or auth header" };
+      }
       return { ok: true, model, apiKey: auth.apiKey ?? "", headers: auth.headers };
     }
 
     const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
-    if (!auth.ok) return { ok: false, reason: "cannot resolve API key for session model" };
+    if (!hasUsableAuth(auth)) {
+      return { ok: false, reason: "session model has no usable API key or auth header" };
+    }
     return { ok: true, model: ctx.model, apiKey: auth.apiKey ?? "", headers: auth.headers };
   }
 

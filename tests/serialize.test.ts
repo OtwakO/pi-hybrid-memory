@@ -1,0 +1,55 @@
+import { describe, expect, it } from "vitest";
+
+import { serializeSourceAddressedBranchEntries } from "../src/om/serialize.js";
+import type { Entry } from "../src/types.js";
+
+const entry = (id: string, content: string): Entry => ({
+  type: "message",
+  id,
+  timestamp: "2026-01-01T00:00:00Z",
+  message: { role: "user", content },
+});
+
+describe("bounded observer source serialization", () => {
+  it("keeps complete oldest entries and leaves later entries queued", () => {
+    const result = serializeSourceAddressedBranchEntries([
+      entry("00000001", "alpha ".repeat(100)),
+      entry("00000002", "beta ".repeat(100)),
+      entry("00000003", "gamma ".repeat(100)),
+    ], 150);
+
+    expect(result.sourceEntryIds).toEqual(["00000001"]);
+    expect(result.coversUpToId).toBe("00000001");
+    expect(result.hasMore).toBe(true);
+    expect(result.text).toContain("alpha ".repeat(20));
+    expect(result.text).not.toContain("beta ".repeat(20));
+  });
+
+  it("returns all entries when the serialized prompt fits", () => {
+    const result = serializeSourceAddressedBranchEntries([
+      entry("00000001", "short a"),
+      entry("00000002", "short b"),
+    ], 1_000);
+
+    expect(result.sourceEntryIds).toEqual(["00000001", "00000002"]);
+    expect(result.coversUpToId).toBe("00000002");
+    expect(result.hasMore).toBe(false);
+    expect(result.truncatedSourceEntryId).toBeUndefined();
+  });
+
+  it("uses a marked head-tail excerpt when the oldest entry alone exceeds the cap", () => {
+    const content = `HEAD ${"middle ".repeat(1_000)}TAIL`;
+    const result = serializeSourceAddressedBranchEntries([
+      entry("00000001", content),
+      entry("00000002", "later"),
+    ], 200);
+
+    expect(result.sourceEntryIds).toEqual(["00000001"]);
+    expect(result.coversUpToId).toBe("00000001");
+    expect(result.hasMore).toBe(true);
+    expect(result.truncatedSourceEntryId).toBe("00000001");
+    expect(result.text).toContain("HEAD ");
+    expect(result.text).toContain("TAIL");
+    expect(result.text).toContain("[source entry truncated for observer budget]");
+  });
+});

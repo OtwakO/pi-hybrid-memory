@@ -1,6 +1,4 @@
 // Unified type definitions for pi-hybrid-memory — reconciles both pi-vcc and pi-observational-memory types
-import type { Message } from "@mariozechner/pi-ai";
-
 // ── VCC types ──
 
 export type NormalizedBlock =
@@ -113,6 +111,7 @@ export interface ExtensionConfig {
 
 export interface HybridSettings {
   observationThresholdTokens: number;
+  observerChunkMaxTokens: number;
   compactionThresholdTokens: number;
   compactionThresholdPercentage: number | null;
   reflectionThresholdTokens: number;

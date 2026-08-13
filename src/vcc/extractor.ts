@@ -85,9 +85,12 @@ export const extractGoals = (blocks: NormalizedBlock[]): string[] => {
 
 // ── Files ──
 
-const FILE_READ_TOOLS = new Set(["Read", "read_file", "View"]);
-const FILE_WRITE_TOOLS = new Set(["Edit", "Write", "edit", "write", "edit_file", "write_file", "MultiEdit"]);
-const FILE_CREATE_TOOLS = new Set(["Write", "write", "write_file"]);
+const FILE_READ_TOOLS = new Set(["read", "read_file", "view"]);
+const FILE_WRITE_TOOLS = new Set([
+  "edit", "write", "edit_file", "write_file", "multiedit",
+  "quick_edit", "target_edit", "apply_patch",
+]);
+const FILE_CREATE_TOOLS = new Set(["write", "write_file"]);
 
 const extractPath = (args: Record<string, unknown>): string | undefined => {
   for (const key of ["file_path", "path", "filePath", "file"]) {
@@ -118,16 +121,31 @@ const trimPaths = (set: Set<string>, prefix: string): Set<string> => {
   return out;
 };
 
-export const extractFiles = (blocks: NormalizedBlock[]): { read: Set<string>; modified: Set<string>; created: Set<string> } => {
-  const act = { read: new Set<string>(), modified: new Set<string>(), created: new Set<string>() };
+export interface AuthoritativeFileOperations {
+  read: ReadonlySet<string>;
+  written: ReadonlySet<string>;
+  edited: ReadonlySet<string>;
+}
+
+export const extractFiles = (
+  blocks: NormalizedBlock[],
+  authoritative?: AuthoritativeFileOperations,
+): { read: Set<string>; modified: Set<string>; created: Set<string> } => {
+  const act = {
+    read: new Set(authoritative?.read ?? []),
+    modified: new Set(authoritative?.edited ?? []),
+    created: new Set(authoritative?.written ?? []),
+  };
   for (const b of blocks) {
     if (b.kind !== "tool_call") continue;
     const p = extractPath(b.args);
     if (!p) continue;
-    if (FILE_READ_TOOLS.has(b.name)) act.read.add(p);
-    if (FILE_WRITE_TOOLS.has(b.name)) act.modified.add(p);
-    if (FILE_CREATE_TOOLS.has(b.name)) act.created.add(p);
+    const toolName = b.name.toLowerCase();
+    if (FILE_READ_TOOLS.has(toolName)) act.read.add(p);
+    if (FILE_WRITE_TOOLS.has(toolName)) act.modified.add(p);
+    if (FILE_CREATE_TOOLS.has(toolName)) act.created.add(p);
   }
+  for (const modified of [...act.modified, ...act.created]) act.read.delete(modified);
   const all = [...act.read, ...act.modified, ...act.created];
   const prefix = longestCommonDirPrefix(all);
   if (prefix) {

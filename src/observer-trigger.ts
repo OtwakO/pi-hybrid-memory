@@ -51,7 +51,12 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
     }
 
     const tokens = rawTokensSinceLastBound(entries);
-    if (tokens < runtime.config.hybrid.observationThresholdTokens) return;
+    const observationThreshold = runtime.config.hybrid.observationThresholdTokens;
+    if (tokens < observationThreshold) return;
+
+    const boundaryId = entries[lastBoundIdx]?.id;
+    if (!boundaryId) return;
+    if (runtime.shouldBackOffEmptyObserver(boundaryId, tokens, observationThreshold)) return;
 
     const coversFromId = firstRawIdAfter(entries, lastBoundIdx);
     if (!coversFromId) return;
@@ -70,8 +75,12 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
 
     const chunkEntries = rawTailEntriesBetween(entries, coversFromId, coversUpToId);
     if (chunkEntries.length === 0) return;
-    const { text: chunk, sourceEntryIds } = serializeSourceAddressedBranchEntries(chunkEntries);
-    if (!chunk.trim() || sourceEntryIds.length === 0) return;
+    const serialized = serializeSourceAddressedBranchEntries(
+      chunkEntries,
+      runtime.config.hybrid.observerChunkMaxTokens,
+    );
+    const { text: chunk, sourceEntryIds, coversUpToId: observedUpToId } = serialized;
+    if (!chunk.trim() || sourceEntryIds.length === 0 || !observedUpToId) return;
 
     if (ctx.hasUI) ctx.ui.notify(
       `Hybrid memory: observer running on ~${tokens.toLocaleString()}-token chunk`,
@@ -97,6 +106,7 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
         priorObservations: priorObservationLines,
         chunk,
         allowedSourceEntryIds: sourceEntryIds,
+        telemetry: runtime.cacheTelemetry,
       });
       if (!result.ok) {
         if (ctx.hasUI && ctx.ui) ctx.ui.notify(
@@ -106,20 +116,33 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
         return;
       }
       if (result.records.length === 0) {
-        if (ctx.hasUI && ctx.ui) ctx.ui.notify("Hybrid memory: observer found nothing worth recording in this chunk", "info");
+        if (serialized.hasMore) {
+          pi.appendEntry(OBSERVATION_CUSTOM_TYPE, {
+            records: [],
+            coversFromId,
+            coversUpToId: observedUpToId,
+            tokenCount: 0,
+          } satisfies ObservationEntryData);
+          runtime.clearEmptyObserverBackoff();
+          if (ctx.hasUI && ctx.ui) ctx.ui.notify("Hybrid memory: observer found nothing in this bounded chunk; coverage advanced and more backlog remains", "info");
+        } else {
+          runtime.recordEmptyObserverResult(boundaryId, tokens);
+          if (ctx.hasUI && ctx.ui) ctx.ui.notify("Hybrid memory: observer found nothing worth recording in this chunk; waiting for more context before retrying", "info");
+        }
         return;
       }
 
+      runtime.clearEmptyObserverBackoff();
       const observationTokens = result.records.reduce((sum, r) => sum + estimateStringTokens(r.content), 0);
       const data: ObservationEntryData = {
         records: result.records,
         coversFromId,
-        coversUpToId,
+        coversUpToId: observedUpToId,
         tokenCount: observationTokens,
       };
       pi.appendEntry(OBSERVATION_CUSTOM_TYPE, data);
       if (ctx.hasUI && ctx.ui) ctx.ui.notify(
-        `Hybrid memory: ${result.records.length} observation(s) recorded (~${observationTokens.toLocaleString()} tokens)`,
+        `Hybrid memory: ${result.records.length} observation(s) recorded (~${observationTokens.toLocaleString()} tokens)${serialized.hasMore ? "; more backlog remains" : ""}`,
         "info",
       );
     });

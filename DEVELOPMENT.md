@@ -33,3 +33,33 @@
 ### [2026-08-13] Percentage compaction enabled by default
 - **Change**: `compactionThresholdPercentage` now defaults to `80`; setting it to `null` opts into the absolute `compactionThresholdTokens` fallback. README now documents both `hm_recall` ID modes, fair bounded previews, exact source lookup, safety caps, and source availability behavior.
 - **Verified**: Config scaffolding test locks the 80% default; full typecheck, tests, and bundle build completed with the change.
+
+### [2026-08-13] Adopted upstream VCC accuracy fixes
+- **Context**: The 2026-08-13 upstream review identified three low-risk VCC gaps that did not require persisted-schema changes.
+- **Change**: File activity now recognizes modern tool names case-insensitively and incorporates Pi's authoritative `preparation.fileOps`; VCC input now includes normal messages, custom messages, and branch summaries; `bashExecution` messages normalize into existing bash tool-call/result blocks.
+- **Reason**: Prevent silent omission of touched files, injected context, branch history, and direct shell executions from structural summaries while preserving hybrid summary and memory contracts.
+- **Verified**: Added focused regression tests for modern tools, authoritative file operations, entry conversion, structured custom content, and nonzero `bashExecution`. TypeScript compiles clean; 79/79 tests pass; Bun bundle succeeds.
+
+### [2026-08-13] Adopted upstream observer reliability fixes
+- **Context**: Upstream review found that observer streams can fail without throwing, empty spans can be retried repeatedly, and unbounded/oversized source backlogs can stall coverage.
+- **Change**: The observer now detects terminal error/abort messages while preserving partial tool results; backs off deliberate-empty full-tail results until enough new context arrives; serializes oldest-first bounded chunks with marked oversized-entry excerpts; processes the full compaction gap chunk by chunk before proceeding; and accepts either usable API keys or non-empty auth headers.
+- **Reason**: Improve reliability without changing memory entries, IDs, prompts, summary grammar, or coverage semantics.
+- **Verified**: Added observer, serializer, config, and integration-focused regressions. TypeScript compiles clean; 95/95 tests pass before the final safety-floor check; Bun bundle succeeds.
+
+### [2026-08-13] Hardened memory prompts without changing contracts
+- **Context**: The upstream review recommended preserving authoritative assertions and exact technical details while preventing transient task logs from becoming durable reflections.
+- **Change**: Strengthened observer and reflector instructions for fact granularity, supersession, completion tracking, detail fidelity, relevance restraint, durable-value gating, and honest support ids. Stable observer task instructions now precede changing memory/chunk data for better provider prompt-prefix reuse.
+- **Reason**: Improve future memory quality while keeping every persisted schema, id, compaction boundary, pruning rule, and recall contract compatible.
+- **Verified**: Prompt contract tests cover the new rules, stable-before-dynamic ordering, and unchanged response schemas.
+
+### [2026-08-13] Failed observer streams no longer commit partial coverage
+- **Context**: Terminal observer errors could occur after one or more observation tool calls, but those partial records did not prove that the rest of the bounded source chunk had been examined.
+- **Change**: Any terminal `error` or `aborted` assistant event now makes the whole observer run fail, regardless of partial records. Proactive observation retries later and compaction catch-up remains fail-closed.
+- **Reason**: Advancing the chunk boundary after an interrupted run could permanently skip unexamined source entries.
+- **Verified**: Regression test records an observation and then emits a terminal error; `runObserver` must return failure. All observer tests and typecheck pass.
+
+### [2026-08-13] Added session-local cache and cost telemetry
+- **Context**: Hybrid memory's observer, reflector, and pruner usage was invisible, so cache-hit rates and cost optimizations could not be evaluated safely.
+- **Change**: Added `/hm-cache-info` with whole-session per-operation aggregates and a 10-call recent window. It records response input/output/cache-read/cache-write tokens, outcomes, provider-reported costs, and separate estimates from Pi model pricing.
+- **Reason**: Establish a measurable baseline before changing cache identities, timestamps, memory windows, or compaction policy.
+- **Verified**: Collector, reset, formatting, observer integration, reflector integration, and failed-pruner integration have focused tests. No prompts, memory content, credentials, or telemetry files are stored.
