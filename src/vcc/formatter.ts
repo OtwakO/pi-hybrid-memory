@@ -8,7 +8,7 @@ const section = (title: string, items: string[]): string => {
 };
 
 export const RECALL_NOTE =
-  "Use `hm-recall` or `vcc_recall` to search for prior work, decisions, and context from before this summary. " +
+  "Use `hm_recall` or `vcc_recall` to search for prior work, decisions, and context from before this summary. " +
   "Do not redo work already completed.";
 
 export const formatVccSections = (data: SectionData): string => {

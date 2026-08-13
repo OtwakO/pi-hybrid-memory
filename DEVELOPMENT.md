@@ -1,0 +1,25 @@
+### [2026-06-27] Recall rejected generated memory IDs
+- **Context**: `hm_recall` sometimes returned `invalid_id` for IDs displayed in hybrid-memory context, while users also saw unrelated 8-character Pi entry IDs in recalled source evidence.
+- **Change**: Updated the shared memory-handle contract from 12 lowercase hexadecimal characters (`^[a-f0-9]{12}$`) to 12 lowercase alphanumeric/base-36 characters (`^[a-z0-9]{12}$`). The tool schema now reuses `MEMORY_ID_PATTERN.source`, and invalid 8-character hexadecimal input explains that it is a Pi source-entry ID rather than a recall handle.
+- **Reason**: This project generates observation/reflection IDs with a base-36 timestamp suffix plus a base-36 counter, producing valid IDs such as `mr6pp8nr000a`. The port retained upstream's hex-only validator even though upstream generates deterministic SHA-256 hex IDs. Runtime generation and validation had diverged.
+- **Verified**: Added tool-level regression tests for base-36 observation IDs, base-36 reflection IDs, upstream-compatible 12-character hex IDs, and rejection of 8-character Pi source IDs. TypeScript compiles clean; 52/52 tests pass; Bun bundle succeeds.
+- **Watch out**: Do not make Pi's 8-character source-entry IDs recall handles implicitly; they are a separate namespace and may collide semantically. If source-entry recall is desired later, add an explicit mode or separate tool contract.
+
+### [2026-08-08] Recall exposes bounded source logs
+- **Context**: Recalled observations listed source IDs, roles, and timestamps but omitted the original session text, limiting provenance to metadata.
+- **Change**: `hm_recall` now includes original textual source excerpts, capped at 2,000 characters per source and 16,000 characters overall. Every source retains metadata; omitted and truncated content is marked explicitly. The tool description and result add a concise hint that Sources can verify exact wording, paths, errors, and decisions.
+- **Reason**: Source text makes compacted memories actionable while output bounds prevent a heavily sourced observation from flooding the model context.
+- **Verified**: Tool-level tests cover user/assistant messages, custom messages, branch summaries, per-source truncation, total-budget omission, structured details, AI-facing guidance, and Pi's custom `renderResult` TUI path. A follow-up fixed that renderer after it was found to show metadata only while the LLM-facing result already contained excerpts. TypeScript compiles clean; Bun bundle succeeds.
+
+### [2026-08-08] Recall supports direct source lookup and fair previews
+- **Context**: Observation recall allocated its source-text budget chronologically, so early entries consumed the budget and later entries—potentially the relevant evidence—showed no content.
+- **Change**: Twelve-character IDs continue to recall observations/reflections. Eight-character lowercase hex IDs now retrieve the corresponding source entry from the current branch. Memory recall previews are capped at 1,200 characters each and 8,000 characters total, allocated by fair share so every textual source receives a preview when the budget permits. Direct source lookup has a separate 20,000-character safety cap.
+- **Reason**: Sources are chronological rather than relevance-ranked. Equal allocation avoids order bias, while direct lookup provides the exact entry behind any preview without filesystem searching.
+- **Verified**: Tests cover both ID namespaces, source-not-available behavior, even early/late allocation, redistribution after short entries, preview and direct-lookup caps, tool schema/guidance, LLM output, and TUI rendering. TypeScript compiles clean; 61/61 tests pass; Bun bundle succeeds.
+
+### [2026-08-08] Hybrid memory owns proactive compaction thresholds
+- **Context**: `compactionThresholdTokens` existed in config but did not trigger compaction; Pi alone decided when `session_before_compact` fired.
+- **Change**: After `agent_settled`, the extension uses Pi's `getContextUsage()` and `compact()` APIs to request compaction. `compactionThresholdPercentage` accepts a whole percentage from 1–99 and overrides the token threshold when valid. Otherwise, `compactionThresholdTokens` compares against current context tokens. Duplicate requests are suppressed until completion or error, and the trigger stays disabled when `overrideDefaultCompaction` is false.
+- **Reason**: This provides model-relative thresholds while triggering only after the complete agent run, avoiding interruption between tool-call turns.
+- **Verified**: Focused tests cover percentage validation and precedence, token fallback, exact boundary behavior, unavailable usage, disabled override, duplicate suppression, completion, and error recovery. TypeScript compiles clean; 71/71 tests pass; Bun bundle succeeds.
+- **Watch out**: The active Pi runtime is 0.84.1, but the legacy `@mariozechner/pi-coding-agent` development package available to this project is 0.66.1 and lacks the newer `agent_settled` event type. The implementation isolates a typed compatibility interface in `auto-compaction.ts`; Pi 0.84+ is documented as required.

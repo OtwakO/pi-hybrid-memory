@@ -326,7 +326,11 @@ describe("mergePipelines", () => {
 
     expect(result.trimmed).toBe(true);
     // Trimming drops low-relevance first; critical observations + VCC + headers remain
-    expect(result.tokenCount).toBeLessThan(2000); // significantly reduced from untrimmed
+    expect(result.tokenCount).toBeLessThan(2000);
+    // Trimmed observations should NOT leak into details
+    const detailsObsIds = result.details.observations.map(o => o.id);
+    const lowObsIds = observations.filter(o => o.relevance === "low").map(o => o.id);
+    expect(lowObsIds.some(id => detailsObsIds.includes(id))).toBe(false);
   });
 
   it("does not trim when under budget", () => {
@@ -339,5 +343,6 @@ describe("mergePipelines", () => {
       settings: { maxSummaryTokens: 16000 },
     });
     expect(result.trimmed).toBe(false);
+    expect(result.details.observations.length).toBe(1);
   });
 });

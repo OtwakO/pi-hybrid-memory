@@ -5,7 +5,13 @@ export type Reflection = MemoryReflection;
 export type Observation = ObservationRecord;
 
 export const OBSERVER_SYSTEM =
-  "You are an archival memory observer. You extract durable observations from a raw conversation log. " +
+  "You are an archival memory observer. You extract durable observations from a raw conversation log.\n" +
+  "\n" +
+  "OUTPUT FORMAT: You MUST respond with a single JSON object and NOTHING else. No preamble, no explanation, no markdown code fences.\n" +
+  "The JSON must have this exact structure:\n" +
+  '{\n  "observations": [\n    { "content": "one sentence observation", "relevance": "low|medium|high|critical" }\n  ]\n}\n' +
+  "If you find no observations, return: { \"observations\": [] }\n" +
+  "\n" +
   "Each observation must capture exactly one distinct piece of context that will be useful to an AI assistant " +
   "in a future session. Observations should be self-contained, specific, and free of vague references.";
 
@@ -15,7 +21,6 @@ export const OBSERVER_PROMPT = (
 ): string => {
   const lines = [
     "Extract observations from the conversation chunk below.",
-    "Each observation should be one distinct piece of context that will help an AI assistant in a future session.",
     "",
     "Rules:",
     "- Do not repeat observations already recorded (below). If something is already captured, skip it.",
@@ -24,6 +29,9 @@ export const OBSERVER_PROMPT = (
     "- Include concrete details: file paths, function names, error messages, decisions made, constraints given by the user.",
     "- Prefer specific facts over general commentary.",
     "- One topic per observation. If the conversation covers three unrelated things, produce three observations.",
+    "- Relevance levels: 'low' (trivial detail), 'medium' (useful context), 'high' (important decision/fact), 'critical' (blocking issue/crucial constraint).",
+    "",
+    "RESPOND WITH VALID JSON ONLY. Do not add any text before or after the JSON object.",
     "",
     priorReflections.length > 0 ? `Existing reflections (do not repeat these):\n${priorReflections.join("\n")}` : "",
     priorObservations.length > 0 ? `Existing observations (do not repeat these):\n${priorObservations.join("\n")}` : "",
@@ -111,18 +119,24 @@ export const REFLECTOR_RESPONSE_SCHEMA = {
 
 export const PRUNER_SYSTEM =
   "You are a memory pruner. You remove observations that have been absorbed into reflections " +
-  "or are redundant with other observations. The goal is to keep the observation set small and high-signal.";
+  "or are redundant with other observations. The goal is to keep the observation set small and high-signal.\n" +
+  "\n" +
+  "Observations include [coverage: uncited/cited/reinforced] tags:\n" +
+  "- uncited: no reflection cites this observation — prune cautiously\n" +
+  "- cited: 1-3 reflections cite it — safer to drop if reflection captures equivalent meaning\n" +
+  "- reinforced: 4+ reflections cite it — likely redundant but verify exact details";
 
 export const PRUNER_PROMPT = (
   reflections: Reflection[],
   observations: Observation[],
+  obsText?: string,  // pre-formatted with coverage tags
 ): string => {
   const refLines = reflections.map((r) => {
     if (typeof r === "string") return `- ${r}`;
     return `- [${r.id}] ${r.content}`;
   });
 
-  const obsLines = observations.map((o) => `- [${o.id}] [${o.relevance}] ${o.content}`);
+  const obsLines = obsText || observations.map((o) => `- [${o.id}] [${o.relevance}] ${o.content}`).join("\n");
 
   return [
     "Remove observations that are redundant.",
@@ -137,7 +151,7 @@ export const PRUNER_PROMPT = (
     "",
     refLines.length > 0 ? `Reflections:\n${refLines.join("\n")}` : "",
     "",
-    `Observations:\n${obsLines.join("\n")}`,
+    `Observations:\n${obsLines}`,
   ].filter(Boolean).join("\n");
 };
 

@@ -16,6 +16,7 @@ export const DEFAULT_EXTENSION_CONFIG: ExtensionConfig = {
 export const DEFAULT_HYBRID_SETTINGS: HybridSettings = {
   observationThresholdTokens: 1000,
   compactionThresholdTokens: 50000,
+  compactionThresholdPercentage: null,
   reflectionThresholdTokens: 30000,
   compactionModel: null,
   transcriptLines: 120,
@@ -78,6 +79,11 @@ function loadExtensionConfig(cwd: string): ExtensionConfig {
   return { ...DEFAULT_EXTENSION_CONFIG };
 }
 
+export const validCompactionThresholdPercentage = (value: unknown): number | null =>
+  typeof value === "number" && Number.isInteger(value) && value > 0 && value < 100
+    ? value
+    : null;
+
 function loadHybridSettings(cwd: string): HybridSettings {
   const globalPath = globalSettingsPath();
   const projectPath = join(cwd, ".pi", "settings.json");
@@ -104,7 +110,6 @@ function loadHybridSettings(cwd: string): HybridSettings {
   }
 
   // Backward compat: read observational-memory.* as fallback
-  let usedDeprecated = false;
   for (const [fallbackKey, targetKey] of [
     ["observationThresholdTokens", "observationThresholdTokens"],
     ["compactionThresholdTokens", "compactionThresholdTokens"],
@@ -120,12 +125,15 @@ function loadHybridSettings(cwd: string): HybridSettings {
           const val = (deprecated as Record<string, unknown>)[fallbackKey];
           if (val !== undefined) {
             (merged as Record<string, unknown>)[targetKey] = val;
-            usedDeprecated = true;
           }
         }
       }
     }
   }
+
+  merged.compactionThresholdPercentage = validCompactionThresholdPercentage(
+    merged.compactionThresholdPercentage,
+  );
 
   return merged;
 }

@@ -81,6 +81,7 @@ Thumbs.db
 # Custom Directories
 reference/
 node_modules/
+.pi/auto-saves/
 
 # Custom Files
 PLAN.md

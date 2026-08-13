@@ -3,25 +3,29 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Runtime } from "./runtime.js";
 import { registerCompactionHook } from "./compaction-hook.js";
 import { registerObserverTrigger } from "./observer-trigger.js";
+import { registerAutoCompactionTrigger } from "./auto-compaction.js";
 import { registerStatusCommand } from "./status.js";
+import { registerMemoryCommand } from "./memory.js";
 import { registerRecallTool } from "./tools/recall.js";
 
 const runtime = new Runtime();
 
 export default function extension(pi: ExtensionAPI): void {
-  runtime.ensureConfig(process.cwd(), (msg, level) => {
-    pi.on("session_start", () => {}); // trigger config load notification via UI later
-  });
+  // Config loaded lazily on first hook invocation — see observer-trigger, compaction-hook, status
 
   // Register the unified compaction hook
   registerCompactionHook(pi, runtime);
 
-  // Register the proactive observer trigger
+  // Register proactive observer and post-agent compaction triggers
   registerObserverTrigger(pi, runtime);
+  registerAutoCompactionTrigger(pi, runtime);
 
   // Register the /hm-status command
   registerStatusCommand(pi, runtime);
 
-  // Register the hm-recall tool
+  // Register the /hm-memory command
+  registerMemoryCommand(pi);
+
+  // Register the hm_recall tool
   registerRecallTool(pi);
 }

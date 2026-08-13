@@ -1,49 +1,50 @@
 {
-  "name": "pi-hybrid-memory",
-  "version": "0.1.0",
-  "description": "Hybrid memory extension for pi — merges semantic observational memory with structural VCC compaction into a single unified summary",
-  "type": "module",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/elpapi42/pi-hybrid-memory.git"
-  },
-  "keywords": [
-    "pi",
-    "pi-agent",
-    "pi-package",
-    "extension",
-    "hybrid-memory",
-    "compaction"
-  ],
-  "pi": {
-    "extensions": [
-      "./src/index.ts"
-    ]
-  },
-  "files": [
-    "src/",
-    "LICENSE",
-    "README.md"
-  ],
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
-  },
-  "peerDependencies": {
-    "@mariozechner/pi-agent-core": "*",
-    "@mariozechner/pi-ai": "*",
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*",
-    "typebox": "*"
-  },
-  "devDependencies": {
-    "@mariozechner/pi-agent-core": "^0.66.1",
-    "@mariozechner/pi-ai": "^0.66.1",
-    "@mariozechner/pi-coding-agent": "^0.66.1",
-    "@mariozechner/pi-tui": "^0.66.1",
-    "@types/node": "^22.0.0",
-    "typescript": "^5.6.0",
-    "vitest": "^4.1.5"
-  }
+    "name": "pi-hybrid-memory",
+    "version": "0.1.0",
+    "description": "Hybrid memory extension for pi — merges semantic observational memory with structural VCC compaction into a single unified summary",
+    "type": "module",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/OtwakO/pi-hybrid-memory.git"
+    },
+    "keywords": [
+        "pi",
+        "pi-agent",
+        "pi-package",
+        "extension",
+        "hybrid-memory",
+        "compaction"
+    ],
+    "pi": {
+        "extensions": [
+            "./dist/pi-hybrid-memory/index.js"
+        ]
+    },
+    "files": [
+        "dist/",
+        "LICENSE",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "bun build ./src/index.ts --outfile ./dist/pi-hybrid-memory/index.js --target bun --external @mariozechner/pi-coding-agent --external @mariozechner/pi-tui --external @mariozechner/pi-ai --external @mariozechner/pi-agent-core --external typebox --format esm",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run"
+    },
+    "peerDependencies": {
+        "@mariozechner/pi-agent-core": "*",
+        "@mariozechner/pi-ai": "*",
+        "@mariozechner/pi-coding-agent": "*",
+        "@mariozechner/pi-tui": "*",
+        "typebox": "*"
+    },
+    "devDependencies": {
+        "@mariozechner/pi-agent-core": "^0.66.1",
+        "@mariozechner/pi-ai": "^0.66.1",
+        "@mariozechner/pi-coding-agent": "^0.66.1",
+        "@mariozechner/pi-tui": "^0.66.1",
+        "@types/node": "^22.0.0",
+        "typescript": "^5.6.0",
+        "vitest": "^4.1.5"
+    }
 }

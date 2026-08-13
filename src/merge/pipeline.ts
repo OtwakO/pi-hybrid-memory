@@ -1,9 +1,7 @@
 // Merge pipeline: the fresh innovation — merges OM semantic memory + VCC structural summary into one unified compaction summary
 import type {
-  Entry,
   MemoryDetailsV4,
   MemoryReflection,
-  ObservationEntryData,
   ObservationRecord,
 } from "../types.js";
 import { estimateStringTokens } from "../om/tokens.js";
@@ -28,7 +26,7 @@ export interface MergeOutput {
 const MEMORY_HEADER =
   "## Memory (Observations & Reflections)\n" +
   "The following is compressed semantic memory from prior conversation. " +
-  "Use `hm-recall` or `vcc_recall` to search session history for full context.\n\n";
+  "Use `hm_recall` or `vcc_recall` to search session history for full context.\n\n";
 
 const VCC_HEADER =
   "## Session State (Structural Summary)\n" +
@@ -52,6 +50,7 @@ export const mergePipelines = (input: MergeInput): MergeOutput => {
 
   let finalOmSummary = omSummary;
   let trimmed = false;
+  let keptObservations = observations;
 
   // If over budget, trim observations by relevance (low → critical)
   if (totalTokens > maxTokens) {
@@ -64,13 +63,13 @@ export const mergePipelines = (input: MergeInput): MergeOutput => {
     for (const obs of sorted) {
       if (currentTokens <= maxTokens) break;
       toDrop.push(obs.id);
-      currentTokens -= estimateStringTokens(`- [${obs.id}] [${obs.relevance}] ${obs.content}`) + 2;
+      // Use exact format that renderSummary/observationsToPromptLines produces:
+      // [id] timestamp [relevance] content  (no leading dash, includes timestamp)
+      currentTokens -= estimateStringTokens(`[${obs.id}] ${obs.timestamp} [${obs.relevance}] ${obs.content}`);
     }
     if (toDrop.length > 0) {
-      finalOmSummary = renderSummary(
-        reflections,
-        observations.filter((o) => !toDrop.includes(o.id)),
-      );
+      keptObservations = observations.filter((o) => !toDrop.includes(o.id));
+      finalOmSummary = renderSummary(reflections, keptObservations);
       trimmed = true;
     }
   }
@@ -88,7 +87,7 @@ export const mergePipelines = (input: MergeInput): MergeOutput => {
     details: {
       type: "observational-memory",
       version: 4,
-      observations,
+      observations: keptObservations,
       reflections,
     },
     trimmed,

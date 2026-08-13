@@ -9,8 +9,15 @@ export class Runtime {
   // In-flight state
   observerInFlight = false;
   compactHookInFlight = false;
+  autoCompactionInFlight = false;
   resolveFailureNotified = false;
   observerPromise: Promise<void> | null = null;
+
+  // One-shot notice: set when we've surfaced the "old compaction boundary
+  // unresolved" recovery notice. Only the first firing after a (re)load should
+  // notify the user; subsequent fires within the same session stay silent.
+  // Reset explicitly only by re-instantiation (process restart).
+  boundaryRecoveryNotified = false;
 
   constructor() {
     this.config = {
@@ -18,6 +25,7 @@ export class Runtime {
       hybrid: {
         observationThresholdTokens: 1000,
         compactionThresholdTokens: 50000,
+        compactionThresholdPercentage: null,
         reflectionThresholdTokens: 30000,
         compactionModel: null,
         transcriptLines: 120,

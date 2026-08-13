@@ -1,5 +1,7 @@
 # pi-hybrid-memory
 
+> Requires Pi 0.84 or newer for the `agent_settled` automatic-compaction trigger.
+
 Merges **semantic observational memory** with **structural VCC compaction** into a single unified summary for the [pi](https://github.com/mariozechner/pi) coding agent.
 
 ## What It Does
@@ -30,7 +32,7 @@ pi install ./path/to/pi-hybrid-memory
 ### Option 3: Git repository
 
 ```bash
-pi install git:github.com/elpapi42/pi-hybrid-memory
+pi install git:github.com/OtwakO/pi-hybrid-memory
 ```
 
 ### Option 4: npm package
@@ -74,6 +76,7 @@ In `~/.pi/agent/settings.json` or `<project>/.pi/settings.json`:
   "hybrid-memory": {
     "observationThresholdTokens": 1000,
     "compactionThresholdTokens": 50000,
+    "compactionThresholdPercentage": null,
     "reflectionThresholdTokens": 30000,
     "compactionModel": { "provider": "openai", "id": "gpt-4o-mini" },
     "transcriptLines": 120,
@@ -87,13 +90,16 @@ In `~/.pi/agent/settings.json` or `<project>/.pi/settings.json`:
 | Setting | Default | Description |
 |---|---|---|
 | `observationThresholdTokens` | 1000 | New tokens of raw conversation before the observer runs |
-| `compactionThresholdTokens` | 50000 | New tokens before compaction is triggered |
+| `compactionThresholdTokens` | 50000 | Auto-compact after a completed agent run when current context exceeds this many tokens |
+| `compactionThresholdPercentage` | `null` | Optional whole percentage from 1–99 (for example `80`); overrides `compactionThresholdTokens` and uses the active model's context window |
 | `reflectionThresholdTokens` | 30000 | Observation tokens before reflector/pruner runs |
 | `compactionModel` | `null` | Override model for LLM-heavy ops (observer, reflector, pruner). Falls back to session model |
 | `transcriptLines` | 120 | Max lines in the VCC brief transcript |
 | `maxFiles` | 40 | Max files in the VCC summary |
 | `maxCommits` | 8 | Max commits in the VCC summary |
 | `maxSummaryTokens` | 16000 | Hard cap on the final merged summary size |
+
+Automatic threshold checks run only after the full agent run settles, not between tool calls. Invalid percentage values are ignored and the token threshold is used instead.
 
 **Backward compatibility:** `observational-memory.*` settings are read as fallback if `hybrid-memory.*` is not set.
 
@@ -107,14 +113,27 @@ Shows current memory state:
 - Activity progress (how close to next trigger thresholds)
 - VCC settings summary
 
+### `/hm-memory`
+
+Opens an interactive TUI overlay to browse all memory content:
+- **Tab 1 — Observations:** Color-coded by relevance (🔴 critical, 🟠 high, 🟡 medium, ⚪ low), scrollable list
+- **Tab 2 — Reflections:** Synthesized insights with supporting observation IDs
+- **Tab 3 — Compactions:** VCC compaction summaries with full detail view
+
+**Navigation:**
+- `↑↓` / mouse scroll — navigate list
+- `Enter` — open detail view with full content
+- `Tab` / `1` `2` `3` — switch tabs
+- `Esc` — close
+
 ## Tools
 
-### `hm-recall(<id>)`
+### `hm_recall(<id>)`
 
 Recovers the full content and source context behind a compacted observation or reflection ID.
 
 ```
-hm-recall(a1b2c3d4e5f6)
+hm_recall(a1b2c3d4e5f6)
 ```
 
 Returns:
@@ -155,7 +174,7 @@ src/
 ├── observer-trigger.ts   # Proactive observer at turn_end
 ├── status.ts             # /hm-status command
 ├── tools/
-│   └── recall.ts         # hm-recall tool
+│   └── recall.ts         # hm_recall tool
 ├── vcc/
 │   ├── normalizer.ts     # Raw messages → NormalizedBlocks
 │   ├── extractor.ts      # Goals, files, commits, preferences, blockers

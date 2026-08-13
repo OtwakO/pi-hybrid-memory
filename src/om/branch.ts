@@ -2,13 +2,11 @@
 import type {
   Entry,
   MemoryReflection,
-  MemoryDetailsV4,
   ObservationEntryData,
   ObservationRecord,
-  ReflectionRecord,
   SupportedMemoryDetails,
 } from "../types.js";
-import { OBSERVATION_CUSTOM_TYPE, isObservationEntryData, isReflectionRecord, isSupportedMemoryDetails } from "../types.js";
+import { OBSERVATION_CUSTOM_TYPE, isObservationEntryData, isSupportedMemoryDetails } from "../types.js";
 import { estimateEntryTokens } from "./tokens.js";
 
 const RAW_TYPES = new Set(["message", "custom_message", "branch_summary"]);
@@ -56,14 +54,45 @@ export const rawTokensSinceLastCompaction = (entries: Entry[]): number => {
   return rawTokensFromIndex(entries, liveTailStartIndex(entries));
 };
 
+/**
+ * Resolve the kept-boundary index of a compaction entry.
+ *
+ * Falls back to `compactionIdx + 1` when `firstKeptEntryId` is absent or cannot
+ * be located in the branch — this is the documented Pi behaviour:
+ *
+ *   compaction.md: «falling back to the entry after the previous compaction
+ *   if that kept entry cannot be found in the path.»
+ *
+ * The fallback is necessary on retrofit onto sessions predating this
+ * extension: Pi's own default compaction may have written a CompactionEntry
+ * whose `firstKeptEntryId` references an entry that was pruned by an even
+ * earlier kept boundary (the entry is real but not present in this branch
+ * view). Hard-throwing here would make every turn error out — instead we
+ * recover and let the next compaction establish our own clean boundary.
+ *
+ * When recovery is exercised, `onRecover(firstKept)` fires once per call; the
+ * calling layer (trigger / hook) debounces display via a Runtime flag so the
+ * user sees exactly one notice per session. The data layer itself stays pure.
+ */
+const resolveKeptBoundaryIndex = (
+  entries: Entry[],
+  compactionIdx: number,
+  onRecover?: (firstKept: string) => void,
+): number => {
+  const firstKept = entries[compactionIdx].firstKeptEntryId;
+  if (!firstKept) return compactionIdx + 1;
+  const idx = entries.findIndex((e) => e.id === firstKept);
+  if (idx === -1) {
+    onRecover?.(firstKept);
+    return compactionIdx + 1;
+  }
+  return idx;
+};
+
 const liveTailStartIndex = (entries: Entry[]): number => {
   const compactionIdx = findLastCompactionIndex(entries);
   if (compactionIdx === -1) return 0;
-  const firstKept = entries[compactionIdx].firstKeptEntryId;
-  if (!firstKept) throw new Error("compaction entry missing firstKeptEntryId");
-  const firstKeptIdx = entries.findIndex((e) => e.id === firstKept);
-  if (firstKeptIdx === -1) throw new Error(`firstKeptEntryId "${firstKept}" not found`);
-  return firstKeptIdx;
+  return resolveKeptBoundaryIndex(entries, compactionIdx);
 };
 
 export const firstRawIdAfter = (entries: Entry[], afterIndex: number): string | undefined => {
@@ -102,21 +131,17 @@ const getPriorMemoryDetails = (entries: Entry[]): SupportedMemoryDetails | undef
   return isSupportedMemoryDetails(details) ? details : undefined;
 };
 
-const collectObservationsPendingNextCompaction = (entries: Entry[]): ObservationEntryData[] => {
+const collectObservationsPendingNextCompaction = (
+  entries: Entry[],
+  onRecover?: (firstKept: string) => void,
+): ObservationEntryData[] => {
   const idToIdx = new Map<string, number>();
   for (let i = 0; i < entries.length; i++) idToIdx.set(entries[i].id, i);
 
   const priorCompactionIdx = findLastCompactionIndex(entries);
-  let thresholdIdx: number;
-  if (priorCompactionIdx === -1) {
-    thresholdIdx = -1;
-  } else {
-    const priorFirstKept = entries[priorCompactionIdx].firstKeptEntryId;
-    if (!priorFirstKept) throw new Error("prior compaction entry missing firstKeptEntryId");
-    const idx = idToIdx.get(priorFirstKept);
-    if (idx === undefined) throw new Error(`prior firstKeptEntryId "${priorFirstKept}" not found`);
-    thresholdIdx = idx;
-  }
+  const thresholdIdx = priorCompactionIdx === -1
+    ? -1
+    : resolveKeptBoundaryIndex(entries, priorCompactionIdx, onRecover);
 
   const result: ObservationEntryData[] = [];
   for (const entry of entries) {
@@ -135,9 +160,25 @@ export interface MemoryState {
   pendingObs: ObservationRecord[];
 }
 
-export const getMemoryState = (entries: Entry[]): MemoryState => {
+/**
+ * Returns the live OM state for the current branch.
+ *
+ * `committedObs`/`reflections` come from the last compaction's `details` (if
+ * any) and are not invalidated by boundary recovery. `pendingObs` collects
+ * observation entries written after the kept boundary of the last
+ * compaction; on boundary recovery these expand to "everything written after
+ * the compaction entry itself" — a safe over-inclusion since the reflector's
+ * `contentIndex` dedup absorbs any re-evaluation.
+ *
+ * `onRecover` (optional) fires if boundary recovery was exercised; callers
+ * in interactive contexts should debounce it through Runtime.
+ */
+export const getMemoryState = (
+  entries: Entry[],
+  onRecover?: (firstKept: string) => void,
+): MemoryState => {
   const priorDetails = getPriorMemoryDetails(entries);
-  const pendingData = collectObservationsPendingNextCompaction(entries);
+  const pendingData = collectObservationsPendingNextCompaction(entries, onRecover);
   return {
     reflections: priorDetails?.reflections ?? [],
     committedObs: priorDetails?.observations ?? [],
@@ -145,10 +186,23 @@ export const getMemoryState = (entries: Entry[]): MemoryState => {
   };
 };
 
+/**
+ * Collect observation-carrying entries whose `coversFromId` falls in the
+ * `[priorFKI, newFKI)` window — i.e. observations written during the span
+ * covered by the compaction in progress.
+ *
+ * When the prior kept boundary (`priorFirstKeptEntryId`) cannot be found,
+ * falls back to the compaction entry itself (`compactionIdx + 1`) instead of
+ * throwing — see `resolveKeptBoundaryIndex` for the rationale.
+ *
+ * `onRecover` (optional) is the same debounced-by-caller seam used by
+ * `getMemoryState`.
+ */
 export const collectObservationsByCoverage = (
   entries: Entry[],
   priorFirstKeptEntryId: string | undefined,
   newFirstKeptEntryId: string,
+  onRecover?: (firstKept: string) => void,
 ): ObservationEntryData[] => {
   const idToIdx = new Map<string, number>();
   for (let i = 0; i < entries.length; i++) idToIdx.set(entries[i].id, i);
@@ -160,9 +214,20 @@ export const collectObservationsByCoverage = (
   if (priorFirstKeptEntryId === undefined) {
     priorFKIIdx = -1;
   } else {
-    const idx = idToIdx.get(priorFirstKeptEntryId);
-    if (idx === undefined) throw new Error(`priorFirstKeptEntryId "${priorFirstKeptEntryId}" not found`);
-    priorFKIIdx = idx;
+    const compactionIdx = findLastCompactionIndex(entries);
+    if (compactionIdx < 0) {
+      // Defensive: a prior boundary was passed but no compaction entry is
+      // present. Unreachable from internal callers (they pass undefined
+      // when findLastCompactionIndex returns -1). Broaden the window.
+      onRecover?.(priorFirstKeptEntryId);
+      priorFKIIdx = -1;
+    } else {
+      // The authoritative source for the prior boundary is the compaction
+      // entry's own firstKeptEntryId. resolveKeptBoundaryIndex falls back to
+      // compactionIdx + 1 if that entry is absent; otherwise it equals the
+      // priorFirstKeptEntryId lookup the legacy code did directly.
+      priorFKIIdx = resolveKeptBoundaryIndex(entries, compactionIdx, onRecover);
+    }
   }
 
   const result: ObservationEntryData[] = [];

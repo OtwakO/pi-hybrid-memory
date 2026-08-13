@@ -11,8 +11,7 @@ import {
 import { estimateEntryTokens, estimateStringTokens } from "./om/tokens.js";
 import { serializeSourceAddressedBranchEntries } from "./om/serialize.js";
 import { observationsToPromptLines, runObserver } from "./om/observer.js";
-import { runPruner, runReflector, renderSummary, reflectionContent } from "./om/compaction.js";
-import { formatRelevanceHistogram } from "./om/relevance.js";
+import { runPruner, runReflector, reflectionContent, deriveCoverageTags } from "./om/compaction.js";
 import { normalize } from "./vcc/normalizer.js";
 import { extractGoals, extractFiles, extractCommits, extractPreferences, extractOutstandingContext, formatCommits } from "./vcc/extractor.js";
 import { buildBriefSections, stringifyBrief, capBrief } from "./vcc/transcript.js";
@@ -35,7 +34,8 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
     try {
       runtime.ensureConfig(ctx.cwd);
       const { preparation, branchEntries, signal } = event;
-      const { firstKeptEntryId, tokensBefore } = preparation;
+      const { firstKeptEntryId } = preparation;
+      const tokensBefore = preparation.tokensBefore;
 
       const resolved = await runtime.resolveModel(ctx as any);
       if (!resolved.ok) {
@@ -55,10 +55,20 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         entries = ctx.sessionManager.getBranch() as Entry[];
       }
 
-      const memoryState = getMemoryState(entries);
+      const memoryState = getMemoryState(entries, (firstKept) => {
+        if (!runtime.boundaryRecoveryNotified && ctx.hasUI && ctx.ui) {
+          ctx.ui.notify(`/hm-memory: prior compaction boundary "${firstKept}" not found — using fallback. Old session? Existing memory preserved.`, "info");
+          runtime.boundaryRecoveryNotified = true;
+        }
+      });
       let gapObservationData: ObservationEntryData | null = null;
       const gap = gapRawEntries(entries, firstKeptEntryId);
-      if (gap.length > 0) {
+
+      // ── Bootstrap detection: no prior OM state means fresh install on existing session ──
+      const isBootstrap = memoryState.reflections.length === 0 && memoryState.committedObs.length === 0;
+
+      if (gap.length > 0 && !isBootstrap) {
+        // Normal mode: gap exists and we have prior OM state — run catch-up observer
         const { text: gapChunk, sourceEntryIds } = serializeSourceAddressedBranchEntries(gap);
         if (gapChunk.trim() && sourceEntryIds.length > 0) {
           const gapFromId = gap[0].id;
@@ -86,22 +96,23 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
           const gapPromise: Promise<void> = gapCall.then(() => undefined, () => undefined);
           runtime.observerPromise = gapPromise;
           try {
-            const records = await gapCall;
-            if (records && records.length > 0) {
-              const observationTokens = records.reduce((sum, r) => sum + estimateStringTokens(r.content), 0);
+            const result = await gapCall;
+            if (result.ok && result.records.length > 0) {
+              const observationTokens = result.records.reduce((sum, r) => sum + estimateStringTokens(r.content), 0);
               gapObservationData = {
-                records,
+                records: result.records,
                 coversFromId: gapFromId,
                 coversUpToId: gapUpToId,
                 tokenCount: observationTokens,
               };
               pi.appendEntry(OBSERVATION_CUSTOM_TYPE, gapObservationData);
               if (ctx.hasUI) ctx.ui.notify(
-                `Hybrid memory: sync catch-up recorded ${records.length} observation(s) (~${observationTokens.toLocaleString()} tokens)`,
+                `Hybrid memory: sync catch-up recorded ${result.records.length} observation(s) (~${observationTokens.toLocaleString()} tokens)`,
                 "info",
               );
             } else if (ctx.hasUI) {
-              ctx.ui.notify("Hybrid memory: sync catch-up observer returned empty — proceeding with compaction", "warning");
+              const reason = result.ok ? "found nothing worth recording" : result.reason;
+              ctx.ui.notify(`Hybrid memory: sync catch-up observer skipped (${reason}) — proceeding with compaction`, "warning");
             }
           } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -115,12 +126,23 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
             if (runtime.observerPromise === gapPromise) runtime.observerPromise = null;
           }
         }
+      } else if (gap.length > 0 && isBootstrap) {
+        // Bootstrap mode: skip gap observer — VCC will handle structural summary of old content
+        if (ctx.hasUI) ctx.ui.notify(
+          `Hybrid memory: bootstrap mode — skipping observer on ~${gap.reduce((s, e) => s + estimateEntryTokens(e), 0).toLocaleString()}-token backlog. VCC will summarize old content during compaction.`,
+          "info",
+        );
       }
 
       // ── Step 2: Collect delta observations ──
       const priorCompactionIdx = findLastCompactionIndex(entries);
       const priorFirstKeptEntryId = priorCompactionIdx >= 0 ? entries[priorCompactionIdx].firstKeptEntryId : undefined;
-      const deltaObservationData = collectObservationsByCoverage(entries, priorFirstKeptEntryId, firstKeptEntryId);
+      const deltaObservationData = collectObservationsByCoverage(entries, priorFirstKeptEntryId, firstKeptEntryId, (firstKept) => {
+        if (!runtime.boundaryRecoveryNotified && ctx.hasUI && ctx.ui) {
+          ctx.ui.notify(`/hm-memory: prior compaction boundary "${firstKept}" not found — using fallback. Old session? Existing memory preserved.`, "info");
+          runtime.boundaryRecoveryNotified = true;
+        }
+      });
       if (gapObservationData) deltaObservationData.push(gapObservationData);
 
       if (deltaObservationData.length === 0) {
@@ -147,11 +169,13 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
             workingReflections,
             workingObservations,
           );
+          const coverageTags = deriveCoverageTags(finalReflections, workingObservations);
           const prunerResult = await runPruner(
             { model: resolved.model as any, apiKey: resolved.apiKey, headers: resolved.headers, signal },
             finalReflections,
             workingObservations,
             runtime.config.hybrid.reflectionThresholdTokens,
+            coverageTags,
           );
           finalObservations = prunerResult.observations;
           if (prunerResult.fellBack && ctx.hasUI) {
@@ -197,7 +221,6 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         outstandingContext,
         userPreferences: preferences,
         briefTranscript: briefText,
-        transcriptEntries: [],
       };
 
       let freshVccSummary = formatVccSections(vccSectionData);
