@@ -15,10 +15,11 @@ import { runPruner, runReflector, reflectionContent, deriveCoverageTags } from "
 import { normalize } from "./vcc/normalizer.js";
 import { extractGoals, extractFiles, extractCommits, extractPreferences, extractOutstandingContext, formatCommits } from "./vcc/extractor.js";
 import { buildBriefSections, stringifyBrief, capBrief } from "./vcc/transcript.js";
-import { formatVccSections } from "./vcc/formatter.js";
+import { formatFileActivity, formatVccSections } from "./vcc/formatter.js";
 import { mergeVccSummaries } from "./vcc/merger.js";
 import { mergePipelines } from "./merge/pipeline.js";
 import type { Runtime } from "./runtime.js";
+import { operationCacheOptions } from "./cache-options.js";
 import type { Message } from "@mariozechner/pi-ai";
 
 export const vccMessagesFromEntries = (entries: Entry[]): Message[] => {
@@ -126,11 +127,17 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
               apiKey: resolved.apiKey,
               headers: resolved.headers,
               priorReflections: memoryState.reflections.map(r => reflectionContent(r)),
-              priorObservations: priorObservationLines,
+              priorObservations: [
+                ...priorObservationLines,
+                ...observationsToPromptLines(accumulatedRecords),
+              ],
               chunk: serialized.text,
               allowedSourceEntryIds: serialized.sourceEntryIds,
               signal,
               telemetry: runtime.cacheTelemetry,
+              cacheOptions: runtime.piSessionId
+                ? operationCacheOptions(runtime.piSessionId, "observer")
+                : undefined,
             });
             if (!result.ok) {
               gapFailedReason = result.reason;
@@ -220,13 +227,31 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         if (ctx.hasUI) ctx.ui.notify("Hybrid memory: running reflector + pruner...", "info");
         try {
           finalReflections = await runReflector(
-            { model: resolved.model as any, apiKey: resolved.apiKey, headers: resolved.headers, signal, telemetry: runtime.cacheTelemetry },
+            {
+              model: resolved.model as any,
+              apiKey: resolved.apiKey,
+              headers: resolved.headers,
+              signal,
+              telemetry: runtime.cacheTelemetry,
+              cacheOptions: runtime.piSessionId
+                ? operationCacheOptions(runtime.piSessionId, "reflector")
+                : undefined,
+            },
             workingReflections,
             workingObservations,
           );
           const coverageTags = deriveCoverageTags(finalReflections, workingObservations);
           const prunerResult = await runPruner(
-            { model: resolved.model as any, apiKey: resolved.apiKey, headers: resolved.headers, signal, telemetry: runtime.cacheTelemetry },
+            {
+              model: resolved.model as any,
+              apiKey: resolved.apiKey,
+              headers: resolved.headers,
+              signal,
+              telemetry: runtime.cacheTelemetry,
+              cacheOptions: runtime.piSessionId
+                ? operationCacheOptions(runtime.piSessionId, "pruner")
+                : undefined,
+            },
             finalReflections,
             workingObservations,
             runtime.config.hybrid.reflectionThresholdTokens,
@@ -259,10 +284,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       const briefSections = buildBriefSections(blocks, runtime.config.hybrid.transcriptLines);
       const briefText = capBrief(stringifyBrief(briefSections), runtime.config.hybrid.transcriptLines);
 
-      const fileLines: string[] = [];
-      if (fileOps.modified.size > 0) fileLines.push(`Modified: ${[...fileOps.modified].slice(0, 10).join(", ")}`);
-      if (fileOps.created.size > 0) fileLines.push(`Created: ${[...fileOps.created].slice(0, 10).join(", ")}`);
-      if (fileOps.read.size > 0) fileLines.push(`Read: ${[...fileOps.read].slice(0, 10).join(", ")}`);
+      const fileLines = formatFileActivity(fileOps, runtime.config.hybrid.maxFiles);
 
       const vccSectionData = {
         sessionGoal,
@@ -286,7 +308,12 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         const sessionStateIdx = prevVccPart.indexOf("## Session State");
         const prevVccCore = sessionStateIdx >= 0 ? prevVccPart.slice(sessionStateIdx) : prevVccPart;
         if (prevVccCore.trim()) {
-          freshVccSummary = mergeVccSummaries(prevVccCore, freshVccSummary);
+          freshVccSummary = mergeVccSummaries(
+            prevVccCore,
+            freshVccSummary,
+            runtime.config.hybrid.transcriptLines,
+            runtime.config.hybrid.maxFiles,
+          );
         }
       }
 
@@ -301,8 +328,8 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       });
 
       if (ctx.hasUI) ctx.ui.notify(
-        `Hybrid memory: compaction assembled — ${finalObservations.length} observations, ${finalReflections.length} reflections, ~${merged.tokenCount.toLocaleString()} token summary${merged.trimmed ? " (trimmed to fit budget)" : ""}`,
-        "info",
+        `Hybrid memory: compaction assembled — ${finalObservations.length} observations, ${finalReflections.length} reflections, ~${merged.tokenCount.toLocaleString()} token summary${merged.protectedOverflow ? " (protected memory exceeds configured ceiling)" : merged.trimmed ? " (trimmed to fit budget)" : ""}`,
+        merged.protectedOverflow ? "warning" : "info",
       );
 
       return {

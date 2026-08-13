@@ -136,6 +136,26 @@ describe("runObserver terminal stream handling", () => {
     }
   });
 
+  it("passes stable cache identity and long retention to the observer agent loop", async () => {
+    agentLoopMock.mockReturnValue(streamOf([
+      { type: "message_end", message: assistant("stop") },
+    ]));
+
+    await runObserver({
+      ...params,
+      model: telemetryModel,
+      cacheOptions: {
+        sessionId: "pi-hybrid-memory:session-123:observer",
+        cacheRetention: "long",
+      },
+    });
+
+    expect(agentLoopMock.mock.calls[0][2]).toMatchObject({
+      sessionId: "pi-hybrid-memory:session-123:observer",
+      cacheRetention: "long",
+    });
+  });
+
   it("records provider usage from the canonical completed assistant message", async () => {
     const telemetry = new CacheTelemetry();
     const message = {

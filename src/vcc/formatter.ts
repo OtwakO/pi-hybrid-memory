@@ -7,9 +7,24 @@ const section = (title: string, items: string[]): string => {
   return `[${title}]\n${body}`;
 };
 
-export const RECALL_NOTE =
-  "Use `hm_recall` or `vcc_recall` to search for prior work, decisions, and context from before this summary. " +
-  "Do not redo work already completed.";
+export const formatFileActivity = (
+  fileOps: { modified: Set<string>; created: Set<string>; read: Set<string> },
+  maxFiles: number,
+): string[] => {
+  let remaining = Math.max(0, Math.floor(maxFiles));
+  const lines: string[] = [];
+  const add = (label: string, files: Set<string>) => {
+    if (remaining === 0 || files.size === 0) return;
+    const selected = [...files].slice(0, remaining);
+    if (selected.length === 0) return;
+    lines.push(`${label}: ${selected.join(", ")}`);
+    remaining -= selected.length;
+  };
+  add("Modified", fileOps.modified);
+  add("Created", fileOps.created);
+  add("Read", fileOps.read);
+  return lines;
+};
 
 export const formatVccSections = (data: SectionData): string => {
   const headerParts = [

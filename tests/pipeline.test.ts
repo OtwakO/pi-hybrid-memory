@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { normalize } from "../src/vcc/normalizer.js";
 import { extractGoals, extractFiles, extractCommits, extractPreferences, extractOutstandingContext } from "../src/vcc/extractor.js";
 import { buildBriefSections, stringifyBrief, capBrief } from "../src/vcc/transcript.js";
-import { formatVccSections } from "../src/vcc/formatter.js";
+import { formatFileActivity, formatVccSections } from "../src/vcc/formatter.js";
 import { mergeVccSummaries } from "../src/vcc/merger.js";
 import { estimateStringTokens } from "../src/om/tokens.js";
 import { countByRelevance, formatRelevanceHistogram } from "../src/om/relevance.js";
@@ -256,6 +256,18 @@ describe("capBrief", () => {
 
 // ── VCC Formatter ──
 
+describe("formatFileActivity", () => {
+  it("applies maxFiles as one total priority-ordered budget", () => {
+    const lines = formatFileActivity({
+      modified: new Set(["m1", "m2"]),
+      created: new Set(["c1", "c2"]),
+      read: new Set(["r1", "r2"]),
+    }, 4);
+
+    expect(lines).toEqual(["Modified: m1, m2", "Created: c1, c2"]);
+  });
+});
+
 describe("formatVccSections", () => {
   it("produces a formatted summary with sections", () => {
     const data = {
@@ -305,12 +317,36 @@ describe("mergeVccSummaries", () => {
     expect(result).toContain("new.ts");
   });
 
+  it("keeps maxFiles effective across VCC merge cycles", () => {
+    const prev = "[Files And Changes]\n- Modified: m1, m2\n- Read: r1, r2";
+    const fresh = "[Files And Changes]\n- Created: c1, c2";
+
+    const result = mergeVccSummaries(prev, fresh, 120, 4);
+    const fileNames = result.match(/\b[mcr]\d\b/g) ?? [];
+
+    expect(fileNames).toHaveLength(4);
+    expect(result).toContain("m1");
+    expect(result).toContain("m2");
+  });
+
   it("clears outstanding context (volatile)", () => {
     const prev = "[Outstanding Context]\n- Old blocker";
     const fresh = "[Outstanding Context]\n- New blocker";
     const result = mergeVccSummaries(prev, fresh);
     expect(result).toContain("New blocker");
     expect(result).not.toContain("Old blocker");
+  });
+
+  it("bounds merged brief history and favors fresh lines", () => {
+    const prev = `[Session Goal]\n- Preserve goal\n\n---\n\n[user]\nold one\nold two\nold three`;
+    const fresh = `[Session Goal]\n- Preserve goal\n\n---\n\n[user]\nfresh one\nfresh two`;
+
+    const result = mergeVccSummaries(prev, fresh, 3);
+
+    expect(result).toContain("fresh one");
+    expect(result).toContain("fresh two");
+    expect(result).not.toContain("old one");
+    expect(result.split("---")[1].trim().split("\n").length).toBeLessThanOrEqual(3);
   });
 });
 
@@ -395,12 +431,60 @@ describe("mergePipelines", () => {
     });
 
     expect(result.trimmed).toBe(true);
-    // Trimming drops low-relevance first; critical observations + VCC + headers remain
-    expect(result.tokenCount).toBeLessThan(2000);
-    // Trimmed observations should NOT leak into details
+    expect(result.protectedOverflow).toBe(true);
+    // Critical observations are protected even when they alone exceed the ceiling.
     const detailsObsIds = result.details.observations.map(o => o.id);
+    const criticalObsIds = observations.filter(o => o.relevance === "critical").map(o => o.id);
+    expect(criticalObsIds.every(id => detailsObsIds.includes(id))).toBe(true);
     const lowObsIds = observations.filter(o => o.relevance === "low").map(o => o.id);
     expect(lowObsIds.some(id => detailsObsIds.includes(id))).toBe(false);
+  });
+
+  it("trims stale VCC transcript before low-relevance observations", () => {
+    const result = mergePipelines({
+      observations: [
+        { id: "low-observation", content: "useful semantic fact that should survive stale transcript pressure", timestamp: "now", relevance: "low" as const },
+      ],
+      reflections: [],
+      vccSummary: `[Session Goal]\n- Original durable goal\n\n---\n\n[user]\n${"old transcript detail ".repeat(400)}`,
+      settings: { maxSummaryTokens: 120 },
+    });
+
+    expect(result.trimmed).toBe(true);
+    expect(result.protectedOverflow).toBe(false);
+    expect(result.tokenCount).toBeLessThanOrEqual(120);
+    expect(result.details.observations.map(o => o.id)).toContain("low-observation");
+    expect(result.summary).not.toContain("old transcript detail");
+    expect(result.summary).toContain("Original durable goal");
+  });
+
+  it("preserves unfamiliar structural sections as protected passthrough", () => {
+    const result = mergePipelines({
+      observations: [],
+      reflections: [],
+      vccSummary: "[Session Goal]\n- Known goal\n\n[Future Section]\n- New structural fact",
+      settings: { maxSummaryTokens: 16000 },
+    });
+
+    expect(result.summary).toContain("[Future Section]");
+    expect(result.summary).toContain("New structural fact");
+  });
+
+  it("trims lower-priority observations before high relevance", () => {
+    const observations = [
+      { id: "low-old", content: "low ".repeat(120), timestamp: "1", relevance: "low" as const },
+      { id: "medium-old", content: "medium ".repeat(120), timestamp: "2", relevance: "medium" as const },
+      { id: "high-new", content: "high-value fact", timestamp: "3", relevance: "high" as const },
+    ];
+    const result = mergePipelines({
+      observations,
+      reflections: [],
+      vccSummary: "[Session Goal]\n- Keep original goal",
+      settings: { maxSummaryTokens: 90 },
+    });
+
+    expect(result.tokenCount).toBeLessThanOrEqual(90);
+    expect(result.details.observations.map(o => o.id)).toEqual(["high-new"]);
   });
 
   it("does not trim when under budget", () => {
@@ -413,6 +497,7 @@ describe("mergePipelines", () => {
       settings: { maxSummaryTokens: 16000 },
     });
     expect(result.trimmed).toBe(false);
+    expect(result.protectedOverflow).toBe(false);
     expect(result.details.observations.length).toBe(1);
   });
 });

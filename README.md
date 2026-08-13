@@ -86,9 +86,9 @@ The global file is created automatically. Project files override individual fiel
 | `reflectionThresholdTokens` | 30000 | Observation tokens before reflector/pruner runs |
 | `compactionModel` | `null` | Override model for LLM-heavy ops (observer, reflector, pruner). Falls back to session model |
 | `transcriptLines` | 120 | Max lines in the VCC brief transcript |
-| `maxFiles` | 40 | Max files in the VCC summary |
+| `maxFiles` | 40 | Total file slots in the VCC summary, allocated Modified → Created → Read and preserved across merge cycles |
 | `maxCommits` | 8 | Max commits in the VCC summary |
-| `maxSummaryTokens` | 16000 | Hard cap on the final merged summary size |
+| `maxSummaryTokens` | 16000 | Growth ceiling for the merged summary; stale transcript and lower-priority units trim first, while protected durable memory may exceed it rather than be silently dropped |
 
 Automatic threshold checks run only after the full agent run settles, not between tool calls. Invalid percentage values are ignored and the token threshold is used instead.
 
@@ -119,6 +119,8 @@ The command displays:
 - `unknown` when usage or pricing is unavailable, rather than treating missing data as zero
 
 Telemetry contains only model/operation metadata, usage, outcome, timestamp, and costs. It is held in memory, resets on `session_start`, and does not persist prompts, observations, source text, API keys, or headers.
+
+Hybrid-memory model calls use stable per-session, per-operation cache identities (`observer`, `reflector`, and `pruner`) and request long cache retention. Providers that support these options map them to their own prompt-cache or affinity mechanisms; unsupported providers ignore them.
 
 ### `/hm-memory`
 

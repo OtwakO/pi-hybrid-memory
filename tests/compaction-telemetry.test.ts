@@ -49,8 +49,20 @@ describe("reflector and pruner cache telemetry", () => {
     })));
     const telemetry = new CacheTelemetry();
 
-    await runReflector({ model, apiKey: "key", telemetry }, [], [observation]);
+    await runReflector({
+      model,
+      apiKey: "key",
+      telemetry,
+      cacheOptions: {
+        sessionId: "pi-hybrid-memory:session-123:reflector",
+        cacheRetention: "long",
+      },
+    }, [], [observation]);
 
+    expect(completeSimpleMock.mock.calls[0][2]).toMatchObject({
+      sessionId: "pi-hybrid-memory:session-123:reflector",
+      cacheRetention: "long",
+    });
     expect(telemetry.calls()[0]).toMatchObject({
       operation: "reflector",
       outcome: "success",

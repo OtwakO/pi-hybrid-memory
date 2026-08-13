@@ -3,6 +3,7 @@
 import { agentLoop, type AgentContext, type AgentLoopConfig, type AgentTool } from "@mariozechner/pi-agent-core";
 import type { Message, Model, Usage } from "@mariozechner/pi-ai";
 import type { CacheTelemetry } from "../cache-telemetry.js";
+import type { CacheOptions } from "../cache-options.js";
 import { Type } from "typebox";
 import type { Static } from "typebox";
 import type { ObservationRecord, Relevance } from "../types.js";
@@ -40,6 +41,7 @@ export interface ObserverParams {
   allowedSourceEntryIds: string[];
   signal?: AbortSignal;
   telemetry?: CacheTelemetry;
+  cacheOptions?: CacheOptions;
 }
 
 export type ObserverResult =
@@ -136,6 +138,8 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
     model: model as any,
     apiKey,
     headers,
+    sessionId: params.cacheOptions?.sessionId,
+    cacheRetention: params.cacheOptions?.cacheRetention,
     maxTokens: 4096,
     convertToLlm: (msgs) => msgs as Message[],
     toolExecution: "sequential",

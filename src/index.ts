@@ -25,6 +25,10 @@ export default function extension(pi: ExtensionAPI): void {
   registerStatusCommand(pi, runtime);
   registerCacheInfoCommand(pi, runtime.cacheTelemetry);
 
+  pi.on("session_start", (_event, ctx) => {
+    runtime.setPiSessionId(ctx.sessionManager.getSessionId());
+  });
+
   // Register the /hm-memory command
   registerMemoryCommand(pi);
 

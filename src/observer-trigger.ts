@@ -11,6 +11,7 @@ import {
 } from "./om/branch.js";
 import { observationsToPromptLines, runObserver } from "./om/observer.js";
 import { serializeSourceAddressedBranchEntries } from "./om/serialize.js";
+import { operationCacheOptions } from "./cache-options.js";
 import { estimateStringTokens } from "./om/tokens.js";
 import { reflectionContent } from "./om/compaction.js";
 import type { Runtime } from "./runtime.js";
@@ -107,6 +108,9 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
         chunk,
         allowedSourceEntryIds: sourceEntryIds,
         telemetry: runtime.cacheTelemetry,
+        cacheOptions: runtime.piSessionId
+          ? operationCacheOptions(runtime.piSessionId, "observer")
+          : undefined,
       });
       if (!result.ok) {
         if (ctx.hasUI && ctx.ui) ctx.ui.notify(

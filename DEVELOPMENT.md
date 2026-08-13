@@ -63,3 +63,15 @@
 - **Change**: Added `/hm-cache-info` with whole-session per-operation aggregates and a 10-call recent window. It records response input/output/cache-read/cache-write tokens, outcomes, provider-reported costs, and separate estimates from Pi model pricing.
 - **Reason**: Establish a measurable baseline before changing cache identities, timestamps, memory windows, or compaction policy.
 - **Verified**: Collector, reset, formatting, observer integration, reflector integration, and failed-pruner integration have focused tests. No prompts, memory content, credentials, or telemetry files are stored.
+
+### [2026-08-13] Added operation-scoped prompt-cache routing
+- **Context**: Telemetry showed each observer run began cold while its immediate tool-call continuation reused 94–98% of input; cold first calls accounted for most observer cost.
+- **Change**: Observer, reflector, and pruner calls now use stable cache identities scoped to the Pi session and operation, and request long retention. Direct OpenAI/Anthropic and Mistral can map these options to prompt-cache retention or affinity; unsupported providers ignore them.
+- **Reason**: Maximize extension-controlled cross-run cache reuse without reducing prior-memory context or changing memory semantics.
+- **Verified**: Focused tests assert identity isolation, long retention, and propagation through both `agentLoop` and `completeSimple`; `/hm-cache-info` remains the measurement surface.
+
+### [2026-08-13] Prioritized durable memory over stale context under the summary ceiling
+- **Context**: The old merge loop trimmed observations from low through critical while leaving stale VCC transcript untouched, and could still exceed `maxSummaryTokens`. Historical VCC briefs also accumulated across compactions.
+- **Change**: Added structured priority budgeting that trims oldest transcript, low/medium observations, volatile VCC lines, and high observations before protected reflections, critical observations, the original session goal, or unfamiliar future structural sections. Protected-only overflow is reported explicitly. Historical briefs now use a fresh-favored rolling line window; `maxFiles` is a total budget honored across fresh and merged VCC state; later catch-up chunks see earlier accumulated observations.
+- **Reason**: Improve information-per-token and attention quality without sacrificing load-bearing semantic memory merely to satisfy a numeric ceiling.
+- **Verified**: Focused tests cover trim order, critical retention, protected overflow, rolling brief history, unknown-section preservation, file-budget continuity, and no-trim behavior.

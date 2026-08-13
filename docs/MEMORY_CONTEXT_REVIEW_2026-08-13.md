@@ -17,27 +17,21 @@ No numerical cache-hit rate is claimed: the extension currently discards provide
 
 ### 2. Summary budgeting can remove critical observations and is not a hard cap
 
-- **Status**: Confirmed policy/implementation mismatch
-- **Files**: `src/merge/pipeline.ts`, `PLAN.md`, `tests/pipeline.test.ts`
-- **Issue**: The current trimming loop may eventually remove critical observations, while VCC/reflections/headers are untrimmed. Consequently it can both violate critical-retention guidance and still return a summary above `maxSummaryTokens`.
-- **Recommended correction**: Budget typed units by retention priority, trim stale transcript/VCC before durable semantic memory, protect critical observations and reflections, and define explicit overflow behavior when protected content alone exceeds the cap.
-- **Cost/risk**: Medium implementation, low schema compatibility risk; summary-content behavior changes and needs careful tests.
+- **Status**: Fixed on 2026-08-13
+- **Files**: `src/merge/budget.ts`, `src/merge/pipeline.ts`, `tests/pipeline.test.ts`
+- **Correction**: Structured budgeting re-renders after each priority removal, trims stale transcript and lower-priority units first, protects reflections, critical observations, the original session goal, and unfamiliar future structural sections, and reports protected-only overflow explicitly.
 
 ### 3. Catch-up chunks do not see observations produced by earlier chunks
 
-- **Status**: Confirmed duplication risk
+- **Status**: Fixed on 2026-08-13
 - **File**: `src/compaction-hook.ts`
-- **Issue**: `priorObservationLines` is computed once before the catch-up loop. Repeated facts crossing adjacent chunks can therefore be emitted more than once.
-- **Recommended correction**: Add accumulated records to the prior-observation list for each later chunk; optionally deduplicate normalized exact content before persistence.
-- **Cost/risk**: Low cost and low compatibility risk.
+- **Correction**: Every later catch-up chunk now receives observations accumulated from earlier chunks in the same catch-up pass.
 
 ### 4. VCC history grows while observations absorb budget pressure
 
-- **Status**: Confirmed growth behavior; retention policy decision
-- **Files**: `src/vcc/merger.ts`, `src/merge/pipeline.ts`
-- **Issue**: Previous and fresh VCC briefs are concatenated, while the global budget primarily drops observations. Stale transcript history can crowd out higher-value semantic memory.
-- **Recommended correction**: Prioritize the fresh brief and fit old brief content only into a bounded remainder; combine this with the summary-budget redesign rather than patching independently.
-- **Cost/risk**: Medium cost and medium behavioral risk.
+- **Status**: Fixed on 2026-08-13
+- **Files**: `src/vcc/merger.ts`, `src/merge/budget.ts`
+- **Correction**: Historical brief content fills only the remainder of a configured rolling line window after fresh brief lines, and the priority budget removes transcript before semantic memory.
 
 ## Smaller practical improvements
 
@@ -51,7 +45,7 @@ The README describes reflection-to-observation/source provenance, but reflection
 
 ### Apply `maxFiles`
 
-`maxFiles` is documented/configured but current compaction formatting hard-codes file-list limits. Apply the setting with an explicit total or per-category policy and regression tests.
+Fixed on 2026-08-13. `maxFiles` is now a total Modified → Created → Read budget for both fresh extraction and later VCC merge cycles.
 
 ## Prompt-cache audit
 
@@ -64,10 +58,8 @@ The README describes reflection-to-observation/source provenance, but reflection
 
 ### Main cache limitations
 
-1. Extension-owned observer/reflector/pruner calls do not pass a stable operation-scoped session/cache identity even though the underlying APIs support it. This can reduce routing or explicit prompt-cache reuse for providers such as OpenAI or Mistral. Use distinct keys for observer, reflector, and pruner rather than sharing one structurally different stream.
-2. Provider usage fields (`input`, `output`, `cacheRead`, `cacheWrite`) are discarded. `ctx.getContextUsage()` measures context occupancy, not cache effectiveness.
-3. Every compaction replaces the first session summary, inherently invalidating the prior main-session prefix. Between compactions the prefix remains stable; avoiding unnecessary marginal compactions and keeping summaries deterministic/compact matters more than cosmetic section rearrangement.
-4. Observation timestamps and ids enlarge volatile prompt regions. IDs are necessary for provenance; timestamps may be removable from reflector/pruner inputs only after confirming recency is not semantically needed.
+1. Every compaction replaces the first session summary, inherently invalidating the prior main-session prefix. Between compactions the prefix remains stable; avoiding unnecessary marginal compactions and keeping summaries deterministic/compact matters more than cosmetic section rearrangement.
+2. Observation timestamps and ids enlarge volatile prompt regions. IDs are necessary for provenance; timestamps remain because chronology helps supersession reasoning and current telemetry does not justify weakening that evidence.
 
 ### Cache work status
 
@@ -78,11 +70,16 @@ Implemented on 2026-08-13:
 - Provider-reported costs and independent model-price estimates are displayed separately.
 - Missing usage or pricing remains `unknown`; prompts, memory content, credentials, and telemetry files are not stored.
 
-Recommended next step after collecting a baseline:
+Implemented after the first telemetry baseline:
 
-1. Pass stable, operation-scoped session/cache identities to extension-owned LLM calls after verifying the exact Pi API/provider semantics.
-2. Compare `/hm-cache-info` before and after the change.
-3. Use measured results before removing timestamps or changing compaction frequency.
+- Observer, reflector, and pruner calls receive stable identities scoped by Pi session and operation.
+- Calls request long cache retention. Providers map this to their supported mechanism: prompt-cache keys/retention, cache control, affinity routing, or no-op when unsupported.
+- The three operations use separate identities to avoid mixing structurally different prompt streams.
+
+Next measurement step:
+
+1. Compare `/hm-cache-info` before and after the routing/retention change.
+2. Continue preserving timestamps and full prior-memory context unless measured savings and behavioral evaluation justify a change.
 
 Suggested metrics per operation and model/provider:
 
@@ -95,10 +92,8 @@ Suggested metrics per operation and model/provider:
 
 Telemetry should be debug/status data only and must not alter or reject memory output.
 
-## Recommended order
+## Remaining recommended order
 
-1. Add accumulated catch-up observations to later chunk prompts.
-3. Apply `maxFiles` and correct reflection recall provenance.
-4. Design and test priority-based summary budgeting together with bounded VCC history.
-5. Add cache telemetry, then operation-scoped cache identities.
-6. Consider narrow per-observation source ids only after the higher-confidence correctness fixes.
+1. Correct reflection recall provenance.
+2. Consider narrow per-observation source ids only after evaluating the observer tool-contract change.
+3. Consider eliminating the observer confirmation turn only after measuring its residual cost under the new cache routing.

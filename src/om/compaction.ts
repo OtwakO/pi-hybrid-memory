@@ -1,6 +1,7 @@
 // Reflector and pruner: LLM-based reflection synthesis and observation pruning
 import { completeSimple, type Context, type Message, type Model } from "@mariozechner/pi-ai";
 import type { CacheOperation, CacheTelemetry } from "../cache-telemetry.js";
+import type { CacheOptions } from "../cache-options.js";
 import type { MemoryReflection, ObservationRecord, Relevance } from "../types.js";
 import {
   PRUNER_PROMPT,
@@ -63,6 +64,7 @@ type ModelParams = {
   headers?: Record<string, string>;
   signal?: AbortSignal;
   telemetry?: CacheTelemetry;
+  cacheOptions?: CacheOptions;
 };
 
 const extractTextFromAssistantMessage = (msg: unknown): string => {
@@ -105,7 +107,13 @@ const callModel = async (
     const response = await completeSimple(
       params.model as Parameters<typeof completeSimple>[0],
       context,
-      { apiKey: params.apiKey, headers: params.headers, signal: params.signal },
+      {
+        apiKey: params.apiKey,
+        headers: params.headers,
+        signal: params.signal,
+        sessionId: params.cacheOptions?.sessionId,
+        cacheRetention: params.cacheOptions?.cacheRetention,
+      },
     );
     const outcome = response.stopReason === "error" ? "error"
       : response.stopReason === "aborted" ? "aborted"

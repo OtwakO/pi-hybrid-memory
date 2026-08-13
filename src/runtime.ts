@@ -17,6 +17,7 @@ export class Runtime {
   config: UnifiedConfig;
   loadedConfig = false;
   readonly cacheTelemetry = new CacheTelemetry();
+  piSessionId: string | null = null;
 
   // In-flight state
   observerInFlight = false;
@@ -55,6 +56,10 @@ export class Runtime {
       this.config = loadConfig(cwd, notify);
       this.loadedConfig = true;
     }
+  }
+
+  setPiSessionId(sessionId: string | undefined): void {
+    this.piSessionId = sessionId?.trim() || null;
   }
 
   shouldBackOffEmptyObserver(boundaryId: string, currentTokens: number, threshold: number): boolean {
