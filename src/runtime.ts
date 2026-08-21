@@ -2,6 +2,7 @@
 import type { ResolveResult, UnifiedConfig } from "./types.js";
 import { loadConfig } from "./config.js";
 import { CacheTelemetry } from "./cache-telemetry.js";
+import { ObserverEpochManager } from "./om/observer-epoch.js";
 
 const hasUsableAuth = (auth: {
   ok: boolean;
@@ -17,6 +18,7 @@ export class Runtime {
   config: UnifiedConfig;
   loadedConfig = false;
   readonly cacheTelemetry = new CacheTelemetry();
+  readonly observerEpoch = new ObserverEpochManager();
   piSessionId: string | null = null;
 
   // In-flight state
@@ -39,6 +41,7 @@ export class Runtime {
       hybrid: {
         observationThresholdTokens: 1000,
         observerChunkMaxTokens: 60000,
+        observerEpochMaxTokens: 96000,
         compactionThresholdTokens: 50000,
         compactionThresholdPercentage: 80,
         reflectionThresholdTokens: 30000,
@@ -59,7 +62,9 @@ export class Runtime {
   }
 
   setPiSessionId(sessionId: string | undefined): void {
-    this.piSessionId = sessionId?.trim() || null;
+    const next = sessionId?.trim() || null;
+    if (this.piSessionId !== next) this.observerEpoch.invalidate("session-change");
+    this.piSessionId = next;
   }
 
   shouldBackOffEmptyObserver(boundaryId: string, currentTokens: number, threshold: number): boolean {

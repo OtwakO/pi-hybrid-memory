@@ -2,7 +2,7 @@
 // Matches pi-observational-memory's design — no JSON parsing, structured via tool schema
 import { agentLoop, type AgentContext, type AgentLoopConfig, type AgentTool } from "@mariozechner/pi-agent-core";
 import type { Message, Model, Usage } from "@mariozechner/pi-ai";
-import type { CacheTelemetry } from "../cache-telemetry.js";
+import type { CachePrefixMetadata, CacheTelemetry } from "../cache-telemetry.js";
 import type { CacheOptions } from "../cache-options.js";
 import { Type } from "typebox";
 import type { Static } from "typebox";
@@ -35,17 +35,17 @@ export interface ObserverParams {
   model: unknown;
   apiKey: string;
   headers?: Record<string, string>;
-  priorReflections: string[];
-  priorObservations: string[];
-  chunk: string;
+  contextMessages: Message[];
+  prompts: Message[];
   allowedSourceEntryIds: string[];
   signal?: AbortSignal;
   telemetry?: CacheTelemetry;
   cacheOptions?: CacheOptions;
+  prefixTelemetry?: CachePrefixMetadata;
 }
 
 export type ObserverResult =
-  | { ok: true; records: ObservationRecord[] }
+  | { ok: true; records: ObservationRecord[]; transcriptSuffix: Message[] }
   | { ok: false; reason: string; rawResponse: string };
 
 let idCounter = 0;
@@ -54,8 +54,6 @@ const makeId = (): string => {
   idCounter++;
   return `${Date.now().toString(36).slice(-8)}${idCounter.toString(36).padStart(4, "0")}`;
 };
-
-const joinOrEmpty = (items: string[]): string => items.length ? items.join("\n") : "(none yet)";
 
 interface TerminalAssistantMessage {
   role?: string;
@@ -88,10 +86,9 @@ const terminalFailure = (event: unknown): string | null => {
 };
 
 export const runObserver = async (params: ObserverParams): Promise<ObserverResult> => {
-  const { model, apiKey, headers, priorReflections, priorObservations, chunk, signal } = params;
+  const { model, apiKey, headers, contextMessages, prompts, signal } = params;
 
-  const conversation = chunk.trim();
-  if (!conversation) return { ok: true, records: [] };
+  if (prompts.length === 0) return { ok: true, records: [], transcriptSuffix: [] };
 
   const accumulated: ObservationRecord[] = [];
 
@@ -119,19 +116,9 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
     },
   };
 
-  const system = OBSERVER_SYSTEM;
-  const userText =
-    `Compress the new conversation chunk into observations by calling record_observations one or more times. ` +
-    `Do not restate facts already present in current reflections or current observations. ` +
-    `Stop calling the tool and reply with a short plain-text confirmation once the chunk is fully covered.\n\n` +
-    `CURRENT REFLECTIONS:\n${joinOrEmpty(priorReflections)}\n\n` +
-    `CURRENT OBSERVATIONS:\n${joinOrEmpty(priorObservations)}\n\n` +
-    `NEW CONVERSATION CHUNK:\n${conversation}`;
-
-  const prompts: Message[] = [{ role: "user", content: userText, timestamp: Date.now() } as Message];
   const context: AgentContext = {
-    systemPrompt: system,
-    messages: [],
+    systemPrompt: OBSERVER_SYSTEM,
+    messages: structuredClone(contextMessages),
     tools: [recordObservations],
   };
   const config: AgentLoopConfig = {
@@ -156,15 +143,22 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
         const outcome = assistant.stopReason === "error" ? "error"
           : assistant.stopReason === "aborted" ? "aborted"
             : "success";
-        params.telemetry?.record("observer", params.model as Model<any>, outcome, assistant.usage);
+        params.telemetry?.record(
+          "observer",
+          params.model as Model<any>,
+          outcome,
+          assistant.usage,
+          Date.now(),
+          params.prefixTelemetry,
+        );
       }
     }
-    await stream.result();
+    const transcriptSuffix = await stream.result() as Message[];
 
     if (streamFailure) {
       return { ok: false, reason: `agentLoop stream failed: ${streamFailure}`, rawResponse: "" };
     }
-    return { ok: true, records: accumulated };
+    return { ok: true, records: accumulated, transcriptSuffix };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     return { ok: false, reason: `agentLoop failed: ${msg}`, rawResponse: "" };

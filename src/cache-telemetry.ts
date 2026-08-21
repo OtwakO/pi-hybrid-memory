@@ -1,5 +1,6 @@
 import type { Model, Usage } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ObserverEpochManager } from "./om/observer-epoch.js";
 
 export type CacheOperation = "observer" | "reflector" | "pruner";
 export type CacheCallOutcome = "success" | "error" | "aborted";
@@ -20,6 +21,14 @@ interface CostBreakdown {
   total: number;
 }
 
+export interface CachePrefixMetadata {
+  epochRunIndex: number;
+  cold: boolean;
+  predictedPrefixTokens: number;
+  projectedTokens: number;
+  resetReason?: string;
+}
+
 export interface CacheTelemetryCall {
   operation: CacheOperation;
   provider: string;
@@ -29,6 +38,7 @@ export interface CacheTelemetryCall {
   usage?: TokenUsage;
   reportedCost?: CostBreakdown;
   estimatedCost?: CostBreakdown;
+  prefix?: CachePrefixMetadata;
 }
 
 export interface CacheTelemetryAggregate {
@@ -107,6 +117,7 @@ export class CacheTelemetry {
     outcome: CacheCallOutcome,
     usage?: Usage,
     timestamp = Date.now(),
+    prefix?: CachePrefixMetadata,
   ): void {
     const normalizedUsage = usageFrom(usage);
     const call: CacheTelemetryCall = {
@@ -118,6 +129,7 @@ export class CacheTelemetry {
       usage: normalizedUsage,
       reportedCost: costFrom(usage?.cost),
       estimatedCost: estimateCost(model, normalizedUsage),
+      prefix,
     };
     this.recent.push(call);
     if (this.recent.length > this.recentLimit) {
@@ -170,12 +182,26 @@ const formatRatio = (usage: TokenUsage): string => {
   return cacheableInput > 0 ? `${((usage.cacheRead / cacheableInput) * 100).toFixed(1)}%` : "unknown";
 };
 
-export const formatCacheInfo = (telemetry: CacheTelemetry): string => {
+export const formatCacheInfo = (
+  telemetry: CacheTelemetry,
+  observerEpoch?: ObserverEpochManager,
+): string => {
   const calls = telemetry.calls();
   const lines = [
     "── Hybrid Memory Cache Telemetry ──",
     "Session-local extension LLM calls only; main Pi conversation usage is not included.",
   ];
+  if (observerEpoch) {
+    const stats = observerEpoch.stats();
+    lines.push(
+      "",
+      "── Observer epoch ──",
+      stats.active
+        ? `active: ${stats.runCount} committed run(s), ~${formatTokens(stats.estimatedTokens)} retained tokens, coverage ${stats.coverageEndId ?? "unknown"}`
+        : "inactive",
+      `last reset: ${stats.lastResetReason ?? "none"}`,
+    );
+  }
   if (calls.length === 0) {
     lines.push("", "No observer, reflector, or pruner calls recorded in this session.");
     return lines.join("\n");
@@ -198,17 +224,22 @@ export const formatCacheInfo = (telemetry: CacheTelemetry): string => {
     const time = new Date(call.timestamp).toLocaleTimeString();
     const usage = call.usage;
     lines.push(
-      `${time} ${call.operation} ${call.provider}/${call.model} ${call.outcome}`,
+      `${time} ${call.operation} ${call.provider}/${call.model} ${call.outcome}${call.prefix ? ` epoch#${call.prefix.epochRunIndex} ${call.prefix.cold ? "cold" : "warm"}` : ""}`,
       usage
         ? `  input ${formatTokens(usage.input)}, cache read ${formatTokens(usage.cacheRead)}, cache write ${formatTokens(usage.cacheWrite)}, output ${formatTokens(usage.output)}, hit ${formatRatio(usage)}`
         : "  usage: unknown",
+      ...(call.prefix ? [`  local prefix ${formatTokens(call.prefix.predictedPrefixTokens)} / projected ${formatTokens(call.prefix.projectedTokens)} tokens${call.prefix.resetReason ? `, reset ${call.prefix.resetReason}` : ""}`] : []),
       `  reported ${formatCost(call.reportedCost?.total)}, estimated ${formatCost(call.estimatedCost?.total)}`,
     );
   }
   return lines.join("\n");
 };
 
-export const registerCacheInfoCommand = (pi: ExtensionAPI, telemetry: CacheTelemetry): void => {
+export const registerCacheInfoCommand = (
+  pi: ExtensionAPI,
+  telemetry: CacheTelemetry,
+  observerEpoch?: ObserverEpochManager,
+): void => {
   pi.on("session_start", () => {
     telemetry.reset();
   });
@@ -216,7 +247,7 @@ export const registerCacheInfoCommand = (pi: ExtensionAPI, telemetry: CacheTelem
   pi.registerCommand("hm-cache-info", {
     description: "Show session-local hybrid-memory cache and cost telemetry",
     handler: async (_args, ctx) => {
-      ctx.ui.notify(formatCacheInfo(telemetry), "info");
+      ctx.ui.notify(formatCacheInfo(telemetry, observerEpoch), "info");
     },
   });
 };

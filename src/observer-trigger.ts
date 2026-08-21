@@ -9,11 +9,17 @@ import {
   rawTokensSinceLastBound,
   rawTailEntriesBetween,
 } from "./om/branch.js";
-import { observationsToPromptLines, runObserver } from "./om/observer.js";
+import { runObserver } from "./om/observer.js";
 import { serializeSourceAddressedBranchEntries } from "./om/serialize.js";
 import { operationCacheOptions } from "./cache-options.js";
 import { estimateStringTokens } from "./om/tokens.js";
-import { reflectionContent } from "./om/compaction.js";
+import {
+  OBSERVER_DELTA_INSTRUCTIONS,
+  observerBaselineText,
+  observerCompatibilityKey,
+  observerDeltaText,
+  observerEpochTokenLimit,
+} from "./om/observer-context.js";
 import type { Runtime } from "./runtime.js";
 
 export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): void {
@@ -72,19 +78,12 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
         runtime.boundaryRecoveryNotified = true;
       }
     });
-    const priorObservationLines = observationsToPromptLines([...committedObs, ...pendingObs]);
+    const baselineObservations = [...committedObs, ...pendingObs];
 
     const chunkEntries = rawTailEntriesBetween(entries, coversFromId, coversUpToId);
     if (chunkEntries.length === 0) return;
-    const serialized = serializeSourceAddressedBranchEntries(
-      chunkEntries,
-      runtime.config.hybrid.observerChunkMaxTokens,
-    );
-    const { text: chunk, sourceEntryIds, coversUpToId: observedUpToId } = serialized;
-    if (!chunk.trim() || sourceEntryIds.length === 0 || !observedUpToId) return;
-
     if (ctx.hasUI) ctx.ui.notify(
-      `Hybrid memory: observer running on ~${tokens.toLocaleString()}-token chunk`,
+      `Hybrid memory: observer preparing ~${tokens.toLocaleString()} tokens of pending context`,
       "info",
     );
 
@@ -99,18 +98,56 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
       }
       runtime.resolveFailureNotified = false;
 
+      const model = resolved.model as any;
+      const baselineText = observerBaselineText(reflections, baselineObservations);
+      const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
+      const freshDeltaBudget = runtime.observerEpoch.freshDeltaTokenBudget({
+        baselineText,
+        maxTokens: epochMaxTokens,
+        fixedTokens: 6_144,
+        deltaOverheadText: OBSERVER_DELTA_INSTRUCTIONS,
+      });
+      const serialized = serializeSourceAddressedBranchEntries(
+        chunkEntries,
+        Math.min(runtime.config.hybrid.observerChunkMaxTokens, freshDeltaBudget),
+      );
+      const { text: chunk, sourceEntryIds, coversUpToId: observedUpToId } = serialized;
+      if (!chunk.trim() || sourceEntryIds.length === 0 || !observedUpToId) return;
+
+      const prepared = runtime.observerEpoch.prepare({
+        compatibilityKey: observerCompatibilityKey(model),
+        expectedCoverageId: boundaryId,
+        baselineText,
+        deltaText: observerDeltaText(chunk),
+        maxTokens: epochMaxTokens,
+        fixedTokens: 6_144,
+      });
+      if (!prepared.ok) {
+        if (ctx.hasUI && ctx.ui) ctx.ui.notify(
+          `Hybrid memory: observer epoch cannot fit a fresh baseline and source chunk (${prepared.projectedTokens.toLocaleString()} > ${prepared.maxTokens.toLocaleString()} estimated tokens). Coverage was not advanced.`,
+          "warning",
+        );
+        return;
+      }
+
       const result = await runObserver({
-        model: resolved.model as any,
+        model,
         apiKey: resolved.apiKey,
         headers: resolved.headers,
-        priorReflections: reflections.map(r => reflectionContent(r)),
-        priorObservations: priorObservationLines,
-        chunk,
+        contextMessages: prepared.contextMessages,
+        prompts: prepared.prompts,
         allowedSourceEntryIds: sourceEntryIds,
         telemetry: runtime.cacheTelemetry,
         cacheOptions: runtime.piSessionId
           ? operationCacheOptions(runtime.piSessionId, "observer")
           : undefined,
+        prefixTelemetry: {
+          epochRunIndex: prepared.runIndex,
+          cold: prepared.cold,
+          predictedPrefixTokens: prepared.predictedPrefixTokens,
+          projectedTokens: prepared.projectedTokens,
+          resetReason: prepared.resetReason,
+        },
       });
       if (!result.ok) {
         if (ctx.hasUI && ctx.ui) ctx.ui.notify(
@@ -121,12 +158,14 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
       }
       if (result.records.length === 0) {
         if (serialized.hasMore) {
+          runtime.observerEpoch.validateCommit(prepared, result.transcriptSuffix);
           pi.appendEntry(OBSERVATION_CUSTOM_TYPE, {
             records: [],
             coversFromId,
             coversUpToId: observedUpToId,
             tokenCount: 0,
           } satisfies ObservationEntryData);
+          runtime.observerEpoch.commitValidated(prepared, result.transcriptSuffix, observedUpToId);
           runtime.clearEmptyObserverBackoff();
           if (ctx.hasUI && ctx.ui) ctx.ui.notify("Hybrid memory: observer found nothing in this bounded chunk; coverage advanced and more backlog remains", "info");
         } else {
@@ -144,7 +183,9 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
         coversUpToId: observedUpToId,
         tokenCount: observationTokens,
       };
+      runtime.observerEpoch.validateCommit(prepared, result.transcriptSuffix);
       pi.appendEntry(OBSERVATION_CUSTOM_TYPE, data);
+      runtime.observerEpoch.commitValidated(prepared, result.transcriptSuffix, observedUpToId);
       if (ctx.hasUI && ctx.ui) ctx.ui.notify(
         `Hybrid memory: ${result.records.length} observation(s) recorded (~${observationTokens.toLocaleString()} tokens)${serialized.hasMore ? "; more backlog remains" : ""}`,
         "info",

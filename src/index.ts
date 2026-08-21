@@ -23,7 +23,7 @@ export default function extension(pi: ExtensionAPI): void {
 
   // Register status and cache telemetry commands
   registerStatusCommand(pi, runtime);
-  registerCacheInfoCommand(pi, runtime.cacheTelemetry);
+  registerCacheInfoCommand(pi, runtime.cacheTelemetry, runtime.observerEpoch);
 
   pi.on("session_start", (_event, ctx) => {
     runtime.setPiSessionId(ctx.sessionManager.getSessionId());

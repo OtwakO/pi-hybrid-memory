@@ -112,6 +112,7 @@ export interface ExtensionConfig {
 export interface HybridSettings {
   observationThresholdTokens: number;
   observerChunkMaxTokens: number;
+  observerEpochMaxTokens: number;
   compactionThresholdTokens: number;
   compactionThresholdPercentage: number | null;
   reflectionThresholdTokens: number;

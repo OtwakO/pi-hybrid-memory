@@ -15,15 +15,14 @@ const streamOf = (events: unknown[]) => ({
   async *[Symbol.asyncIterator]() {
     for (const event of events) yield event;
   },
-  result: vi.fn().mockResolvedValue(undefined),
+  result: vi.fn().mockResolvedValue([]),
 });
 
 const params = {
   model: {},
   apiKey: "key",
-  priorReflections: [],
-  priorObservations: [],
-  chunk: "[Source entry id: source01]\n[User]: durable fact",
+  contextMessages: [],
+  prompts: [{ role: "user", content: "[Source entry id: source01]\n[User]: durable fact", timestamp: 0 }],
   allowedSourceEntryIds: ["source01"],
 };
 
@@ -173,7 +172,7 @@ describe("runObserver terminal stream handling", () => {
 
     const result = await runObserver({ ...params, model: telemetryModel, telemetry });
 
-    expect(result).toEqual({ ok: true, records: [] });
+    expect(result).toEqual({ ok: true, records: [], transcriptSuffix: [] });
     expect(telemetry.calls()).toHaveLength(1);
     expect(telemetry.calls()[0]).toMatchObject({
       operation: "observer",

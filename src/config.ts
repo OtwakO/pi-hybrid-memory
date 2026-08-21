@@ -14,6 +14,7 @@ export const DEFAULT_EXTENSION_CONFIG: ExtensionConfig = {
 export const DEFAULT_HYBRID_SETTINGS: HybridSettings = {
   observationThresholdTokens: 1000,
   observerChunkMaxTokens: 60000,
+  observerEpochMaxTokens: 96000,
   compactionThresholdTokens: 50000,
   compactionThresholdPercentage: 80,
   reflectionThresholdTokens: 30000,
@@ -73,6 +74,10 @@ const normalizeConfig = (value: ConfigFile): ConfigFile => ({
     typeof value.observerChunkMaxTokens === "number" && Number.isFinite(value.observerChunkMaxTokens)
       ? Math.max(256, Math.floor(value.observerChunkMaxTokens))
       : DEFAULT_HYBRID_SETTINGS.observerChunkMaxTokens,
+  observerEpochMaxTokens:
+    typeof value.observerEpochMaxTokens === "number" && Number.isFinite(value.observerEpochMaxTokens)
+      ? Math.max(4096, Math.floor(value.observerEpochMaxTokens))
+      : DEFAULT_HYBRID_SETTINGS.observerEpochMaxTokens,
   compactionThresholdPercentage: validCompactionThresholdPercentage(
     value.compactionThresholdPercentage,
   ),
@@ -123,6 +128,7 @@ export function loadConfigFromPaths(
   const hybrid: HybridSettings = {
     observationThresholdTokens: merged.observationThresholdTokens,
     observerChunkMaxTokens: merged.observerChunkMaxTokens,
+    observerEpochMaxTokens: merged.observerEpochMaxTokens,
     compactionThresholdTokens: merged.compactionThresholdTokens,
     compactionThresholdPercentage: merged.compactionThresholdPercentage,
     reflectionThresholdTokens: merged.reflectionThresholdTokens,

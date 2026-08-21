@@ -10,7 +10,14 @@ import {
 } from "./om/branch.js";
 import { estimateEntryTokens, estimateStringTokens } from "./om/tokens.js";
 import { serializeSourceAddressedBranchEntries } from "./om/serialize.js";
-import { observationsToPromptLines, runObserver } from "./om/observer.js";
+import { runObserver } from "./om/observer.js";
+import {
+  OBSERVER_DELTA_INSTRUCTIONS,
+  observerBaselineText,
+  observerCompatibilityKey,
+  observerDeltaText,
+  observerEpochTokenLimit,
+} from "./om/observer-context.js";
 import { runPruner, runReflector, reflectionContent, deriveCoverageTags } from "./om/compaction.js";
 import { normalize } from "./vcc/normalizer.js";
 import { extractGoals, extractFiles, extractCommits, extractPreferences, extractOutstandingContext, formatCommits } from "./vcc/extractor.js";
@@ -97,10 +104,10 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         // Normal mode: process the entire gap in bounded chunks before allowing
         // compaction. This preserves fail-closed coverage without sending one
         // unbounded observer request.
-        const priorObservationLines = observationsToPromptLines([
+        const baselineObservations = [
           ...memoryState.committedObs,
           ...memoryState.pendingObs,
-        ]);
+        ];
         const gapTokenEstimate = gap.reduce((sum, entry) => sum + estimateEntryTokens(entry), 0);
         if (ctx.hasUI) ctx.ui.notify(
           `Hybrid memory: sync catch-up observer running on ~${gapTokenEstimate.toLocaleString()}-token gap`,
@@ -109,41 +116,73 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
 
         runtime.observerInFlight = true;
         const accumulatedRecords: ObservationRecord[] = [];
+        const draftEpoch = runtime.observerEpoch.fork();
         let remainingGap = gap;
+        let expectedCoverageId = draftEpoch.stats().coverageEndId
+          ?? memoryState.pendingObs.at(-1)?.sourceEntryIds?.at(-1)
+          ?? memoryState.committedObs.at(-1)?.sourceEntryIds?.at(-1)
+          ?? firstKeptEntryId;
         let gapFailedReason: string | null = null;
         try {
+          const model = resolved.model as any;
+          const baselineText = observerBaselineText(memoryState.reflections, baselineObservations);
+          const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
+          const freshDeltaBudget = draftEpoch.freshDeltaTokenBudget({
+            baselineText,
+            maxTokens: epochMaxTokens,
+            fixedTokens: 6_144,
+            deltaOverheadText: OBSERVER_DELTA_INSTRUCTIONS,
+          });
           while (remainingGap.length > 0) {
             const serialized = serializeSourceAddressedBranchEntries(
               remainingGap,
-              runtime.config.hybrid.observerChunkMaxTokens,
+              Math.min(runtime.config.hybrid.observerChunkMaxTokens, freshDeltaBudget),
             );
             if (!serialized.text.trim() || serialized.sourceEntryIds.length === 0 || !serialized.coversUpToId) {
               gapFailedReason = "could not serialize the remaining source entries within the observer budget";
               break;
             }
 
+            const prepared = draftEpoch.prepare({
+              compatibilityKey: observerCompatibilityKey(model),
+              expectedCoverageId,
+              baselineText,
+              deltaText: observerDeltaText(serialized.text),
+              maxTokens: observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens),
+              fixedTokens: 6_144,
+            });
+            if (!prepared.ok) {
+              gapFailedReason = `observer epoch cannot fit fresh baseline and source chunk (${prepared.projectedTokens} > ${prepared.maxTokens})`;
+              break;
+            }
+
             const result = await runObserver({
-              model: resolved.model as any,
+              model,
               apiKey: resolved.apiKey,
               headers: resolved.headers,
-              priorReflections: memoryState.reflections.map(r => reflectionContent(r)),
-              priorObservations: [
-                ...priorObservationLines,
-                ...observationsToPromptLines(accumulatedRecords),
-              ],
-              chunk: serialized.text,
+              contextMessages: prepared.contextMessages,
+              prompts: prepared.prompts,
               allowedSourceEntryIds: serialized.sourceEntryIds,
               signal,
               telemetry: runtime.cacheTelemetry,
               cacheOptions: runtime.piSessionId
                 ? operationCacheOptions(runtime.piSessionId, "observer")
                 : undefined,
+              prefixTelemetry: {
+                epochRunIndex: prepared.runIndex,
+                cold: prepared.cold,
+                predictedPrefixTokens: prepared.predictedPrefixTokens,
+                projectedTokens: prepared.projectedTokens,
+                resetReason: prepared.resetReason,
+              },
             });
             if (!result.ok) {
               gapFailedReason = result.reason;
               break;
             }
             accumulatedRecords.push(...result.records);
+            draftEpoch.commit(prepared, result.transcriptSuffix, serialized.coversUpToId);
+            expectedCoverageId = serialized.coversUpToId;
 
             const coveredIndex = remainingGap.findIndex(entry => entry.id === serialized.coversUpToId);
             if (coveredIndex < 0) {
@@ -332,6 +371,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         merged.protectedOverflow ? "warning" : "info",
       );
 
+      runtime.observerEpoch.invalidate("compaction");
       return {
         compaction: {
           summary: merged.summary,

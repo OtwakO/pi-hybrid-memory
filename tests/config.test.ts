@@ -32,6 +32,7 @@ describe("unified hybrid-memory config", () => {
       debug: false,
       observationThresholdTokens: 1000,
       observerChunkMaxTokens: 60000,
+      observerEpochMaxTokens: 96000,
       compactionThresholdTokens: 50000,
       compactionThresholdPercentage: 80,
       maxSummaryTokens: 16000,
@@ -82,12 +83,14 @@ describe("unified hybrid-memory config", () => {
     const paths = fixture();
     writeJson(paths.globalConfigPath, {
       observerChunkMaxTokens: 0,
+      observerEpochMaxTokens: -1,
       compactionThresholdPercentage: 100,
     });
 
     const config = loadConfigFromPaths(paths);
 
     expect(config.hybrid.observerChunkMaxTokens).toBe(256);
+    expect(config.hybrid.observerEpochMaxTokens).toBe(4096);
     expect(config.hybrid.compactionThresholdPercentage).toBeNull();
   });
 });
