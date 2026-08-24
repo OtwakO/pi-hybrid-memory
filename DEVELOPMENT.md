@@ -87,3 +87,9 @@
 - **Change**: Proactive observation and catch-up now share a durable `coversUpToId` branch anchor; catch-up fences session/leaf identity before persistence, invalidates the live epoch after writing durable catch-up observations, and yields fully to Pi when compaction override is disabled.
 - **Reason**: Cache reuse is valid only when branch continuity is independently proven. A safe cold reset is preferable to reusing stale memory context.
 - **Verified**: Focused branch, compaction-safety, and compaction-hook integration tests cover empty coverage markers, cross-branch cold reset, navigation cancellation, post-persistence assembly failure, and the override off-switch.
+
+### [2026-08-25] Added whole-session observer continuity telemetry
+- **Context**: The ten-call recent ring could not show whether cold resets or provider misses were recurring over a long session.
+- **Change**: `/hm-cache-info` now aggregates proactive versus catch-up calls, cold/warm epochs, reset reasons, warm provider hits/misses, and minimum capacity headroom. Both observer paths share one conservative fixed-token reservation.
+- **Reason**: Cache tuning needs provider-independent continuity evidence without storing prompts or memory content.
+- **Verified**: Focused telemetry, observer, compaction telemetry, and catch-up safety tests pass with clean TypeScript.

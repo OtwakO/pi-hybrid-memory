@@ -15,6 +15,7 @@ import { operationCacheOptions } from "./cache-options.js";
 import { estimateStringTokens } from "./om/tokens.js";
 import {
   OBSERVER_DELTA_INSTRUCTIONS,
+  OBSERVER_FIXED_TOKEN_RESERVE,
   observerBaselineText,
   observerCompatibilityKey,
   observerDeltaText,
@@ -105,7 +106,7 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
       const freshDeltaBudget = runtime.observerEpoch.freshDeltaTokenBudget({
         baselineText,
         maxTokens: epochMaxTokens,
-        fixedTokens: 6_144,
+        fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
         deltaOverheadText: OBSERVER_DELTA_INSTRUCTIONS,
       });
       const serialized = serializeSourceAddressedBranchEntries(
@@ -121,7 +122,7 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
         baselineText,
         deltaText: observerDeltaText(chunk),
         maxTokens: epochMaxTokens,
-        fixedTokens: 6_144,
+        fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
       });
       if (!prepared.ok) {
         if (ctx.hasUI && ctx.ui) ctx.ui.notify(
@@ -143,11 +144,13 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
           ? operationCacheOptions(runtime.piSessionId, "observer")
           : undefined,
         prefixTelemetry: {
-          epochRunIndex: prepared.runIndex,
-          cold: prepared.cold,
+              source: "proactive",
+              epochRunIndex: prepared.runIndex,
+              cold: prepared.cold,
           predictedPrefixTokens: prepared.predictedPrefixTokens,
-          projectedTokens: prepared.projectedTokens,
-          resetReason: prepared.resetReason,
+              projectedTokens: prepared.projectedTokens,
+              maxTokens: epochMaxTokens,
+              resetReason: prepared.resetReason,
         },
       });
       if (!result.ok) {

@@ -57,6 +57,62 @@ describe("CacheTelemetry", () => {
     expect(output).toContain("price-based estimate: unknown");
   });
 
+  it("aggregates observer epoch continuity and provider cache outcomes beyond the recent ring", () => {
+    const telemetry = new CacheTelemetry(1);
+    telemetry.record("observer", model, "success", usage({ input: 1_000, cacheRead: 0 }), 1, {
+      source: "proactive",
+      epochRunIndex: 1,
+      cold: true,
+      predictedPrefixTokens: 2_000,
+      projectedTokens: 5_000,
+      maxTokens: 10_000,
+      resetReason: "initial",
+    });
+    telemetry.record("observer", model, "success", usage({ input: 500, cacheRead: 4_500 }), 2, {
+      source: "catch-up",
+      epochRunIndex: 2,
+      cold: false,
+      predictedPrefixTokens: 4_500,
+      projectedTokens: 5_500,
+      maxTokens: 10_000,
+    });
+
+    const observer = telemetry.observerEpochAggregate();
+    expect(observer).toMatchObject({
+      calls: 2,
+      proactiveCalls: 1,
+      catchUpCalls: 1,
+      coldCalls: 1,
+      warmCalls: 1,
+      warmProviderHits: 1,
+      warmProviderMisses: 0,
+      minimumHeadroomTokens: 4_500,
+      resetReasons: { initial: 1 },
+    });
+    expect(telemetry.calls()).toHaveLength(1);
+    expect(formatCacheInfo(telemetry)).toContain("observer epochs: 1 cold, 1 warm; proactive 1, catch-up 1");
+    expect(formatCacheInfo(telemetry)).toContain("resets: initial 1");
+  });
+
+  it("counts locally warm provider misses without treating them as epoch resets", () => {
+    const telemetry = new CacheTelemetry();
+    telemetry.record("observer", model, "success", usage({ input: 5_000, cacheRead: 0 }), 1, {
+      source: "proactive",
+      epochRunIndex: 3,
+      cold: false,
+      predictedPrefixTokens: 4_000,
+      projectedTokens: 6_000,
+      maxTokens: 10_000,
+    });
+
+    expect(telemetry.observerEpochAggregate()).toMatchObject({
+      warmCalls: 1,
+      warmProviderHits: 0,
+      warmProviderMisses: 1,
+      resetReasons: {},
+    });
+  });
+
   it("resets both recent calls and whole-session aggregates", () => {
     const telemetry = new CacheTelemetry();
     telemetry.record("observer", model, "success", usage(), 1);
@@ -65,6 +121,7 @@ describe("CacheTelemetry", () => {
 
     expect(telemetry.calls()).toEqual([]);
     expect(telemetry.aggregates().find((item) => item.operation === "observer")?.calls).toBe(0);
+    expect(telemetry.observerEpochAggregate().calls).toBe(0);
   });
 
   it("starts with a clear empty-session message", () => {

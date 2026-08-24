@@ -21,11 +21,15 @@ interface CostBreakdown {
   total: number;
 }
 
+export type ObserverCallSource = "proactive" | "catch-up";
+
 export interface CachePrefixMetadata {
+  source: ObserverCallSource;
   epochRunIndex: number;
   cold: boolean;
   predictedPrefixTokens: number;
   projectedTokens: number;
+  maxTokens: number;
   resetReason?: string;
 }
 
@@ -39,6 +43,18 @@ export interface CacheTelemetryCall {
   reportedCost?: CostBreakdown;
   estimatedCost?: CostBreakdown;
   prefix?: CachePrefixMetadata;
+}
+
+export interface ObserverEpochAggregate {
+  calls: number;
+  proactiveCalls: number;
+  catchUpCalls: number;
+  coldCalls: number;
+  warmCalls: number;
+  warmProviderHits: number;
+  warmProviderMisses: number;
+  minimumHeadroomTokens?: number;
+  resetReasons: Record<string, number>;
 }
 
 export interface CacheTelemetryAggregate {
@@ -90,6 +106,17 @@ const estimateCost = (model: Model<any>, usage: TokenUsage | undefined): CostBre
   return { input, output, cacheRead, cacheWrite, total: input + output + cacheRead + cacheWrite };
 };
 
+const newObserverEpochAggregate = (): ObserverEpochAggregate => ({
+  calls: 0,
+  proactiveCalls: 0,
+  catchUpCalls: 0,
+  coldCalls: 0,
+  warmCalls: 0,
+  warmProviderHits: 0,
+  warmProviderMisses: 0,
+  resetReasons: {},
+});
+
 const newAggregate = (operation: CacheOperation): CacheTelemetryAggregate => ({
   operation,
   calls: 0,
@@ -103,6 +130,7 @@ const newAggregate = (operation: CacheOperation): CacheTelemetryAggregate => ({
 
 export class CacheTelemetry {
   private readonly recent: CacheTelemetryCall[] = [];
+  private observerEpochTotals = newObserverEpochAggregate();
   private readonly totals = new Map<CacheOperation, CacheTelemetryAggregate>([
     ["observer", newAggregate("observer")],
     ["reflector", newAggregate("reflector")],
@@ -148,6 +176,28 @@ export class CacheTelemetry {
       total.usage.cacheWrite += normalizedUsage.cacheWrite;
       total.usage.totalTokens += normalizedUsage.totalTokens;
     }
+    if (operation === "observer" && prefix) {
+      const epoch = this.observerEpochTotals;
+      epoch.calls++;
+      if (prefix.source === "proactive") epoch.proactiveCalls++;
+      else epoch.catchUpCalls++;
+      if (prefix.cold) epoch.coldCalls++;
+      else {
+        epoch.warmCalls++;
+        if (normalizedUsage) {
+          if (normalizedUsage.cacheRead > 0) epoch.warmProviderHits++;
+          else epoch.warmProviderMisses++;
+        }
+      }
+      if (prefix.resetReason) {
+        epoch.resetReasons[prefix.resetReason] = (epoch.resetReasons[prefix.resetReason] ?? 0) + 1;
+      }
+      const headroom = Math.max(0, prefix.maxTokens - prefix.projectedTokens);
+      epoch.minimumHeadroomTokens = epoch.minimumHeadroomTokens === undefined
+        ? headroom
+        : Math.min(epoch.minimumHeadroomTokens, headroom);
+    }
+
     total.reportedCost = call.reportedCost && total.reportedCost !== undefined
       ? total.reportedCost + call.reportedCost.total
       : undefined;
@@ -161,10 +211,18 @@ export class CacheTelemetry {
     this.totals.set("observer", newAggregate("observer"));
     this.totals.set("reflector", newAggregate("reflector"));
     this.totals.set("pruner", newAggregate("pruner"));
+    this.observerEpochTotals = newObserverEpochAggregate();
   }
 
   calls(): readonly CacheTelemetryCall[] {
     return this.recent;
+  }
+
+  observerEpochAggregate(): ObserverEpochAggregate {
+    return {
+      ...this.observerEpochTotals,
+      resetReasons: { ...this.observerEpochTotals.resetReasons },
+    };
   }
 
   aggregates(): CacheTelemetryAggregate[] {
@@ -207,6 +265,22 @@ export const formatCacheInfo = (
     return lines.join("\n");
   }
 
+  const observerEpochAggregate = telemetry.observerEpochAggregate();
+  if (observerEpochAggregate.calls > 0) {
+    const resets = Object.entries(observerEpochAggregate.resetReasons)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([reason, count]) => `${reason} ${count}`)
+      .join(", ") || "none";
+    lines.push(
+      "",
+      "── Observer continuity ──",
+      `observer epochs: ${observerEpochAggregate.coldCalls} cold, ${observerEpochAggregate.warmCalls} warm; proactive ${observerEpochAggregate.proactiveCalls}, catch-up ${observerEpochAggregate.catchUpCalls}`,
+      `warm provider cache: ${observerEpochAggregate.warmProviderHits} hit, ${observerEpochAggregate.warmProviderMisses} miss (usage-reported calls only)`,
+      `resets: ${resets}`,
+      `minimum capacity headroom: ${observerEpochAggregate.minimumHeadroomTokens === undefined ? "unknown" : `~${formatTokens(observerEpochAggregate.minimumHeadroomTokens)} tokens`}`,
+    );
+  }
+
   lines.push("", "── Session aggregates ──");
   for (const aggregate of telemetry.aggregates()) {
     if (aggregate.calls === 0) continue;
@@ -224,11 +298,11 @@ export const formatCacheInfo = (
     const time = new Date(call.timestamp).toLocaleTimeString();
     const usage = call.usage;
     lines.push(
-      `${time} ${call.operation} ${call.provider}/${call.model} ${call.outcome}${call.prefix ? ` epoch#${call.prefix.epochRunIndex} ${call.prefix.cold ? "cold" : "warm"}` : ""}`,
+      `${time} ${call.operation} ${call.provider}/${call.model} ${call.outcome}${call.prefix ? ` ${call.prefix.source} epoch#${call.prefix.epochRunIndex} ${call.prefix.cold ? "cold" : "warm"}` : ""}`,
       usage
         ? `  input ${formatTokens(usage.input)}, cache read ${formatTokens(usage.cacheRead)}, cache write ${formatTokens(usage.cacheWrite)}, output ${formatTokens(usage.output)}, hit ${formatRatio(usage)}`
         : "  usage: unknown",
-      ...(call.prefix ? [`  local prefix ${formatTokens(call.prefix.predictedPrefixTokens)} / projected ${formatTokens(call.prefix.projectedTokens)} tokens${call.prefix.resetReason ? `, reset ${call.prefix.resetReason}` : ""}`] : []),
+      ...(call.prefix ? [`  local prefix ${formatTokens(call.prefix.predictedPrefixTokens)} / projected ${formatTokens(call.prefix.projectedTokens)} of ${formatTokens(call.prefix.maxTokens)} tokens${call.prefix.resetReason ? `, reset ${call.prefix.resetReason}` : ""}`] : []),
       `  reported ${formatCost(call.reportedCost?.total)}, estimated ${formatCost(call.estimatedCost?.total)}`,
     );
   }

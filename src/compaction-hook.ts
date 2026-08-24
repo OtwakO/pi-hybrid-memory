@@ -14,12 +14,13 @@ import { serializeSourceAddressedBranchEntries } from "./om/serialize.js";
 import { runObserver } from "./om/observer.js";
 import {
   OBSERVER_DELTA_INSTRUCTIONS,
+  OBSERVER_FIXED_TOKEN_RESERVE,
   observerBaselineText,
   observerCompatibilityKey,
   observerDeltaText,
   observerEpochTokenLimit,
 } from "./om/observer-context.js";
-import { runPruner, runReflector, reflectionContent, deriveCoverageTags } from "./om/compaction.js";
+import { runPruner, runReflector, deriveCoverageTags } from "./om/compaction.js";
 import { normalize } from "./vcc/normalizer.js";
 import { extractGoals, extractFiles, extractCommits, extractPreferences, extractOutstandingContext, formatCommits } from "./vcc/extractor.js";
 import { buildBriefSections, stringifyBrief, capBrief } from "./vcc/transcript.js";
@@ -134,7 +135,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
           const freshDeltaBudget = draftEpoch.freshDeltaTokenBudget({
             baselineText,
             maxTokens: epochMaxTokens,
-            fixedTokens: 6_144,
+            fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
             deltaOverheadText: OBSERVER_DELTA_INSTRUCTIONS,
           });
           while (remainingGap.length > 0) {
@@ -153,7 +154,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
               baselineText,
               deltaText: observerDeltaText(serialized.text),
               maxTokens: observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens),
-              fixedTokens: 6_144,
+              fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
             });
             if (!prepared.ok) {
               gapFailedReason = `observer epoch cannot fit fresh baseline and source chunk (${prepared.projectedTokens} > ${prepared.maxTokens})`;
@@ -173,10 +174,12 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
                 ? operationCacheOptions(runtime.piSessionId, "observer")
                 : undefined,
               prefixTelemetry: {
+                source: "catch-up",
                 epochRunIndex: prepared.runIndex,
                 cold: prepared.cold,
                 predictedPrefixTokens: prepared.predictedPrefixTokens,
                 projectedTokens: prepared.projectedTokens,
+                maxTokens: epochMaxTokens,
                 resetReason: prepared.resetReason,
               },
             });

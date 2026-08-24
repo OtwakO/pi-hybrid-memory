@@ -7,6 +7,10 @@ export const OBSERVER_PROMPT_VERSION = "observer-v2-epoch";
 export const OBSERVER_TOOL_VERSION = "record-observations-v1";
 export const OBSERVER_SERIALIZER_VERSION = "source-addressed-v1";
 
+// Conservative allowance for observer output, tool schemas, provider framing,
+// and the final tool-continuation turn. Both observer paths must use one value.
+export const OBSERVER_FIXED_TOKEN_RESERVE = 6_144;
+
 const joinOrEmpty = (items: string[]): string => items.length ? items.join("\n") : "(none yet)";
 
 export const observerBaselineText = (

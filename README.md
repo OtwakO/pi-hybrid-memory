@@ -115,7 +115,8 @@ The command displays:
 - Whole-session aggregates per operation
 - The 10 most recent extension LLM calls
 - Observer epoch state: committed run count, estimated retained tokens, coverage anchor, and last reset reason
-- Per-observer-call cold/warm status, epoch run number, locally predicted reusable-prefix tokens, and projected request tokens
+- Whole-session observer continuity aggregates: proactive versus compaction catch-up calls, cold/warm counts, reset-reason histogram, warm provider hits/misses, and minimum estimated capacity headroom
+- Per-observer-call source, cold/warm status, epoch run number, locally predicted reusable-prefix tokens, projected request tokens, and effective epoch limit
 - Input, output, cache-read, and cache-write tokens
 - Cache-read ratio as `cacheRead / (input + cacheRead)` when usage is available
 - Provider-reported cost from the response
