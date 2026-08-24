@@ -320,6 +320,11 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
           const msg = error instanceof Error ? error.message : String(error);
           if (ctx.hasUI) ctx.ui.notify(`Hybrid memory: reflect/prune failed: ${msg}`, "warning");
         }
+      } else {
+        runtime.cacheTelemetry.recordMemoryLifecycle("reflector", "below-threshold", {
+          inputItems: workingObservations.length,
+          inputTokens: observationTokens,
+        });
       }
 
       // ── Step 4: Build VCC summary ──

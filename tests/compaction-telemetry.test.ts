@@ -43,7 +43,7 @@ const observation = {
 describe("reflector and pruner cache telemetry", () => {
   beforeEach(() => completeSimpleMock.mockReset());
 
-  it("records reflector response usage", async () => {
+  it("records reflector response usage and accepted-result counts", async () => {
     completeSimpleMock.mockResolvedValue(response(JSON.stringify({
       reflections: [{ content: "durable reflection", supportingObservationIds: [observation.id] }],
     })));
@@ -68,6 +68,13 @@ describe("reflector and pruner cache telemetry", () => {
       outcome: "success",
       usage: { cacheRead: 300 },
     });
+    expect(telemetry.memoryLifecycleAggregate("reflector")).toMatchObject({
+      attempts: 1,
+      outcomes: { success: 1 },
+      inputItems: 1,
+      proposedItems: 1,
+      acceptedItems: 1,
+    });
   });
 
   it("records failed pruner response usage without treating it as valid output", async () => {
@@ -78,5 +85,52 @@ describe("reflector and pruner cache telemetry", () => {
 
     expect(result).toEqual({ observations: [observation], fellBack: true });
     expect(telemetry.calls()[0]).toMatchObject({ operation: "pruner", outcome: "error" });
+    expect(telemetry.memoryLifecycleAggregate("pruner")).toMatchObject({
+      attempts: 1,
+      outcomes: { error: 1 },
+      inputItems: 1,
+      acceptedItems: 1,
+    });
+  });
+
+  it("distinguishes a deliberate empty reflection result from malformed output", async () => {
+    const telemetry = new CacheTelemetry();
+    completeSimpleMock
+      .mockResolvedValueOnce(response(JSON.stringify({ reflections: [] })))
+      .mockResolvedValueOnce(response("not json"));
+
+    await runReflector({ model, apiKey: "key", telemetry }, [], [observation]);
+    await runReflector({ model, apiKey: "key", telemetry }, [], [observation]);
+
+    expect(telemetry.memoryLifecycleAggregate("reflector")).toMatchObject({
+      attempts: 2,
+      outcomes: { "deliberate-empty": 1, "invalid-output": 1 },
+      inputItems: 2,
+      proposedItems: 0,
+      acceptedItems: 0,
+    });
+  });
+
+  it("records pruner before and after counts", async () => {
+    const second = { ...observation, id: "bbbbbbbbbbbb", content: "second fact" };
+    completeSimpleMock.mockResolvedValue(response(JSON.stringify({
+      observationsToKeep: [observation.id],
+    })));
+    const telemetry = new CacheTelemetry();
+
+    const result = await runPruner(
+      { model, apiKey: "key", telemetry },
+      [],
+      [observation, second],
+      1_000,
+    );
+
+    expect(result.observations).toEqual([observation]);
+    expect(telemetry.memoryLifecycleAggregate("pruner")).toMatchObject({
+      attempts: 1,
+      outcomes: { success: 1 },
+      inputItems: 2,
+      acceptedItems: 1,
+    });
   });
 });

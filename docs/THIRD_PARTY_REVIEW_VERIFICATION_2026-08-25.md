@@ -720,7 +720,7 @@ A future cache or memory architecture change is complete only when:
 | C — Provenance quality | Not started |
 | D — Oversized-entry coverage | Design not started |
 | E — Baseline pressure | Evidence gathering not started |
-| F — Compaction cache observability | In progress: observer proactive/catch-up source, cold/warm/reset aggregates, provider hit/miss counts, capacity headroom, and shared fixed reservation implemented locally; reflector/pruner lifecycle metrics remain |
+| F — Compaction cache observability | Implemented locally: observer proactive/catch-up source, cold/warm/reset aggregates, provider hit/miss counts, capacity headroom, shared fixed reservation, and reflector/pruner skip/outcome/input/result counts; focused verification complete, not committed |
 | G — Quality-neutral compaction prefix experiment | Deferred pending Milestone F telemetry |
 | H — Optional unified transactional fold prototype | Not approved; evidence and quality evaluation required |
 | I — Other measured cache refinements | Deferred pending telemetry |

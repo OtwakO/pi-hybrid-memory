@@ -4,6 +4,14 @@ import type { ObserverEpochManager } from "./om/observer-epoch.js";
 
 export type CacheOperation = "observer" | "reflector" | "pruner";
 export type CacheCallOutcome = "success" | "error" | "aborted";
+export type MemoryLifecycleOperation = "reflector" | "pruner";
+export type MemoryLifecycleOutcome =
+  | "below-threshold"
+  | "success"
+  | "deliberate-empty"
+  | "invalid-output"
+  | "error"
+  | "aborted";
 
 interface TokenUsage {
   input: number;
@@ -55,6 +63,23 @@ export interface ObserverEpochAggregate {
   warmProviderMisses: number;
   minimumHeadroomTokens?: number;
   resetReasons: Record<string, number>;
+}
+
+export interface MemoryLifecycleAggregate {
+  operation: MemoryLifecycleOperation;
+  attempts: number;
+  outcomes: Partial<Record<MemoryLifecycleOutcome, number>>;
+  inputItems: number;
+  inputTokens: number;
+  proposedItems: number;
+  acceptedItems: number;
+}
+
+export interface MemoryLifecycleCounts {
+  inputItems?: number;
+  inputTokens?: number;
+  proposedItems?: number;
+  acceptedItems?: number;
 }
 
 export interface CacheTelemetryAggregate {
@@ -117,6 +142,18 @@ const newObserverEpochAggregate = (): ObserverEpochAggregate => ({
   resetReasons: {},
 });
 
+const newMemoryLifecycleAggregate = (
+  operation: MemoryLifecycleOperation,
+): MemoryLifecycleAggregate => ({
+  operation,
+  attempts: 0,
+  outcomes: {},
+  inputItems: 0,
+  inputTokens: 0,
+  proposedItems: 0,
+  acceptedItems: 0,
+});
+
 const newAggregate = (operation: CacheOperation): CacheTelemetryAggregate => ({
   operation,
   calls: 0,
@@ -131,6 +168,10 @@ const newAggregate = (operation: CacheOperation): CacheTelemetryAggregate => ({
 export class CacheTelemetry {
   private readonly recent: CacheTelemetryCall[] = [];
   private observerEpochTotals = newObserverEpochAggregate();
+  private readonly memoryLifecycleTotals = new Map<MemoryLifecycleOperation, MemoryLifecycleAggregate>([
+    ["reflector", newMemoryLifecycleAggregate("reflector")],
+    ["pruner", newMemoryLifecycleAggregate("pruner")],
+  ]);
   private readonly totals = new Map<CacheOperation, CacheTelemetryAggregate>([
     ["observer", newAggregate("observer")],
     ["reflector", newAggregate("reflector")],
@@ -206,16 +247,37 @@ export class CacheTelemetry {
       : undefined;
   }
 
+  recordMemoryLifecycle(
+    operation: MemoryLifecycleOperation,
+    outcome: MemoryLifecycleOutcome,
+    counts: MemoryLifecycleCounts = {},
+  ): void {
+    const aggregate = this.memoryLifecycleTotals.get(operation)!;
+    aggregate.attempts++;
+    aggregate.outcomes[outcome] = (aggregate.outcomes[outcome] ?? 0) + 1;
+    aggregate.inputItems += counts.inputItems ?? 0;
+    aggregate.inputTokens += counts.inputTokens ?? 0;
+    aggregate.proposedItems += counts.proposedItems ?? 0;
+    aggregate.acceptedItems += counts.acceptedItems ?? 0;
+  }
+
   reset(): void {
     this.recent.length = 0;
     this.totals.set("observer", newAggregate("observer"));
     this.totals.set("reflector", newAggregate("reflector"));
     this.totals.set("pruner", newAggregate("pruner"));
     this.observerEpochTotals = newObserverEpochAggregate();
+    this.memoryLifecycleTotals.set("reflector", newMemoryLifecycleAggregate("reflector"));
+    this.memoryLifecycleTotals.set("pruner", newMemoryLifecycleAggregate("pruner"));
   }
 
   calls(): readonly CacheTelemetryCall[] {
     return this.recent;
+  }
+
+  memoryLifecycleAggregate(operation: MemoryLifecycleOperation): MemoryLifecycleAggregate {
+    const aggregate = this.memoryLifecycleTotals.get(operation)!;
+    return { ...aggregate, outcomes: { ...aggregate.outcomes } };
   }
 
   observerEpochAggregate(): ObserverEpochAggregate {
@@ -260,8 +322,11 @@ export const formatCacheInfo = (
       `last reset: ${stats.lastResetReason ?? "none"}`,
     );
   }
-  if (calls.length === 0) {
-    lines.push("", "No observer, reflector, or pruner calls recorded in this session.");
+  const lifecycleAggregates = (["reflector", "pruner"] as const)
+    .map(operation => telemetry.memoryLifecycleAggregate(operation))
+    .filter(aggregate => aggregate.attempts > 0);
+  if (calls.length === 0 && lifecycleAggregates.length === 0) {
+    lines.push("", "No observer, reflector, or pruner activity recorded in this session.");
     return lines.join("\n");
   }
 
@@ -280,6 +345,22 @@ export const formatCacheInfo = (
       `minimum capacity headroom: ${observerEpochAggregate.minimumHeadroomTokens === undefined ? "unknown" : `~${formatTokens(observerEpochAggregate.minimumHeadroomTokens)} tokens`}`,
     );
   }
+
+  if (lifecycleAggregates.length > 0) {
+    lines.push("", "── Memory lifecycle ──");
+    for (const aggregate of lifecycleAggregates) {
+      const outcomes = Object.entries(aggregate.outcomes)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([outcome, count]) => `${outcome} ${count}`)
+        .join(", ");
+      lines.push(
+        `${aggregate.operation} lifecycle: ${outcomes}`,
+        `  input items ${formatTokens(aggregate.inputItems)}, input tokens ~${formatTokens(aggregate.inputTokens)}, proposed ${formatTokens(aggregate.proposedItems)}, accepted ${formatTokens(aggregate.acceptedItems)}`,
+      );
+    }
+  }
+
+  if (calls.length === 0) return lines.join("\n");
 
   lines.push("", "── Session aggregates ──");
   for (const aggregate of telemetry.aggregates()) {

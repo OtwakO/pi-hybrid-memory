@@ -113,6 +113,24 @@ describe("CacheTelemetry", () => {
     });
   });
 
+  it("records below-threshold reflection skips without an LLM call", () => {
+    const telemetry = new CacheTelemetry();
+
+    telemetry.recordMemoryLifecycle("reflector", "below-threshold", {
+      inputItems: 12,
+      inputTokens: 4_000,
+    });
+
+    expect(telemetry.calls()).toEqual([]);
+    expect(telemetry.memoryLifecycleAggregate("reflector")).toMatchObject({
+      attempts: 1,
+      outcomes: { "below-threshold": 1 },
+      inputItems: 12,
+      inputTokens: 4_000,
+    });
+    expect(formatCacheInfo(telemetry)).toContain("reflector lifecycle: below-threshold 1");
+  });
+
   it("resets both recent calls and whole-session aggregates", () => {
     const telemetry = new CacheTelemetry();
     telemetry.record("observer", model, "success", usage(), 1);
@@ -122,9 +140,10 @@ describe("CacheTelemetry", () => {
     expect(telemetry.calls()).toEqual([]);
     expect(telemetry.aggregates().find((item) => item.operation === "observer")?.calls).toBe(0);
     expect(telemetry.observerEpochAggregate().calls).toBe(0);
+    expect(telemetry.memoryLifecycleAggregate("reflector").attempts).toBe(0);
   });
 
   it("starts with a clear empty-session message", () => {
-    expect(formatCacheInfo(new CacheTelemetry())).toContain("No observer, reflector, or pruner calls recorded");
+    expect(formatCacheInfo(new CacheTelemetry())).toContain("No observer, reflector, or pruner activity recorded");
   });
 });

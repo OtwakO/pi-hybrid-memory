@@ -93,3 +93,9 @@
 - **Change**: `/hm-cache-info` now aggregates proactive versus catch-up calls, cold/warm epochs, reset reasons, warm provider hits/misses, and minimum capacity headroom. Both observer paths share one conservative fixed-token reservation.
 - **Reason**: Cache tuning needs provider-independent continuity evidence without storing prompts or memory content.
 - **Verified**: Focused telemetry, observer, compaction telemetry, and catch-up safety tests pass with clean TypeScript.
+
+### [2026-08-25] Made reflection and pruning outcomes observable
+- **Context**: Empty reflections could mean below-threshold, deliberate-empty output, malformed output, provider failure, or rejected proposals, but persisted memory alone could not distinguish them.
+- **Change**: Session-local telemetry now records reflector/pruner lifecycle outcomes and aggregate input/proposed/accepted counts while preserving existing memory returns and fallbacks.
+- **Reason**: Reflection policy and compaction cache work should be tuned from evidence without retaining prompts or memory text.
+- **Verified**: Focused cache telemetry, compaction telemetry, pipeline, and compaction safety tests pass with clean TypeScript.
