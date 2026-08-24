@@ -124,7 +124,7 @@ Prepare bounded observer-epoch transaction
   append-only delta: new source-addressed conversation chunk
       │
       ▼
-LLM/tool loop returns observations + exact transcript suffix
+LLM/tool loop returns observations with validated per-observation source subsets + exact transcript suffix
       │
       ▼
 Append durable observation/coverage entry to Pi tree store

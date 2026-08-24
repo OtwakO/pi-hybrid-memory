@@ -24,6 +24,10 @@ const RecordObservationsSchema = Type.Object({
         description: "Single-line plain prose. No markdown, no tags.",
       }),
       relevance: RelevanceSchema,
+      sourceEntryIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }), {
+        minItems: 1,
+        description: "Optional exact subset of source entry ids that directly support this observation. Omit only when the full current chunk supports it.",
+      })),
     }),
     { description: "Batch of observations. May be empty." },
   ),
@@ -91,6 +95,8 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
   if (prompts.length === 0) return { ok: true, records: [], transcriptSuffix: [] };
 
   const accumulated: ObservationRecord[] = [];
+  let provenanceFailure: string | null = null;
+  const allowedSourceIds = new Set(params.allowedSourceEntryIds);
 
   const recordObservations: AgentTool<any> = {
     name: "record_observations",
@@ -100,15 +106,25 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
       "Call this one or more times as you work through the chunk. Stop calling when coverage is complete.",
     parameters: RecordObservationsSchema as any,
     execute: async (_id, args: RecordObservationsArgs) => {
+      const staged: ObservationRecord[] = [];
       for (const obs of args.observations) {
-        accumulated.push({
+        const requestedIds = obs.sourceEntryIds;
+        const sourceEntryIds = requestedIds === undefined
+          ? [...params.allowedSourceEntryIds]
+          : [...new Set(requestedIds)];
+        if (sourceEntryIds.length === 0 || sourceEntryIds.some(id => !allowedSourceIds.has(id))) {
+          provenanceFailure = "record_observations sourceEntryIds must be a non-empty subset of the current source chunk";
+          throw new Error(provenanceFailure);
+        }
+        staged.push({
           id: makeId(),
           content: obs.content.trim(),
           timestamp: new Date().toISOString(),
           relevance: obs.relevance as Relevance,
-          sourceEntryIds: [...params.allowedSourceEntryIds],
+          sourceEntryIds,
         });
       }
+      accumulated.push(...staged);
       return {
         content: [{ type: "text" as const, text: `Recorded ${args.observations.length} observation(s). Total: ${accumulated.length}. Continue or stop calling the tool.` }],
         details: { added: args.observations.length, total: accumulated.length },
@@ -155,12 +171,15 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
     }
     const transcriptSuffix = await stream.result() as Message[];
 
+    if (provenanceFailure) {
+      return { ok: false, reason: provenanceFailure, rawResponse: "" };
+    }
     if (streamFailure) {
       return { ok: false, reason: `agentLoop stream failed: ${streamFailure}`, rawResponse: "" };
     }
     return { ok: true, records: accumulated, transcriptSuffix };
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = provenanceFailure ?? (error instanceof Error ? error.message : String(error));
     return { ok: false, reason: `agentLoop failed: ${msg}`, rawResponse: "" };
   }
 };

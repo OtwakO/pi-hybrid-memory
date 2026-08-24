@@ -88,7 +88,7 @@ const branch = (): Entry[] => [
 
 const warmEpoch = (runtime: Runtime, coverageEndId: string) => {
   const prepared = runtime.observerEpoch.prepare({
-    compatibilityKey: "test|openai-completions|model|observer-v2-epoch|record-observations-v1|source-addressed-v1",
+    compatibilityKey: "test|openai-completions|model|observer-v3-provenance|record-observations-v2|source-addressed-v1",
     expectedCoverageId: "initial",
     baselineText: "baseline",
     deltaText: "delta",

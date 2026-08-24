@@ -9,7 +9,7 @@ export const OBSERVER_SYSTEM = `You are an archival memory observer. You extract
 OUTPUT FORMAT: Respond with one JSON object and nothing else—no preamble, explanation, or markdown fence:
 {
   "observations": [
-    { "content": "one sentence observation", "relevance": "low|medium|high|critical" }
+    { "content": "one sentence observation", "relevance": "low|medium|high|critical", "sourceEntryIds": ["supporting source id"] }
   ]
 }
 If nothing new is worth recording, return: { "observations": [] }
@@ -20,6 +20,7 @@ Observation rules:
 - Preserve distinguishing details verbatim when they matter: unusual user terminology, full paths, identifiers, function and package names, commands, error text and codes, commits, dates, counts, measurements, decisions, constraints, and rationale.
 - Mark concrete completed or verified outcomes clearly so future agents do not repeat finished work. Do not mistake partial work, an attempted command, or a plan for completion.
 - Keep observations self-contained and use precise action verbs. Avoid vague references such as "it", "earlier", or "the issue" when the referent can be named.
+- When a chunk contains multiple source entries, cite the smallest exact sourceEntryIds subset that directly supports each observation. Omit sourceEntryIds only when the full current chunk supports it.
 - Group repetitive low-information tool activity; omit routine events that are trivially recoverable and have no durable outcome.
 - Use critical only for load-bearing facts whose loss could cause real harm, repeated completed work, contradiction of an explicit correction, or violation of a persistent user constraint. Most observations should be low or medium.`;
 
@@ -47,8 +48,6 @@ export const OBSERVER_PROMPT = (
   return lines.join("\n");
 };
 
-export const OBSERVER_USER_PREFIX = "Conversation chunk:";
-
 export const OBSERVER_RESPONSE_SCHEMA = {
   type: "object" as const,
   properties: {
@@ -59,6 +58,12 @@ export const OBSERVER_RESPONSE_SCHEMA = {
         properties: {
           content: { type: "string" as const },
           relevance: { type: "string" as const, enum: ["low", "medium", "high", "critical"] },
+          sourceEntryIds: {
+            type: "array" as const,
+            items: { type: "string" as const },
+            minItems: 1,
+            description: "Optional exact subset of source entry ids that directly support this observation.",
+          },
         },
         required: ["content", "relevance"],
       },

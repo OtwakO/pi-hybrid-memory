@@ -717,7 +717,7 @@ A future cache or memory architecture change is complete only when:
 | Localized `/hm-memory` context and reflection-gate reporting | Implemented locally; focused tests, typecheck, build, and installation verified; not committed |
 | A — Branch-authoritative coverage | Implemented locally: shared durable coverage anchor, session/leaf catch-up fence, catch-up-persisted epoch invalidation, and functional compaction override off-switch; focused verification complete, not committed |
 | B — Epoch observability | Not started |
-| C — Provenance quality | Not started |
+| C — Provenance quality | Implemented locally: optional validated per-observation source subsets with legacy all-chunk fallback and observer compatibility-version bump; focused verification complete, not committed |
 | D — Oversized-entry coverage | Design not started |
 | E — Baseline pressure | Evidence gathering not started |
 | F — Compaction cache observability | Implemented locally: observer proactive/catch-up source, cold/warm/reset aggregates, provider hit/miss counts, capacity headroom, shared fixed reservation, and reflector/pruner skip/outcome/input/result counts; focused verification complete, not committed |

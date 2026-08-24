@@ -99,6 +99,70 @@ describe("observer deliberate-empty backoff", () => {
   });
 });
 
+describe("runObserver observation provenance", () => {
+  beforeEach(() => {
+    agentLoopMock.mockReset();
+  });
+
+  it("accepts a validated subset of source entry ids for each observation", async () => {
+    agentLoopMock.mockImplementation((...args) => {
+      const context = args.find((arg) => arg && Array.isArray(arg.tools));
+      void context.tools[0].execute("call", {
+        observations: [{
+          content: "fact from the second source",
+          relevance: "high",
+          sourceEntryIds: ["source02", "source02"],
+        }],
+      });
+      return streamOf([]);
+    });
+
+    const result = await runObserver({
+      ...params,
+      allowedSourceEntryIds: ["source01", "source02"],
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.records[0].sourceEntryIds).toEqual(["source02"]);
+  });
+
+  it("preserves legacy all-source provenance when the model omits the optional subset", async () => {
+    agentLoopMock.mockImplementation((...args) => {
+      const context = args.find((arg) => arg && Array.isArray(arg.tools));
+      void context.tools[0].execute("call", {
+        observations: [{ content: "fact from the chunk", relevance: "high" }],
+      });
+      return streamOf([]);
+    });
+
+    const result = await runObserver({
+      ...params,
+      allowedSourceEntryIds: ["source01", "source02"],
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.records[0].sourceEntryIds).toEqual(["source01", "source02"]);
+  });
+
+  it("rejects a provenance subset containing a source outside the current chunk", async () => {
+    agentLoopMock.mockImplementation((...args) => {
+      const context = args.find((arg) => arg && Array.isArray(arg.tools));
+      return streamOf([context.tools[0].execute("call", {
+        observations: [{
+          content: "unsupported fact",
+          relevance: "critical",
+          sourceEntryIds: ["other-source"],
+        }],
+      })]);
+    });
+
+    const result = await runObserver(params);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("sourceEntryIds");
+  });
+});
+
 describe("runObserver terminal stream handling", () => {
   beforeEach(() => {
     agentLoopMock.mockReset();

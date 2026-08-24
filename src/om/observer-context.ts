@@ -3,8 +3,8 @@ import type { MemoryReflection, ObservationRecord } from "../types.js";
 import { reflectionContent } from "./compaction.js";
 import { observationsToPromptLines } from "./observer.js";
 
-export const OBSERVER_PROMPT_VERSION = "observer-v2-epoch";
-export const OBSERVER_TOOL_VERSION = "record-observations-v1";
+export const OBSERVER_PROMPT_VERSION = "observer-v3-provenance";
+export const OBSERVER_TOOL_VERSION = "record-observations-v2";
 export const OBSERVER_SERIALIZER_VERSION = "source-addressed-v1";
 
 // Conservative allowance for observer output, tool schemas, provider framing,

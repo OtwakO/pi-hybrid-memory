@@ -135,7 +135,7 @@ A call marked `warm` means the extension supplied the retained structured-messag
 ### `/hm-memory`
 
 Opens an interactive TUI overlay to browse all memory content:
-- **Tab 1 — Observations:** Color-coded by relevance (🔴 critical, 🟠 high, 🟡 medium, ⚪ low), scrollable list
+- **Tab 1 — Observations:** Color-coded by relevance (🔴 critical, 🟠 high, 🟡 medium, ⚪ low), with validated source-entry provenance for new observations and a scrollable list
 - **Tab 2 — Reflections:** Synthesized insights with supporting observation IDs; when empty, the picker explains whether the observation pool is still below the reflection gate
 - **Tab 3 — Compactions:** VCC compaction summaries with full detail view
 - **Current Context Summary:** The latest merged context with its actual estimated in-context token count

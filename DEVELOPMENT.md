@@ -99,3 +99,9 @@
 - **Change**: Session-local telemetry now records reflector/pruner lifecycle outcomes and aggregate input/proposed/accepted counts while preserving existing memory returns and fallbacks.
 - **Reason**: Reflection policy and compaction cache work should be tuned from evidence without retaining prompts or memory text.
 - **Verified**: Focused cache telemetry, compaction telemetry, pipeline, and compaction safety tests pass with clean TypeScript.
+
+### [2026-08-25] Added precise observation provenance
+- **Context**: Every observation previously cited every source in its chunk, making recall evidence broad and sometimes unrelated.
+- **Change**: The observer tool now accepts an optional validated non-empty subset of current source IDs per observation; omitted subsets retain the legacy all-chunk behavior. Prompt and tool compatibility versions were advanced.
+- **Reason**: Better provenance improves recall and future reflection/pruning decisions without reducing source context or rejecting older sessions.
+- **Verified**: Focused observer, prompt-contract, recall, and TypeScript checks pass, including subset deduplication and rejection of out-of-chunk sources.
