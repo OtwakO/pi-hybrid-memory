@@ -23,19 +23,31 @@ export const findLastCompactionIndex = (entries: Entry[]): number => {
   return -1;
 };
 
-export const lastObservationCoverEndIdx = (entries: Entry[]): number => {
+export interface ObservationCoverageAnchor {
+  coveredSourceId?: string;
+  coveredSourceIndex: number;
+}
+
+export const resolveObservationCoverageAnchor = (entries: Entry[]): ObservationCoverageAnchor => {
   const idToIdx = new Map<string, number>();
   for (let i = 0; i < entries.length; i++) idToIdx.set(entries[i].id, i);
-  let maxIdx = -1;
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (!isObservationEntry(entry)) continue;
-    if (!isObservationEntryData(entry.data)) continue;
-    const coverIdx = idToIdx.get(entry.data.coversUpToId);
-    if (coverIdx !== undefined && coverIdx > maxIdx) maxIdx = coverIdx;
+
+  let coveredSourceIndex = -1;
+  let coveredSourceId: string | undefined;
+  for (const entry of entries) {
+    if (!isObservationEntry(entry) || !isObservationEntryData(entry.data)) continue;
+    const candidateIndex = idToIdx.get(entry.data.coversUpToId);
+    if (candidateIndex !== undefined && candidateIndex > coveredSourceIndex) {
+      coveredSourceIndex = candidateIndex;
+      coveredSourceId = entry.data.coversUpToId;
+    }
   }
-  return maxIdx;
+
+  return { coveredSourceId, coveredSourceIndex };
 };
+
+export const lastObservationCoverEndIdx = (entries: Entry[]): number =>
+  resolveObservationCoverageAnchor(entries).coveredSourceIndex;
 
 const rawTokensFromIndex = (entries: Entry[], startIndex: number): number => {
   let total = 0;

@@ -7,6 +7,7 @@ import {
   findLastCompactionIndex,
   gapRawEntries,
   getMemoryState,
+  resolveObservationCoverageAnchor,
 } from "./om/branch.js";
 import { estimateEntryTokens, estimateStringTokens } from "./om/tokens.js";
 import { serializeSourceAddressedBranchEntries } from "./om/serialize.js";
@@ -28,6 +29,7 @@ import { mergePipelines } from "./merge/pipeline.js";
 import type { Runtime } from "./runtime.js";
 import { operationCacheOptions } from "./cache-options.js";
 import type { Message } from "@mariozechner/pi-ai";
+import { captureSessionBranchFence, isSessionBranchFenceCurrent } from "./compaction-safety.js";
 
 export const vccMessagesFromEntries = (entries: Entry[]): Message[] => {
   const messages: Message[] = [];
@@ -56,6 +58,9 @@ export const vccMessagesFromEntries = (entries: Entry[]): Message[] => {
 
 export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void {
   pi.on("session_before_compact", async (event, ctx) => {
+    runtime.ensureConfig(ctx.cwd);
+    if (!runtime.config.extension.overrideDefaultCompaction) return;
+
     if (runtime.compactHookInFlight) {
       if (ctx.hasUI) ctx.ui.notify(
         "Hybrid memory: another compaction is already in progress; cancelling duplicate",
@@ -65,7 +70,6 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
     }
     runtime.compactHookInFlight = true;
     try {
-      runtime.ensureConfig(ctx.cwd);
       const { preparation, branchEntries, signal } = event;
       const { firstKeptEntryId } = preparation;
       const tokensBefore = preparation.tokensBefore;
@@ -81,11 +85,13 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       runtime.resolveFailureNotified = false;
 
       let entries = branchEntries as Entry[];
+      let compactionFence = captureSessionBranchFence(ctx.sessionManager);
 
       // ── Step 1: Run observer on any gap (catch-up) ──
       if (runtime.observerPromise) {
         try { await runtime.observerPromise; } catch { /* already notified */ }
         entries = ctx.sessionManager.getBranch() as Entry[];
+        compactionFence = captureSessionBranchFence(ctx.sessionManager);
       }
 
       const memoryState = getMemoryState(entries, (firstKept) => {
@@ -118,9 +124,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         const accumulatedRecords: ObservationRecord[] = [];
         const draftEpoch = runtime.observerEpoch.fork();
         let remainingGap = gap;
-        let expectedCoverageId = draftEpoch.stats().coverageEndId
-          ?? memoryState.pendingObs.at(-1)?.sourceEntryIds?.at(-1)
-          ?? memoryState.committedObs.at(-1)?.sourceEntryIds?.at(-1)
+        let expectedCoverageId = resolveObservationCoverageAnchor(entries).coveredSourceId
           ?? firstKeptEntryId;
         let gapFailedReason: string | null = null;
         try {
@@ -200,6 +204,14 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
             return { cancel: true };
           }
 
+          if (!isSessionBranchFenceCurrent(compactionFence, ctx.sessionManager)) {
+            if (ctx.hasUI) ctx.ui.notify(
+              "Hybrid memory: active session or branch changed during catch-up; cancelling compaction without persisting stale observations.",
+              "warning",
+            );
+            return { cancel: true };
+          }
+
           if (accumulatedRecords.length > 0) {
             const observationTokens = accumulatedRecords.reduce((sum, record) => sum + estimateStringTokens(record.content), 0);
             gapObservationData = {
@@ -209,6 +221,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
               tokenCount: observationTokens,
             };
             pi.appendEntry(OBSERVATION_CUSTOM_TYPE, gapObservationData);
+            runtime.observerEpoch.invalidate("catch-up-persisted");
             if (ctx.hasUI) ctx.ui.notify(
               `Hybrid memory: sync catch-up recorded ${accumulatedRecords.length} observation(s) (~${observationTokens.toLocaleString()} tokens)`,
               "info",

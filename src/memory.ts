@@ -1,12 +1,20 @@
 // /hm-memory command: browse observations, reflections, and VCC compactions
 // Flow: category picker → chronological list → detail view → back
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { Runtime } from "./runtime.js";
 import { matchesKey, Key, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { Entry, ObservationRecord, MemoryReflection, ReflectionRecord } from "./types.js";
 import { OBSERVATION_CUSTOM_TYPE } from "./types.js";
 import { getMemoryState } from "./om/branch.js";
 import { reflectionContent, renderSummary, deriveCoverageTags, type ObservationCoverageTag } from "./om/compaction.js";
 import { estimateStringTokens } from "./om/tokens.js";
+import {
+  buildMemoryMetrics,
+  buildMemoryPickerOptions,
+  describeContextSummary,
+  describeReflectionGate,
+  type ReflectionGateStatus,
+} from "./memory-metrics.js";
 
 const MOUSE_ON = "\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 const MOUSE_OFF = "\x1b[?1006l\x1b[?1002l\x1b[?1000l";
@@ -52,13 +60,6 @@ function parseMouse(data: string): { button: number; type: "press" | "release" }
   return out;
 }
 
-function totalTokens(items: (ObservationRecord | ReflectionRecord | { content: string })[]): number {
-  let sum = 0;
-  for (const item of items) {
-    sum += estimateStringTokens(typeof item === "string" ? item : "content" in item ? item.content : (item as ObservationRecord).content);
-  }
-  return sum;
-}
 
 const isObservationEntry = (e: Entry): boolean => e.type === "custom" && e.customType === OBSERVATION_CUSTOM_TYPE;
 const isObsData = (v: unknown): v is { records: ObservationRecord[] } =>
@@ -97,20 +98,30 @@ class MemoryOverlay {
   private allComp: Entry[] = [];
   private compTexts: string[] = [];
   private contextSummary = "";
+  private contextStatus = describeContextSummary(undefined);
+  private reflectionGate: ReflectionGateStatus | null = null;
   private coverageTags: Map<string, ObservationCoverageTag> = new Map();
 
   constructor(
     private theme: any,
-    private requestRender: () => void,
     private done: () => void,
   ) {}
 
-  loadData(obs: ObservationRecord[], refs: MemoryReflection[], comp: Entry[], contextSummary: string, coverageTags: Map<string, ObservationCoverageTag>) {
+  loadData(
+    obs: ObservationRecord[],
+    refs: MemoryReflection[],
+    comp: Entry[],
+    contextSummary: string,
+    coverageTags: Map<string, ObservationCoverageTag>,
+    reflectionGate: ReflectionGateStatus,
+  ) {
     this.allObs = obs;
     this.allRef = refs;
     this.allComp = comp;
     this.compTexts = comp.map(c => typeof c.summary === "string" ? c.summary : "(empty)");
     this.contextSummary = contextSummary;
+    this.contextStatus = describeContextSummary(comp.at(-1));
+    this.reflectionGate = reflectionGate;
     this.coverageTags = coverageTags;
   }
 
@@ -234,13 +245,19 @@ class MemoryOverlay {
     this.screen = "contextFormat";
   }
 
-  private pickerOptions(): { label: string; count: number; tokens: number; cat: Category | "" }[] {
-    return [
-      { label: "Observations", count: this.allObs.length, tokens: totalTokens(this.allObs), cat: "observations" },
-      { label: "Reflections", count: this.allRef.length, tokens: totalTokens(this.allRef.map(r => ({ content: typeof r === "string" ? r : r.content }))), cat: "reflections" },
-      { label: "VCC Compactions", count: this.allComp.length, tokens: totalTokens(this.compTexts.map(s => ({ content: s }))), cat: "compactions" },
-      { label: "Current Context Summary", count: 0, tokens: 0, cat: "" },
-    ];
+  private pickerOptions(): Array<{ label: string; detail: string; cat: Category | "" }> {
+    if (!this.reflectionGate) return [];
+    return buildMemoryPickerOptions({
+      observations: this.allObs,
+      reflections: this.allRef,
+      compactionSummaries: this.compTexts,
+      contextStatus: this.contextStatus,
+      reflectionGate: this.reflectionGate,
+    }).map(option => ({
+      label: option.label,
+      detail: option.detail,
+      cat: option.category === "context" ? "" : option.category,
+    }));
   }
 
   // ── Render ────────────────────────────────────────────────────────
@@ -273,7 +290,7 @@ class MemoryOverlay {
       const sel = i === this.pickerSel;
       const arrow = sel ? th.fg("accent", "▸ ") : "  ";
       const label = sel ? th.fg("accent", th.bold(o.label)) : th.fg("text", o.label);
-      const info = th.fg("dim", `${o.count} entries  ·  ~${o.tokens.toLocaleString()} tokens`);
+      const info = th.fg("dim", o.detail);
       const g = Math.max(0, innerW - 1 - visibleWidth(arrow) - visibleWidth(label) - visibleWidth(info));
       lines.push(row(" " + arrow + label + " ".repeat(g) + info));
     }
@@ -459,10 +476,7 @@ class MemoryOverlay {
 
     lines.push(th.fg("accent", `╭${"─".repeat(innerW)}╮`));
     const title = th.fg("accent", th.bold(" Current Context Summary "));
-    const lastComp = this.allComp.length > 0 ? this.allComp[this.allComp.length - 1] : null;
-    const tokenStr = lastComp && typeof lastComp.summary === "string"
-      ? `~${estimateStringTokens(lastComp.summary as string).toLocaleString()} tokens in context`
-      : "no compaction yet";
+    const tokenStr = this.contextStatus.label;
     const info = th.fg("dim", "│ ") + th.fg("text", tokenStr);
     const hGap = Math.max(0, innerW - 1 - visibleWidth(title) - visibleWidth(info));
     lines.push(row(" " + title + " ".repeat(hGap) + info));
@@ -554,12 +568,13 @@ class MemoryOverlay {
 // Register command
 // ═══════════════════════════════════════════════════════════════════════
 
-export function registerMemoryCommand(pi: ExtensionAPI): void {
+export function registerMemoryCommand(pi: ExtensionAPI, runtime: Runtime): void {
   pi.registerCommand("hm-memory", {
     description: "Browse observations, reflections, and VCC compactions",
     handler: async (_args, ctx) => {
       if (!ctx.hasUI) { ctx.ui.notify("hm-memory requires interactive mode", "warning"); return; }
 
+      runtime.ensureConfig(ctx.cwd);
       const entries = ctx.sessionManager.getBranch() as Entry[];
       const memoryState = getMemoryState(entries);
       const obs = collectObservations(entries);
@@ -569,6 +584,10 @@ export function registerMemoryCommand(pi: ExtensionAPI): void {
       // Build OM context summary using the exact renderSummary that compaction uses
       const allObservations = [...memoryState.committedObs, ...memoryState.pendingObs];
       const coverageTags = deriveCoverageTags(refs, allObservations);
+      const reflectionGate = describeReflectionGate(
+        buildMemoryMetrics(memoryState),
+        runtime.config.hybrid.reflectionThresholdTokens,
+      );
 
       let contextSummary = "";
       const lastComp = comp.length > 0 ? comp[comp.length - 1] : null;
@@ -598,8 +617,8 @@ export function registerMemoryCommand(pi: ExtensionAPI): void {
       process.stdout.write(MOUSE_ON);
       try {
         await ctx.ui.custom<"close">((tui: any, theme: any, _kb: any, done: (a: "close") => void) => {
-          const overlay = new MemoryOverlay(theme, () => tui.requestRender(), () => done("close"));
-          overlay.loadData(obs, refs, comp, contextSummary, coverageTags);
+          const overlay = new MemoryOverlay(theme, () => done("close"));
+          overlay.loadData(obs, refs, comp, contextSummary, coverageTags, reflectionGate);
           return {
             render: (w: number) => overlay.render(w),
             invalidate: () => overlay.invalidate(),

@@ -103,7 +103,7 @@ The extension does not read hybrid-memory configuration from Pi's `settings.json
 Shows current memory state:
 - Reflection/observation counts and token estimates
 - Relevance histogram
-- Activity progress (how close to next trigger thresholds)
+- Activity progress (how close to next trigger thresholds), including whether the current observation pool is eligible for reflection
 - VCC settings summary
 
 ### `/hm-cache-info`
@@ -134,8 +134,9 @@ A call marked `warm` means the extension supplied the retained structured-messag
 
 Opens an interactive TUI overlay to browse all memory content:
 - **Tab 1 — Observations:** Color-coded by relevance (🔴 critical, 🟠 high, 🟡 medium, ⚪ low), scrollable list
-- **Tab 2 — Reflections:** Synthesized insights with supporting observation IDs
+- **Tab 2 — Reflections:** Synthesized insights with supporting observation IDs; when empty, the picker explains whether the observation pool is still below the reflection gate
 - **Tab 3 — Compactions:** VCC compaction summaries with full detail view
+- **Current Context Summary:** The latest merged context with its actual estimated in-context token count
 
 **Navigation:**
 - `↑↓` / mouse scroll — navigate list

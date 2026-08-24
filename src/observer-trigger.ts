@@ -5,7 +5,7 @@ import { OBSERVATION_CUSTOM_TYPE } from "./types.js";
 import {
   firstRawIdAfter,
   getMemoryState,
-  lastObservationCoverEndIdx,
+  resolveObservationCoverageAnchor,
   rawTokensSinceLastBound,
   rawTailEntriesBetween,
 } from "./om/branch.js";
@@ -28,7 +28,8 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
     if (runtime.observerInFlight) return;
 
     const entries = ctx.sessionManager.getBranch() as Entry[];
-    const lastBoundIdx = lastObservationCoverEndIdx(entries);
+    const coverageAnchor = resolveObservationCoverageAnchor(entries);
+    const lastBoundIdx = coverageAnchor.coveredSourceIndex;
 
     // Bootstrap: no observation boundaries exist (first load in existing session).
     // Establish a boundary at the current position — skip the backlog. VCC will
@@ -61,7 +62,7 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
     const observationThreshold = runtime.config.hybrid.observationThresholdTokens;
     if (tokens < observationThreshold) return;
 
-    const boundaryId = entries[lastBoundIdx]?.id;
+    const boundaryId = coverageAnchor.coveredSourceId;
     if (!boundaryId) return;
     if (runtime.shouldBackOffEmptyObserver(boundaryId, tokens, observationThreshold)) return;
 

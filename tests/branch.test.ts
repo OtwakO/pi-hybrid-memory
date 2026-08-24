@@ -7,6 +7,7 @@ import {
   getMemoryState,
   rawTokensSinceLastCompaction,
   findLastCompactionIndex,
+  resolveObservationCoverageAnchor,
 } from "../src/om/branch.js";
 import { OBSERVATION_CUSTOM_TYPE } from "../src/types.js";
 import type {
@@ -248,6 +249,35 @@ describe("kept-boundary recovery (retrofit edge case)", () => {
       expect(() => rawTokensSinceLastCompaction(entries)).not.toThrow();
       const tokens = rawTokensSinceLastCompaction(entries);
       expect(Number.isFinite(tokens)).toBe(true);
+    });
+  });
+});
+
+describe("resolveObservationCoverageAnchor", () => {
+  it("uses durable coverage data even when the latest observation entry has no records", () => {
+    const entries: Entry[] = [
+      userEntry("raw-a"),
+      observationCustomEntry("obs-a", obsData("raw-a", "raw-a", [obsRecord()])),
+      userEntry("raw-b"),
+      observationCustomEntry("obs-empty", obsData("raw-b", "raw-b", [])),
+      userEntry("raw-c"),
+    ];
+
+    expect(resolveObservationCoverageAnchor(entries)).toEqual({
+      coveredSourceId: "raw-b",
+      coveredSourceIndex: 2,
+    });
+  });
+
+  it("returns no anchor when a coverage marker points outside the current branch", () => {
+    const entries: Entry[] = [
+      userEntry("raw-a"),
+      observationCustomEntry("obs-missing", obsData("raw-a", "other-branch-source", [])),
+    ];
+
+    expect(resolveObservationCoverageAnchor(entries)).toEqual({
+      coveredSourceId: undefined,
+      coveredSourceIndex: -1,
     });
   });
 });

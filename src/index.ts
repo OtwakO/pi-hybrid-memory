@@ -30,7 +30,7 @@ export default function extension(pi: ExtensionAPI): void {
   });
 
   // Register the /hm-memory command
-  registerMemoryCommand(pi);
+  registerMemoryCommand(pi, runtime);
 
   // Register the hm_recall tool
   registerRecallTool(pi);

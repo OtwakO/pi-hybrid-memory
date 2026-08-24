@@ -81,3 +81,9 @@
 - **Change**: Added a runtime-only `ObserverEpochManager` with an immutable deterministic baseline, append-only source/model/tool transcript, transactional prepare/commit, coverage and compatibility fences, model-relative capacity rollover, forked atomic compaction catch-up drafts, and cold/warm prefix telemetry. Durable Pi branch entries remain authoritative.
 - **Reason**: Preserve full reflections, observations, chronology, provenance, and fail-closed coverage while making each committed observer request an exact structured-message prefix of the next request.
 - **Verified**: Tests cover exact prefix reuse, abandoned and stale transactions, coverage/model resets, capacity rollover, explicit reset reasons, fork isolation, terminal failure rollback, and telemetry/config behavior.
+
+### [2026-08-25] Made compaction catch-up branch-authoritative
+- **Context**: Independent review found that catch-up could compare an active observer epoch's coverage ID with itself, allowing stale cross-branch context reuse.
+- **Change**: Proactive observation and catch-up now share a durable `coversUpToId` branch anchor; catch-up fences session/leaf identity before persistence, invalidates the live epoch after writing durable catch-up observations, and yields fully to Pi when compaction override is disabled.
+- **Reason**: Cache reuse is valid only when branch continuity is independently proven. A safe cold reset is preferable to reusing stale memory context.
+- **Verified**: Focused branch, compaction-safety, and compaction-hook integration tests cover empty coverage markers, cross-branch cold reset, navigation cancellation, post-persistence assembly failure, and the override off-switch.

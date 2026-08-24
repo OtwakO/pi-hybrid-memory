@@ -1,13 +1,12 @@
 // Status command: shows hybrid memory status — combines OM and VCC metrics
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { Entry, MemoryReflection } from "./types.js";
+import type { Entry } from "./types.js";
 import {
   getMemoryState,
   rawTokensSinceLastBound,
 } from "./om/branch.js";
 import { countByRelevance, formatRelevanceHistogram } from "./om/relevance.js";
-import { estimateStringTokens } from "./om/tokens.js";
-import { reflectionContent } from "./om/compaction.js";
+import { buildMemoryMetrics, describeReflectionGate } from "./memory-metrics.js";
 import type { Runtime } from "./runtime.js";
 
 export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void {
@@ -18,16 +17,9 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
       const entries = ctx.sessionManager.getBranch() as Entry[];
       const sinceBound = rawTokensSinceLastBound(entries);
 
-      const { reflections: committedRefs, committedObs, pendingObs } = getMemoryState(entries);
-      const committedRefItems = committedRefs as MemoryReflection[];
-      const committedObsTokens = committedObs.reduce((s, r) => s + estimateStringTokens(r.content), 0);
-      const committedObsCount = committedObs.length;
-      const committedRefsTokens = committedRefItems.reduce((s, r) => s + estimateStringTokens(reflectionContent(r)), 0);
-      const committedRefsCount = committedRefItems.length;
-
-      const pendingObsTokens = pendingObs.reduce((s, r) => s + estimateStringTokens(r.content), 0);
-      const pendingObsCount = pendingObs.length;
-
+      const memoryState = getMemoryState(entries);
+      const { committedObs, pendingObs } = memoryState;
+      const memoryMetrics = buildMemoryMetrics(memoryState);
       const relevanceHistogram = countByRelevance([...committedObs, ...pendingObs]);
 
       const obsThreshold = runtime.config.hybrid.observationThresholdTokens;
@@ -35,13 +27,13 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
       const compPercentage = runtime.config.hybrid.compactionThresholdPercentage;
       const contextUsage = ctx.getContextUsage();
       const refThreshold = runtime.config.hybrid.reflectionThresholdTokens;
-      const observationPoolTokens = committedObsTokens + pendingObsTokens;
+      const reflectionGate = describeReflectionGate(memoryMetrics, refThreshold);
 
       const obsPct = Math.min(100, Math.round((sinceBound / obsThreshold) * 100));
       const compPct = contextUsage?.tokens === null || contextUsage?.tokens === undefined
         ? 0
         : Math.min(100, Math.round((contextUsage.tokens / compThreshold) * 100));
-      const refPct = Math.min(100, Math.round((observationPoolTokens / refThreshold) * 100));
+      const refPct = Math.min(100, Math.round((memoryMetrics.observationPoolTokens / refThreshold) * 100));
       const contextTokens = contextUsage?.tokens;
       const nextCompaction = compPercentage !== null
         ? contextTokens === null || contextTokens === undefined
@@ -51,22 +43,23 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
           ? `context usage unavailable / ${compThreshold.toLocaleString()} tokens`
           : `${contextTokens.toLocaleString()} / ${compThreshold.toLocaleString()} tokens (${compPct}%)`;
 
-      const refLabel = committedRefsCount === 1 ? "entry" : "entries";
-      const cObsLabel = committedObsCount === 1 ? "observation" : "observations";
-      const pObsLabel = pendingObsCount === 1 ? "observation" : "observations";
+      const refLabel = memoryMetrics.reflectionCount === 1 ? "entry" : "entries";
+      const cObsLabel = memoryMetrics.committedObservationCount === 1 ? "observation" : "observations";
+      const pObsLabel = memoryMetrics.pendingObservationCount === 1 ? "observation" : "observations";
 
       const lines = [
         "── Memory ──",
-        `Reflections:   ~${committedRefsTokens.toLocaleString()} tokens (${committedRefsCount} ${refLabel})`,
+        `Reflections:   ~${memoryMetrics.reflectionTokens.toLocaleString()} tokens (${memoryMetrics.reflectionCount} ${refLabel})`,
+        `  reflector    ${reflectionGate.label}`,
         `Observations:`,
-        `  committed    ~${committedObsTokens.toLocaleString()} tokens (${committedObsCount} ${cObsLabel})`,
-        `  pending      ~${pendingObsTokens.toLocaleString()} tokens (${pendingObsCount} ${pObsLabel})`,
+        `  committed    ~${memoryMetrics.committedObservationTokens.toLocaleString()} tokens (${memoryMetrics.committedObservationCount} ${cObsLabel})`,
+        `  pending      ~${memoryMetrics.pendingObservationTokens.toLocaleString()} tokens (${memoryMetrics.pendingObservationCount} ${pObsLabel})`,
         `  relevance    ${formatRelevanceHistogram(relevanceHistogram)}`,
         "",
         "── Activity ──",
         `Next observation: ~${sinceBound.toLocaleString()} / ${obsThreshold.toLocaleString()} tokens (${obsPct}%)`,
         `Next compaction:  ${nextCompaction}`,
-        `Next reflection:  ~${observationPoolTokens.toLocaleString()} / ${refThreshold.toLocaleString()} tokens (${refPct}%)`,
+        `Next reflection:  ~${memoryMetrics.observationPoolTokens.toLocaleString()} / ${refThreshold.toLocaleString()} tokens (${refPct}%)`,
         "",
         "── VCC Settings ──",
         `Transcript lines: ${runtime.config.hybrid.transcriptLines}`,

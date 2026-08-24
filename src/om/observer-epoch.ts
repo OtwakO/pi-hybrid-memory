@@ -6,6 +6,7 @@ export type ObserverEpochResetReason =
   | "manual"
   | "session-change"
   | "compaction"
+  | "catch-up-persisted"
   | "coverage-discontinuity"
   | "compatibility-change"
   | "capacity";
