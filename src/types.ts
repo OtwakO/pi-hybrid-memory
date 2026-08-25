@@ -126,5 +126,5 @@ export interface UnifiedConfig {
 // ── Runtime ──
 
 export type ResolveResult =
-  | { ok: true; model: Model<Api>; apiKey: string; headers?: Record<string, string> }
+  | { ok: true; model: Model<Api> }
   | { ok: false; reason: string };

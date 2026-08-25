@@ -81,7 +81,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       const { firstKeptEntryId } = preparation;
       const tokensBefore = preparation.tokensBefore;
 
-      const resolved = await runtime.resolveModel(ctx as any);
+      const resolved = runtime.resolveModel(ctx);
       if (!resolved.ok) {
         if (ctx.hasUI) ctx.ui.notify(
           `Hybrid memory: cannot compact — ${resolved.reason}. Fix the model/API key and try /compact manually.`,
@@ -192,9 +192,9 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
             }
 
             const result = await runObserver({
+              complete: (selectedModel, context, options) =>
+                ctx.modelRegistry.complete(selectedModel, context, options),
               model,
-              apiKey: resolved.apiKey,
-              headers: resolved.headers,
               contextMessages: prepared.contextMessages,
               prompts: prepared.prompts,
               allowedSourceEntryIds: serialized.sourceEntryIds,

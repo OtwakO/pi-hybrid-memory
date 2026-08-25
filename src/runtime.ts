@@ -6,16 +6,6 @@ import { CacheTelemetry } from "./cache-telemetry.js";
 import { ObserverEpochManager } from "./om/observer-epoch.js";
 import { ObserverTaskCoordinator } from "./observer-task.js";
 
-const hasUsableAuth = (auth: {
-  ok: boolean;
-  apiKey?: string;
-  headers?: Record<string, string>;
-}): boolean => {
-  if (!auth.ok) return false;
-  if (auth.apiKey?.trim()) return true;
-  return Object.values(auth.headers ?? {}).some(value => value.trim().length > 0);
-};
-
 export class Runtime {
   config: UnifiedConfig;
   loadedConfig = false;
@@ -77,30 +67,22 @@ export class Runtime {
     this.observerEmptyBackoff = null;
   }
 
-  async resolveModel(ctx: {
-    model: Model<Api>;
+  resolveModel(ctx: {
+    model?: Model<Api>;
     modelRegistry: {
       find: (provider: string, id: string) => Model<Api> | undefined;
-      getApiKeyAndHeaders: (model: Model<Api>) => Promise<{ ok: boolean; apiKey?: string; headers?: Record<string, string> }>;
     };
-  }): Promise<ResolveResult> {
+  }): ResolveResult {
     const overrideModel = this.config.hybrid.compactionModel;
     if (overrideModel) {
       const model = ctx.modelRegistry.find(overrideModel.provider, overrideModel.id);
       if (!model) {
         return { ok: false, reason: `configured compaction model ${overrideModel.provider}/${overrideModel.id} not found` };
       }
-      const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-      if (!hasUsableAuth(auth)) {
-        return { ok: false, reason: "configured compaction model has no usable API key or auth header" };
-      }
-      return { ok: true, model, apiKey: auth.apiKey ?? "", headers: auth.headers };
+      return { ok: true, model };
     }
 
-    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
-    if (!hasUsableAuth(auth)) {
-      return { ok: false, reason: "session model has no usable API key or auth header" };
-    }
-    return { ok: true, model: ctx.model, apiKey: auth.apiKey ?? "", headers: auth.headers };
+    if (!ctx.model) return { ok: false, reason: "session has no active model" };
+    return { ok: true, model: ctx.model };
   }
 }

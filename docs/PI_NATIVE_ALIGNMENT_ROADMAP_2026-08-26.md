@@ -168,7 +168,7 @@ Implemented independently from Milestone E through a deep `ObserverTaskCoordinat
 
 The synchronous bootstrap boundary write remains outside the coordinator because it performs no `await`; Pi cannot interleave branch navigation between its branch read and append in the same JavaScript turn.
 
-### Milestone E — Pi-native observer inference — Next
+### Milestone E — Pi-native observer inference — Completed
 
 Scope:
 
@@ -189,7 +189,11 @@ Done when focused integration tests prove:
 - timeout and cancellation terminate cleanly;
 - failure never advances durable coverage or epoch state.
 
-### Milestone F — VCC input policy
+Implemented as a bounded observation-protocol module behind the existing `runObserver` interface. Every turn now calls the active session's `ctx.modelRegistry.complete()` adapter; Pi owns model routing, credentials and OAuth refresh, provider hooks, request monitoring, timeout/retry plumbing, and provider translation. The module owns strict `record_observations` validation, current-chunk provenance, exact Pi-shaped assistant/tool-result transcript construction, correction of rejected submissions, global turn/deadline bounds, per-turn telemetry, and fail-closed outcomes.
+
+Manual API-key/header resolution and the `pi-ai/compat`/`agentLoop` transport were removed. Runtime now selects only the configured or active model. The observer protocol compatibility key was bumped so the first post-upgrade observer run cold-resets rather than mixing legacy agent-loop and native-completion transcripts in one epoch.
+
+### Milestone F — VCC input policy — Next
 
 Before editing code, decide explicitly which inputs own:
 

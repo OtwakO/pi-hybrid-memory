@@ -4,7 +4,7 @@ import { reflectionContent } from "./compaction.js";
 import { observationsToPromptLines } from "./observer.js";
 
 export const OBSERVER_PROMPT_VERSION = "observer-v3-provenance";
-export const OBSERVER_TOOL_VERSION = "record-observations-v3";
+export const OBSERVER_TOOL_VERSION = "record-observations-v4-native";
 export const OBSERVER_SERIALIZER_VERSION = "source-segments-v2";
 
 // Conservative allowance for observer output, tool schemas, provider framing,

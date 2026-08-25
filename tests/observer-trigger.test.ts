@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "@earendil-works/pi-ai";
+import { assistantMessage } from "./fixtures/messages.js";
 
 import { registerObserverTrigger } from "../src/observer-trigger.js";
 import { Runtime } from "../src/runtime.js";
@@ -10,24 +11,6 @@ const runObserverMock = vi.hoisted(() => vi.fn());
 vi.mock("../src/om/observer.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/om/observer.js")>();
   return { ...actual, runObserver: runObserverMock };
-});
-
-const assistant = (content: string): Message => ({
-  role: "assistant",
-  content: [{ type: "text", text: content }],
-  api: "openai-completions",
-  provider: "test",
-  model: "model",
-  usage: {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 0,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-  },
-  stopReason: "stop",
-  timestamp: 1,
 });
 
 const source = (id: string, content: string): Entry => ({
@@ -85,7 +68,7 @@ const setup = () => {
     model: { provider: "test", api: "openai-completions", id: "model", contextWindow: 100_000 },
     modelRegistry: {
       find: vi.fn(),
-      getApiKeyAndHeaders: vi.fn().mockResolvedValue({ ok: true, apiKey: "key" }),
+      complete: vi.fn(),
     },
     sessionManager: {
       getSessionId: () => sessionId,
@@ -119,7 +102,7 @@ const successfulResult = (sourceDeltaPrompt: Message) => ({
     relevance: "high" as const,
     sourceEntryIds: ["raw-1"],
   }],
-  transcriptSuffix: [sourceDeltaPrompt, assistant("recorded")],
+  transcriptSuffix: [sourceDeltaPrompt, assistantMessage("recorded")],
 });
 
 const pendingObserver = () => {

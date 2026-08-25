@@ -1,74 +1,99 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Api, AssistantMessage, Context, Message, Model, ToolCall } from "@earendil-works/pi-ai";
 
-const agentLoopMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@earendil-works/pi-agent-core")>();
-  return { ...actual, agentLoop: agentLoopMock };
-});
-
-import { runObserver } from "../src/om/observer.js";
-import { Runtime } from "../src/runtime.js";
 import { CacheTelemetry } from "../src/cache-telemetry.js";
+import {
+  runObserver,
+  type ObserverParams,
+} from "../src/om/observer.js";
+import { Runtime } from "../src/runtime.js";
 
-const streamOf = (events: unknown[]) => ({
-  async *[Symbol.asyncIterator]() {
-    for (const event of events) yield event;
-  },
-  result: vi.fn().mockResolvedValue([]),
+const model = {
+  provider: "test-provider",
+  id: "test-model",
+  api: "openai-completions",
+  contextWindow: 100_000,
+  maxTokens: 16_000,
+  cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1.25 },
+} as Model<Api>;
+
+const usage = {
+  input: 100,
+  output: 10,
+  cacheRead: 300,
+  cacheWrite: 20,
+  totalTokens: 430,
+  cost: { input: 0.1, output: 0.2, cacheRead: 0.03, cacheWrite: 0.025, total: 0.355 },
+};
+
+const assistant = (
+  content: AssistantMessage["content"],
+  stopReason: AssistantMessage["stopReason"] = "stop",
+  errorMessage?: string,
+): AssistantMessage => ({
+  role: "assistant",
+  api: model.api,
+  provider: model.provider,
+  model: model.id,
+  content,
+  stopReason,
+  errorMessage,
+  usage,
+  timestamp: Date.now(),
 });
+
+const toolCall = (
+  arguments_: Record<string, unknown>,
+  id = "call-1",
+  name = "record_observations",
+): ToolCall => ({ type: "toolCall", id, name, arguments: arguments_ });
 
 const params = {
-  model: {},
-  apiKey: "key",
-  contextMessages: [],
-  prompts: [{ role: "user", content: "[Source entry id: source01]\n[User]: durable fact", timestamp: 0 }],
+  model,
+  contextMessages: [{ role: "user" as const, content: "baseline", timestamp: 1 }],
+  prompts: [{ role: "user" as const, content: "[Source entry id: source01]\n[User]: durable fact", timestamp: 2 }],
   allowedSourceEntryIds: ["source01"],
 };
 
-const assistant = (stopReason: string, errorMessage?: string) => ({
-  role: "assistant",
-  content: [],
-  stopReason,
-  errorMessage,
-});
+type ObserverComplete = ObserverParams["complete"];
 
-const telemetryModel = {
-  provider: "test-provider",
-  id: "test-model",
-  cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1.25 },
+const completionQueue = (...messages: AssistantMessage[]) => {
+  const complete = vi.fn<ObserverComplete>();
+  for (const message of messages) complete.mockResolvedValueOnce(message);
+  return complete;
 };
 
-describe("Runtime model auth resolution", () => {
-  const context = (auth: { ok: boolean; apiKey?: string; headers?: Record<string, string> }) => ({
-    model: { id: "session" },
+describe("Runtime model selection", () => {
+  const context = () => ({
+    model,
     modelRegistry: {
       find: vi.fn(),
-      getApiKeyAndHeaders: vi.fn().mockResolvedValue(auth),
     },
   });
 
-  it("accepts a non-empty API key", async () => {
-    const result = await new Runtime().resolveModel(context({ ok: true, apiKey: "secret" }));
-    expect(result.ok).toBe(true);
+  it("uses the active session model when no override is configured", () => {
+    const result = new Runtime().resolveModel(context());
+    expect(result).toEqual({ ok: true, model });
   });
 
-  it("accepts header-only OAuth credentials", async () => {
-    const result = await new Runtime().resolveModel(context({
-      ok: true,
-      headers: { Authorization: "Bearer token" },
-    }));
-    expect(result.ok).toBe(true);
+  it("uses the configured model when it exists", () => {
+    const runtime = new Runtime();
+    const override = { ...model, id: "override" } as Model<Api>;
+    runtime.config.hybrid.compactionModel = { provider: "test-provider", id: "override" };
+    const ctx = context();
+    ctx.modelRegistry.find.mockReturnValue(override);
+
+    expect(runtime.resolveModel(ctx)).toEqual({ ok: true, model: override });
   });
 
-  it.each([
-    { ok: true },
-    { ok: true, apiKey: "   " },
-    { ok: true, headers: { Authorization: "" } },
-  ])("rejects auth results without usable credentials", async (auth) => {
-    const result = await new Runtime().resolveModel(context(auth));
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("usable API key or auth header");
+  it("reports a missing configured model", () => {
+    const runtime = new Runtime();
+    runtime.config.hybrid.compactionModel = { provider: "missing", id: "model" };
+
+    expect(runtime.resolveModel(context())).toEqual({
+      ok: false,
+      reason: "configured compaction model missing/model not found",
+    });
   });
 });
 
@@ -88,224 +113,234 @@ describe("observer deliberate-empty backoff", () => {
     expect(runtime.shouldBackOffEmptyObserver("boundary-b", 1_200, 1_000)).toBe(false);
     expect(runtime.observerEmptyBackoff).toBeNull();
   });
-
-  it("can be cleared after a successful observation", () => {
-    const runtime = new Runtime();
-    runtime.recordEmptyObserverResult("boundary-a", 1_200);
-
-    runtime.clearEmptyObserverBackoff();
-
-    expect(runtime.shouldBackOffEmptyObserver("boundary-a", 1_200, 1_000)).toBe(false);
-  });
 });
 
-describe("runObserver observation provenance", () => {
+describe("Pi-native observer inference", () => {
+  let complete: ReturnType<typeof vi.fn<ObserverComplete>>;
+
   beforeEach(() => {
-    agentLoopMock.mockReset();
+    complete = vi.fn<ObserverComplete>();
   });
 
-  it("accepts a validated subset of source entry ids for each observation", async () => {
-    agentLoopMock.mockImplementation((...args) => {
-      const context = args.find((arg) => arg && Array.isArray(arg.tools));
-      void context.tools[0].execute("call", {
-        observations: [{
-          content: "fact from the second source",
-          relevance: "high",
-          sourceEntryIds: ["source02", "source02"],
-        }],
-      });
-      return streamOf([]);
-    });
+  it("runs a bounded native tool continuation and returns the exact transcript suffix", async () => {
+    const first = assistant([toolCall({
+      observations: [{
+        content: "durable fact",
+        relevance: "high",
+        sourceEntryIds: ["source01"],
+      }],
+    })], "toolUse");
+    const final = assistant([{ type: "text", text: "covered" }]);
+    complete.mockResolvedValueOnce(first).mockResolvedValueOnce(final);
 
     const result = await runObserver({
       ...params,
-      allowedSourceEntryIds: ["source01", "source02"],
-    });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.records[0].sourceEntryIds).toEqual(["source02"]);
-  });
-
-  it("preserves legacy all-source provenance when the model omits the optional subset", async () => {
-    agentLoopMock.mockImplementation((...args) => {
-      const context = args.find((arg) => arg && Array.isArray(arg.tools));
-      void context.tools[0].execute("call", {
-        observations: [{ content: "fact from the chunk", relevance: "high" }],
-      });
-      return streamOf([]);
-    });
-
-    const result = await runObserver({
-      ...params,
-      allowedSourceEntryIds: ["source01", "source02"],
-    });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.records[0].sourceEntryIds).toEqual(["source01", "source02"]);
-  });
-
-  it("recovers when the model corrects an invalid provenance subset in a later tool call", async () => {
-    agentLoopMock.mockImplementation((...args) => {
-      const context = args.find((arg) => arg && Array.isArray(arg.tools));
-      return {
-        async *[Symbol.asyncIterator]() {
-          await context.tools[0].execute("invalid", {
-            observations: [{
-              content: "wrongly cited fact",
-              relevance: "high",
-              sourceEntryIds: ["previous-chunk-source"],
-            }],
-          }).catch(() => undefined);
-          await context.tools[0].execute("corrected", {
-            observations: [{
-              content: "fact from the current source",
-              relevance: "high",
-              sourceEntryIds: ["source01"],
-            }],
-          });
-        },
-        result: vi.fn().mockResolvedValue([]),
-      };
-    });
-
-    const result = await runObserver(params);
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.records).toHaveLength(1);
-      expect(result.records[0].sourceEntryIds).toEqual(["source01"]);
-    }
-  });
-
-  it("still fails when the final provenance attempt remains invalid", async () => {
-    agentLoopMock.mockImplementation((...args) => {
-      const context = args.find((arg) => arg && Array.isArray(arg.tools));
-      return {
-        async *[Symbol.asyncIterator]() {
-          await context.tools[0].execute("valid", {
-            observations: [{
-              content: "fact from the current source",
-              relevance: "high",
-              sourceEntryIds: ["source01"],
-            }],
-          });
-          await context.tools[0].execute("invalid", {
-            observations: [{
-              content: "wrongly cited fact",
-              relevance: "high",
-              sourceEntryIds: ["previous-chunk-source"],
-            }],
-          }).catch(() => undefined);
-        },
-        result: vi.fn().mockResolvedValue([]),
-      };
-    });
-
-    const result = await runObserver(params);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("sourceEntryIds");
-  });
-
-  it("rejects a provenance subset containing a source outside the current chunk", async () => {
-    agentLoopMock.mockImplementation((...args) => {
-      const context = args.find((arg) => arg && Array.isArray(arg.tools));
-      return streamOf([context.tools[0].execute("call", {
-        observations: [{
-          content: "unsupported fact",
-          relevance: "critical",
-          sourceEntryIds: ["other-source"],
-        }],
-      })]);
-    });
-
-    const result = await runObserver(params);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("sourceEntryIds");
-  });
-});
-
-describe("runObserver terminal stream handling", () => {
-  beforeEach(() => {
-    agentLoopMock.mockReset();
-  });
-
-  it.each([
-    { type: "message_end", message: assistant("error", "provider failed") },
-    { type: "turn_end", message: assistant("aborted", "request aborted"), toolResults: [] },
-    { type: "agent_end", messages: [assistant("error", "terminal failure")] },
-  ])("reports terminal $type failure when no observations were recorded", async (event) => {
-    agentLoopMock.mockReturnValue(streamOf([event]));
-
-    const result = await runObserver(params);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain(event.type === "turn_end" ? "request aborted" : "fail");
-  });
-
-  it("rejects partial observations when a later terminal error leaves coverage unknown", async () => {
-    agentLoopMock.mockImplementation((...args) => {
-      const context = args.find((arg) => arg && Array.isArray(arg.tools));
-      void context.tools[0].execute("call", {
-        observations: [{ content: "recorded before failure", relevance: "high" }],
-      });
-      return streamOf([{ type: "message_end", message: assistant("error", "late failure") }]);
-    });
-
-    const result = await runObserver(params);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toContain("late failure");
-      expect(result.rawResponse).toBe("");
-    }
-  });
-
-  it("passes stable cache identity and long retention to the observer agent loop", async () => {
-    agentLoopMock.mockReturnValue(streamOf([
-      { type: "message_end", message: assistant("stop") },
-    ]));
-
-    await runObserver({
-      ...params,
-      model: telemetryModel,
+      complete,
       cacheOptions: {
         sessionId: "pi-hybrid-memory:session-123:observer",
         cacheRetention: "long",
       },
     });
 
-    expect(agentLoopMock.mock.calls[0][2]).toMatchObject({
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]).toMatchObject({
+      content: "durable fact",
+      relevance: "high",
+      sourceEntryIds: ["source01"],
+    });
+    expect(result.transcriptSuffix).toEqual([
+      params.prompts[0],
+      first,
+      expect.objectContaining({
+        role: "toolResult",
+        toolCallId: "call-1",
+        toolName: "record_observations",
+        isError: false,
+      }),
+      final,
+    ]);
+    expect(complete).toHaveBeenCalledTimes(2);
+    const [receivedModel, firstContext, options] = complete.mock.calls[0];
+    expect(receivedModel).toBe(model);
+    expect(firstContext).toMatchObject<Partial<Context>>({
+      messages: [...params.contextMessages, ...params.prompts],
+      tools: [{
+        name: "record_observations",
+        constrainedSampling: { type: "json_schema", strict: "prefer" },
+      }],
+    });
+    expect(options).toMatchObject({
       sessionId: "pi-hybrid-memory:session-123:observer",
       cacheRetention: "long",
+      maxRetries: 0,
     });
+    expect(complete.mock.calls[1][1].messages).toEqual([
+      ...params.contextMessages,
+      ...result.transcriptSuffix.slice(0, -1),
+    ]);
   });
 
-  it("records provider usage from the canonical completed assistant message", async () => {
+  it("uses all current source ids when provenance is omitted", async () => {
+    complete = completionQueue(
+      assistant([toolCall({ observations: [{ content: "whole chunk", relevance: "medium" }] })], "toolUse"),
+      assistant([{ type: "text", text: "done" }]),
+    );
+
+    const result = await runObserver({
+      ...params,
+      allowedSourceEntryIds: ["source01", "source02"],
+      complete,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.records[0].sourceEntryIds).toEqual(["source01", "source02"]);
+  });
+
+  it("allows a later valid tool call to correct invalid provenance", async () => {
+    complete = completionQueue(
+      assistant([toolCall({
+        observations: [{
+          content: "wrong citation",
+          relevance: "high",
+          sourceEntryIds: ["old-source"],
+        }],
+      })], "toolUse"),
+      assistant([toolCall({
+        observations: [{
+          content: "corrected fact",
+          relevance: "high",
+          sourceEntryIds: ["source01"],
+        }],
+      }, "call-2")], "toolUse"),
+      assistant([{ type: "text", text: "done" }]),
+    );
+
+    const result = await runObserver({ ...params, complete });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0].content).toBe("corrected fact");
+    expect(result.transcriptSuffix).toContainEqual(expect.objectContaining({
+      role: "toolResult",
+      toolCallId: "call-1",
+      isError: true,
+    }));
+  });
+
+  it("fails closed when the final tool attempt remains invalid", async () => {
+    complete = completionQueue(
+      assistant([toolCall({
+        observations: [{ content: "valid fact", relevance: "high" }],
+      })], "toolUse"),
+      assistant([toolCall({
+        observations: [{
+          content: "unsupported fact",
+          relevance: "critical",
+          sourceEntryIds: ["old-source"],
+        }],
+      }, "call-2")], "toolUse"),
+      assistant([{ type: "text", text: "done" }]),
+    );
+
+    const result = await runObserver({ ...params, complete });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("sourceEntryIds");
+  });
+
+  it("rejects toolUse termination without an actual tool call", async () => {
+    complete.mockResolvedValue(assistant([], "toolUse"));
+
+    const result = await runObserver({ ...params, complete });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("without a tool call");
+  });
+
+  it("fails closed on an unknown tool even if the model then stops", async () => {
+    complete = completionQueue(
+      assistant([toolCall({}, "call-unknown", "other_tool")], "toolUse"),
+      assistant([{ type: "text", text: "done" }]),
+    );
+
+    const result = await runObserver({ ...params, complete });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("other_tool");
+  });
+
+  it.each([
+    ["length", "truncated"],
+    ["error", "provider failed"],
+    ["aborted", "aborted"],
+  ] as const)("classifies terminal %s responses", async (stopReason, expected) => {
+    complete.mockResolvedValue(assistant([], stopReason, stopReason === "error" ? "provider failed" : undefined));
+
+    const result = await runObserver({ ...params, complete });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain(expected);
+  });
+
+  it("fails when the model exhausts the global continuation turn limit", async () => {
+    complete.mockImplementation(async () => assistant([toolCall({ observations: [] })], "toolUse"));
+
+    const result = await runObserver({ ...params, complete });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("turn limit");
+    expect(complete).toHaveBeenCalledTimes(8);
+  });
+
+  it("classifies caller cancellation separately from provider failure", async () => {
+    const controller = new AbortController();
+    complete.mockImplementation(async (_model, _context, options) => {
+      controller.abort();
+      throw options.signal?.reason ?? new Error("aborted");
+    });
+
+    const result = await runObserver({ ...params, complete, signal: controller.signal });
+
+    expect(result).toEqual({ ok: false, reason: "observer aborted", rawResponse: "" });
+  });
+
+  it("classifies provider startup rejection", async () => {
+    complete.mockRejectedValue(new Error("provider unavailable"));
+
+    const result = await runObserver({ ...params, complete });
+
+    expect(result).toEqual({ ok: false, reason: "observer completion failed", rawResponse: "" });
+  });
+
+  it("times out even when the native completion ignores cancellation", async () => {
+    vi.useFakeTimers();
+    complete.mockImplementation(() => new Promise(() => {}));
+
+    const pending = runObserver({ ...params, complete, timeoutMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toEqual(expect.objectContaining({ ok: false, reason: "observer timed out" }));
+    vi.useRealTimers();
+  });
+
+  it("records provider usage from every native completion turn", async () => {
     const telemetry = new CacheTelemetry();
-    const message = {
-      ...assistant("stop"),
-      usage: {
-        input: 100,
-        output: 10,
-        cacheRead: 300,
-        cacheWrite: 20,
-        totalTokens: 430,
-        cost: { input: 0.1, output: 0.2, cacheRead: 0.03, cacheWrite: 0.025, total: 0.355 },
-      },
-    };
-    agentLoopMock.mockReturnValue(streamOf([{ type: "message_end", message }]));
+    complete = completionQueue(
+      assistant([toolCall({ observations: [] })], "toolUse"),
+      assistant([{ type: "text", text: "done" }]),
+    );
 
-    const result = await runObserver({ ...params, model: telemetryModel, telemetry });
+    const result = await runObserver({ ...params, complete, telemetry });
 
-    expect(result).toEqual({ ok: true, records: [], transcriptSuffix: [] });
-    expect(telemetry.calls()).toHaveLength(1);
+    expect(result.ok).toBe(true);
+    expect(telemetry.calls()).toHaveLength(2);
     expect(telemetry.calls()[0]).toMatchObject({
       operation: "observer",
       provider: "test-provider",
       model: "test-model",
-      outcome: "success",
       usage: { cacheRead: 300 },
     });
   });

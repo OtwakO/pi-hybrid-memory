@@ -95,7 +95,7 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
       session: ctx.sessionManager,
       signal: ctx.signal,
       run: async ({ signal, commitSync }) => {
-        const resolved = await runtime.resolveModel(ctx as any);
+        const resolved = runtime.resolveModel(ctx);
         if (!resolved.ok) {
           if (!runtime.resolveFailureNotified && ctx.hasUI && ctx.ui) {
             ctx.ui.notify(`Hybrid memory: observer skipped — ${resolved.reason}`, "warning");
@@ -150,9 +150,9 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
         }
 
         const result = await runObserver({
+          complete: (selectedModel, context, options) =>
+            ctx.modelRegistry.complete(selectedModel, context, options),
           model,
-          apiKey: resolved.apiKey,
-          headers: resolved.headers,
           contextMessages: prepared.contextMessages,
           prompts: prepared.prompts,
           allowedSourceEntryIds: sourceEntryIds,

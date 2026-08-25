@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Message } from "@earendil-works/pi-ai";
+import { assistantMessage } from "./fixtures/messages.js";
 
 const runObserverMock = vi.hoisted(() => vi.fn());
 const foldMemoryMock = vi.hoisted(() => vi.fn());
@@ -26,24 +26,6 @@ import { registerCompactionHook } from "../src/compaction-hook.js";
 import { Runtime } from "../src/runtime.js";
 import { OBSERVATION_CUSTOM_TYPE } from "../src/types.js";
 import type { Entry, ObservationEntryData, ObservationRecord } from "../src/types.js";
-
-const assistant = (content: string): Message => ({
-  role: "assistant",
-  content: [{ type: "text", text: content }],
-  api: "openai-completions",
-  provider: "test",
-  model: "model",
-  usage: {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 0,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-  },
-  stopReason: "stop",
-  timestamp: 1,
-});
 
 const observation = (id: string, content = "durable fact"): ObservationRecord => ({
   id,
@@ -95,7 +77,7 @@ const branch = (): Entry[] => [
 
 const warmEpoch = (runtime: Runtime, coverageEndId: string) => {
   const prepared = runtime.observerEpoch.prepare({
-    compatibilityKey: "test|openai-completions|model|observer-v3-provenance|record-observations-v3|source-segments-v2",
+    compatibilityKey: "test|openai-completions|model|observer-v3-provenance|record-observations-v4-native|source-segments-v2",
     expectedCoverageId: "initial",
     baselineText: "baseline",
     deltaText: "delta",
@@ -104,7 +86,7 @@ const warmEpoch = (runtime: Runtime, coverageEndId: string) => {
   });
   expect(prepared.ok).toBe(true);
   if (!prepared.ok) throw new Error("failed to prepare epoch fixture");
-  runtime.observerEpoch.commit(prepared, [...prepared.prompts, assistant("done")], coverageEndId);
+  runtime.observerEpoch.commit(prepared, [...prepared.prompts, assistantMessage("done")], coverageEndId);
 };
 
 const setup = (entries: Entry[]) => {
@@ -120,11 +102,6 @@ const setup = (entries: Entry[]) => {
   const runtime = new Runtime();
   runtime.loadedConfig = true;
   runtime.config.hybrid.reflectionThresholdTokens = Number.MAX_SAFE_INTEGER;
-  vi.spyOn(runtime, "resolveModel").mockResolvedValue({
-    ok: true,
-    model: { provider: "test", api: "openai-completions", id: "model", contextWindow: 272_000 },
-    apiKey: "key",
-  });
   registerCompactionHook(pi as never, runtime);
 
   let sessionId = "session-a";
@@ -133,7 +110,8 @@ const setup = (entries: Entry[]) => {
     cwd: "/project",
     isProjectTrusted: () => true,
     hasUI: false,
-    modelRegistry: { complete },
+    model: { provider: "test", api: "openai-completions", id: "model", contextWindow: 272_000 },
+    modelRegistry: { find: vi.fn(), complete },
     sessionManager: {
       getSessionId: () => sessionId,
       getLeafId: () => leafId,
@@ -182,7 +160,7 @@ describe("compaction catch-up safety integration", () => {
       return {
         ok: true,
         records: [observation("bbbbbbbbbbbb")],
-        transcriptSuffix: [...params.prompts, assistant("recorded")],
+        transcriptSuffix: [...params.prompts, assistantMessage("recorded")],
       };
     });
 
@@ -196,8 +174,9 @@ describe("compaction catch-up safety integration", () => {
 
   it("cancels if the session changes while awaiting an in-flight observer", async () => {
     const fixture = setup(branch());
-    fixture.runtime.observerPromise = Promise.resolve().then(() => {
-      fixture.setSessionId("session-b");
+    void fixture.runtime.observerTask.start({
+      session: fixture.ctx.sessionManager,
+      run: async () => { fixture.setSessionId("session-b"); },
     });
 
     const result = await fixture.getHandler()(fixture.event, fixture.ctx);
@@ -208,8 +187,9 @@ describe("compaction catch-up safety integration", () => {
 
   it("cancels if unrelated branch navigation occurs while awaiting an in-flight observer", async () => {
     const fixture = setup(branch());
-    fixture.runtime.observerPromise = Promise.resolve().then(() => {
-      fixture.setLeafId("other-branch-leaf");
+    void fixture.runtime.observerTask.start({
+      session: fixture.ctx.sessionManager,
+      run: async () => { fixture.setLeafId("other-branch-leaf"); },
     });
 
     const result = await fixture.getHandler()(fixture.event, fixture.ctx);
@@ -225,7 +205,7 @@ describe("compaction catch-up safety integration", () => {
       return {
         ok: true,
         records: [observation("bbbbbbbbbbbb")],
-        transcriptSuffix: [...params.prompts, assistant("recorded")],
+        transcriptSuffix: [...params.prompts, assistantMessage("recorded")],
       };
     });
 
@@ -240,7 +220,7 @@ describe("compaction catch-up safety integration", () => {
     runObserverMock.mockImplementation(async (params: any) => ({
       ok: true,
       records: [observation("bbbbbbbbbbbb")],
-      transcriptSuffix: [...params.prompts, assistant("recorded")],
+      transcriptSuffix: [...params.prompts, assistantMessage("recorded")],
     }));
 
     const result = await fixture.getHandler()(fixture.event, fixture.ctx);
@@ -255,7 +235,7 @@ describe("compaction catch-up safety integration", () => {
     runObserverMock.mockImplementation(async (params: any) => ({
       ok: true,
       records: [],
-      transcriptSuffix: [...params.prompts, assistant("examined")],
+      transcriptSuffix: [...params.prompts, assistantMessage("examined")],
     }));
     foldMemoryMock.mockImplementationOnce(async (input: any) => {
       await input.modelPort.propose(input.params, "system", "evidence", {
@@ -276,7 +256,7 @@ describe("compaction catch-up safety integration", () => {
         retiredObservationIds: [],
       };
     });
-    fixture.complete.mockResolvedValue(assistant("no tool call"));
+    fixture.complete.mockResolvedValue(assistantMessage("no tool call"));
 
     await fixture.getHandler()(fixture.event, fixture.ctx);
 
@@ -318,7 +298,7 @@ describe("compaction catch-up safety integration", () => {
     runObserverMock.mockImplementation(async (params: any) => ({
       ok: true,
       records: [observation("bbbbbbbbbbbb")],
-      transcriptSuffix: [...params.prompts, assistant("recorded")],
+      transcriptSuffix: [...params.prompts, assistantMessage("recorded")],
     }));
     mergePipelinesMock.mockImplementationOnce(() => {
       throw new Error("assembly failed");
