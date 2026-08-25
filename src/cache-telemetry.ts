@@ -9,9 +9,12 @@ export type MemoryLifecycleOutcome =
   | "below-threshold"
   | "success"
   | "deliberate-empty"
+  | "no-change"
   | "invalid-output"
   | "invalid-provenance"
   | "truncated-output"
+  | "missing-tool-call"
+  | "infeasible-request"
   | "error"
   | "aborted";
 

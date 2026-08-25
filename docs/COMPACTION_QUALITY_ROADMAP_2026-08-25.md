@@ -449,7 +449,9 @@ Implemented confirmed critical defects in this order:
 
 **Done when:** no valid-looking model output, summary-budget trim, or stale branch result can silently delete or misapply observations.
 
-### Q1 — Deep fold module and constrained reflection tool
+### Q1 — Deep fold module and constrained reflection tool — implemented locally
+
+The fold is now split into cohesive modules: policy/orchestration (`memory-fold.ts`), external provider adaptation (`reflection-model.ts`), pre-call capacity planning (`reflection-budget.ts`), and authoritative semantic validation/merge (`reflection-validation.ts`). The old free-form JSON recovery path and duplicate response schema are removed.
 
 - Add a narrow runtime-capability adapter and tests for the active host's constrained tools, stop reasons, reasoning options, and output limits before relying on them. Full dependency alignment remains Q9.
 - Introduce the fold module and scripted model port.
@@ -460,6 +462,8 @@ Implemented confirmed critical defects in this order:
 
 **Risk:** standard/high
 **Rollback:** old reflector path behind one temporary internal adapter until differential tests pass
+**Verification:** 177 tests across 21 files pass, TypeScript and the 34-module production build pass, changed-scope inspection reports no diagnostics/dead code/unused exports, and the installed bundle matches byte-for-byte. Independent review found and prompted fixes for global turn bounding, recoverable first-turn truncation, feasibility/send-limit consistency, duplicate submissions, and explicit no-change telemetry; no blocking issue remains.
+
 **Done when:** representative large pools reliably produce valid reflection outcomes without free-form JSON parsing.
 
 ### Q2 — Retired-evidence persistence decision

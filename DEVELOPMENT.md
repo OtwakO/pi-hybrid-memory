@@ -142,3 +142,10 @@
 - **Reason**: Reflection may enrich memory, but observation retirement must be owned by one future auditable contract. Until then, uncertainty or model failure retains the complete active observation set.
 - **Verified**: Focused fold, reflector, cache telemetry, prompt, merge-budget, and compaction-safety tests plus TypeScript passed before the full checkpoint.
 - **Watch out**: This safety milestone intentionally improves memory integrity before compaction effectiveness; protected durable observation pools can still remain large until Q1-Q4 introduce validated folding and retirement.
+
+### [2026-08-26] Replaced free-form reflection output with a constrained fold adapter
+- **Context**: The previous reflector accepted provider prose and heuristically extracted JSON, allowing huge invalid outputs and making contract completion ambiguous.
+- **Change**: Split reflection folding into policy, provider adapter, capacity planner, and semantic validator modules. The adapter uses a bounded `submit_reflections` TypeBox tool with preferred JSON-schema constrained sampling, medium reasoning, and one in-loop correction opportunity; the planner fails before provider work when full evidence plus a useful contract cannot fit.
+- **Reason**: Keep complete evidence and memory quality while making completion, provenance, truncation, and capacity failure explicit and testable behind one fold interface.
+- **Verified**: Focused tests cover constrained tool options, missing tool calls, truncation, explicit empty output, infeasible requests, unsupported/duplicate provenance, strengthening, non-mutation, lifecycle telemetry, and hook integration.
+- **Watch out**: Observation retirement remains intentionally disabled. The current proposal cap bounds only new reflection output from model/summary capacity; it does not discard input evidence.

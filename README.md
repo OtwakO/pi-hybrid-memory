@@ -182,7 +182,7 @@ Raw conversation → (Observer → Observations) → (Reflector → Reflections)
 ```
 
 1. **Observer** (LLM): At each turn end, extracts durable observations from new conversation when enough tokens have accumulated.
-2. **Memory fold**: At compaction time, the reflector may synthesize validated orientation anchors. Observation retirement is currently disabled: failed, truncated, malformed, or unsupported reflection output retains the complete pre-fold observation set.
+2. **Memory fold**: At compaction time, a bounded tool-driven reflector may synthesize validated orientation anchors. The full evidence pool is preserved in the request; provider-side constrained sampling is preferred where supported, while local provenance validation remains authoritative. Missing tool completion, infeasible capacity, failure, truncation, malformed output, or unsupported provenance retains the complete pre-fold observation set. Observation retirement remains disabled.
 3. **VCC Pipeline** (algorithmic): Extracts goals, files, commits, preferences, blockers, and builds a compressed transcript.
 4. **Merge Pipeline**: Combines both layers into one summary. When over budget it may omit low-relevance observations from the visible summary projection only; durable compaction details remain unchanged.
 
@@ -256,8 +256,11 @@ src/
 │   ├── observer.ts       # LLM/tool observation extraction
 │   ├── observer-context.ts # Stable baseline/delta and compatibility identity
 │   ├── observer-epoch.ts # Bounded append-only transactional request context
-│   ├── compaction.ts     # Validated reflection synthesis + summary render
-│   ├── memory-fold.ts    # Retention-first semantic fold interface
+│   ├── compaction.ts     # Reflection coverage utilities + summary render
+│   ├── memory-fold.ts    # Retention-first semantic fold policy
+│   ├── reflection-model.ts # Bounded constrained-tool provider adapter
+│   ├── reflection-budget.ts # Pre-call feasibility and output planning
+│   ├── reflection-validation.ts # Local provenance and merge validation
 │   ├── branch.ts         # Branch entry indexing & memory state
 │   ├── serialize.ts      # Entry → text serialization
 │   └── relevance.ts      # Relevance histogram

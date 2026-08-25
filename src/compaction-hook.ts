@@ -336,6 +336,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         reflections: workingReflections,
         observations: workingObservations,
         reflectionThresholdTokens: runtime.config.hybrid.reflectionThresholdTokens,
+        targetSummaryTokens: runtime.config.hybrid.maxSummaryTokens,
       });
       const finalReflections = fold.reflections;
       const finalObservations = fold.observations;

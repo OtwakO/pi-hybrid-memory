@@ -5,7 +5,6 @@ import {
   OBSERVER_RESPONSE_SCHEMA,
   OBSERVER_SYSTEM,
   REFLECTOR_PROMPT,
-  REFLECTOR_RESPONSE_SCHEMA,
   REFLECTOR_SYSTEM,
 } from "../src/om/prompts.js";
 
@@ -47,6 +46,8 @@ describe("memory prompt hardening", () => {
       }],
     );
     expect(reflector.indexOf("Rules:")).toBeLessThan(reflector.indexOf("Existing reflections:"));
+    expect(reflector).toContain("calling submit_reflections exactly once");
+    expect(reflector).toContain("empty reflections array");
     expect(reflector.indexOf("Existing reflections:")).toBeLessThan(reflector.indexOf("Observations to synthesize:"));
   });
 
@@ -54,10 +55,5 @@ describe("memory prompt hardening", () => {
     expect(OBSERVER_RESPONSE_SCHEMA.required).toEqual(["observations"]);
     expect(OBSERVER_RESPONSE_SCHEMA.properties.observations.items.required).toEqual(["content", "relevance"]);
     expect(OBSERVER_RESPONSE_SCHEMA.properties.observations.items.properties).toHaveProperty("sourceEntryIds");
-    expect(REFLECTOR_RESPONSE_SCHEMA.required).toEqual(["reflections"]);
-    expect(REFLECTOR_RESPONSE_SCHEMA.properties.reflections.items.required).toEqual([
-      "content",
-      "supportingObservationIds",
-    ]);
   });
 });

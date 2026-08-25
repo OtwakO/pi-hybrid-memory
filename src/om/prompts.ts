@@ -105,30 +105,12 @@ export const REFLECTOR_PROMPT = (
     "- Merge related observations into a single reflection when they support the same insight.",
     "- Do not repeat existing reflections.",
     "- If an observation contradicts or supersedes an existing reflection, preserve which state is current and what it replaced.",
+    "- Finish by calling submit_reflections exactly once with the complete set of new reflections.",
+    "- Call submit_reflections with an empty reflections array when nothing qualifies.",
+    "- Do not emit the reflection contract as prose or JSON text.",
     "",
     refLines.length > 0 ? `Existing reflections:\n${refLines.join("\n")}` : "",
     "",
     `Observations to synthesize:\n${obsLines.join("\n")}`,
   ].filter(Boolean).join("\n");
-};
-
-export const REFLECTOR_RESPONSE_SCHEMA = {
-  type: "object" as const,
-  properties: {
-    reflections: {
-      type: "array" as const,
-      items: {
-        type: "object" as const,
-        properties: {
-          content: { type: "string" as const },
-          supportingObservationIds: {
-            type: "array" as const,
-            items: { type: "string" as const },
-          },
-        },
-        required: ["content", "supportingObservationIds"],
-      },
-    },
-  },
-  required: ["reflections"],
 };

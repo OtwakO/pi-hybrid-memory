@@ -92,9 +92,11 @@ session_before_compact fires
         │
         ▼
 [3] Check OM gate: is observation pool ≥ reflectionThresholdTokens?
-    YES → run the validated fold module (reflection only in Q0)
+    YES → run the validated fold module through a bounded submit_reflections tool
+           after proving the full evidence request plus a useful contract can fit
     NO  → skip, use existing reflections as-is (zero LLM cost)
-    Any failed/aborted/truncated/invalid-provenance stage → retain the pre-fold memory set
+    Missing tool completion, infeasible capacity, failed/aborted/truncated/invalid-provenance
+    output → retain the exact pre-fold memory set
     Observation retirement remains disabled until an auditable retirement contract is approved
         │
         ▼
