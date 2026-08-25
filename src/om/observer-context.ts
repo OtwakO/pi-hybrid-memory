@@ -4,7 +4,7 @@ import { reflectionContent } from "./compaction.js";
 import { observationsToPromptLines } from "./observer.js";
 
 export const OBSERVER_PROMPT_VERSION = "observer-v3-provenance";
-export const OBSERVER_TOOL_VERSION = "record-observations-v2";
+export const OBSERVER_TOOL_VERSION = "record-observations-v3";
 export const OBSERVER_SERIALIZER_VERSION = "source-segments-v2";
 
 // Conservative allowance for observer output, tool schemas, provider framing,
@@ -32,8 +32,11 @@ export const OBSERVER_DELTA_INSTRUCTIONS = [
   "Stop calling the tool and reply with a short plain-text confirmation once this chunk is fully covered.",
 ].join("\n");
 
-export const observerDeltaText = (chunk: string): string => [
+export const observerDeltaText = (chunk: string, sourceEntryIds: readonly string[]): string => [
   OBSERVER_DELTA_INSTRUCTIONS,
+  `Valid sourceEntryIds for this chunk: ${sourceEntryIds.join(", ")}`,
+  "If sourceEntryIds is supplied, use only IDs from that exact list. Do not cite source IDs from earlier epoch messages.",
+  "Omit sourceEntryIds when an observation depends on the full current chunk.",
   "",
   chunk.trim(),
 ].join("\n");

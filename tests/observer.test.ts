@@ -144,6 +144,69 @@ describe("runObserver observation provenance", () => {
     if (result.ok) expect(result.records[0].sourceEntryIds).toEqual(["source01", "source02"]);
   });
 
+  it("recovers when the model corrects an invalid provenance subset in a later tool call", async () => {
+    agentLoopMock.mockImplementation((...args) => {
+      const context = args.find((arg) => arg && Array.isArray(arg.tools));
+      return {
+        async *[Symbol.asyncIterator]() {
+          await context.tools[0].execute("invalid", {
+            observations: [{
+              content: "wrongly cited fact",
+              relevance: "high",
+              sourceEntryIds: ["previous-chunk-source"],
+            }],
+          }).catch(() => undefined);
+          await context.tools[0].execute("corrected", {
+            observations: [{
+              content: "fact from the current source",
+              relevance: "high",
+              sourceEntryIds: ["source01"],
+            }],
+          });
+        },
+        result: vi.fn().mockResolvedValue([]),
+      };
+    });
+
+    const result = await runObserver(params);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.records).toHaveLength(1);
+      expect(result.records[0].sourceEntryIds).toEqual(["source01"]);
+    }
+  });
+
+  it("still fails when the final provenance attempt remains invalid", async () => {
+    agentLoopMock.mockImplementation((...args) => {
+      const context = args.find((arg) => arg && Array.isArray(arg.tools));
+      return {
+        async *[Symbol.asyncIterator]() {
+          await context.tools[0].execute("valid", {
+            observations: [{
+              content: "fact from the current source",
+              relevance: "high",
+              sourceEntryIds: ["source01"],
+            }],
+          });
+          await context.tools[0].execute("invalid", {
+            observations: [{
+              content: "wrongly cited fact",
+              relevance: "high",
+              sourceEntryIds: ["previous-chunk-source"],
+            }],
+          }).catch(() => undefined);
+        },
+        result: vi.fn().mockResolvedValue([]),
+      };
+    });
+
+    const result = await runObserver(params);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("sourceEntryIds");
+  });
+
   it("rejects a provenance subset containing a source outside the current chunk", async () => {
     agentLoopMock.mockImplementation((...args) => {
       const context = args.find((arg) => arg && Array.isArray(arg.tools));

@@ -165,7 +165,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
               compatibilityKey: observerCompatibilityKey(model),
               expectedCoverageId,
               baselineText,
-              deltaText: observerDeltaText(serialized.text),
+              deltaText: observerDeltaText(serialized.text, serialized.sourceEntryIds),
               maxTokens: observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens),
               fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
             });

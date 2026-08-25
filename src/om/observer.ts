@@ -125,6 +125,7 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
         });
       }
       accumulated.push(...staged);
+      provenanceFailure = null;
       return {
         content: [{ type: "text" as const, text: `Recorded ${args.observations.length} observation(s). Total: ${accumulated.length}. Continue or stop calling the tool.` }],
         details: { added: args.observations.length, total: accumulated.length },

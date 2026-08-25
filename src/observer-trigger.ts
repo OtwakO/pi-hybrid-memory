@@ -134,7 +134,7 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
         compatibilityKey: observerCompatibilityKey(model),
         expectedCoverageId: boundaryId,
         baselineText,
-        deltaText: observerDeltaText(chunk),
+        deltaText: observerDeltaText(chunk, sourceEntryIds),
         maxTokens: epochMaxTokens,
         fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
       });

@@ -117,3 +117,9 @@
 - **Change**: Both observer paths measure fresh baseline occupancy against a 256-token minimum useful delta; proactive observation skips without advancing coverage, catch-up cancels fail-closed, and `/hm-cache-info` aggregates pressure events and minimum fresh-delta capacity.
 - **Reason**: Gather evidence before introducing any reflection/pruning lifecycle change or reducing memory quality.
 - **Verified**: Focused epoch, telemetry, observer, and catch-up safety tests pass with clean TypeScript.
+
+### [2026-08-25] Made observer provenance correction recoverable
+- **Context**: A cache-stable observer epoch can expose earlier source IDs to the model, which may cite one outside the current delta and trigger a provenance warning.
+- **Change**: Every delta now lists its exact valid source IDs, the observer tool compatibility version was bumped, and a later valid tool call clears a prior invalid provenance attempt while an uncorrected final invalid attempt still fails closed.
+- **Reason**: Preserve strict provenance without discarding a fully corrected observer run or repeatedly retrying an otherwise valid source chunk.
+- **Verified**: Focused provenance, epoch-compatibility, compaction catch-up, and segmented-source tests pass with clean TypeScript.
