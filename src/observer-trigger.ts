@@ -27,7 +27,7 @@ import type { Runtime } from "./runtime.js";
 export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): void {
   pi.on("turn_end", (_event, ctx) => {
     runtime.ensureConfig(ctx.cwd, ctx.isProjectTrusted());
-    if (runtime.observerInFlight) return;
+    if (runtime.observerTask.active) return;
 
     const entries = ctx.sessionManager.getBranch() as Entry[];
     const coverageAnchor = resolveObservationCoverageAnchor(entries);
@@ -91,125 +91,149 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
       "info",
     );
 
-    void runtime.launchObserverTask(ctx, "observer", async () => {
-      const resolved = await runtime.resolveModel(ctx as any);
-      if (!resolved.ok) {
-        if (!runtime.resolveFailureNotified && ctx.hasUI && ctx.ui) {
-          ctx.ui.notify(`Hybrid memory: observer skipped — ${resolved.reason}`, "warning");
-          runtime.resolveFailureNotified = true;
+    void runtime.observerTask.start({
+      session: ctx.sessionManager,
+      signal: ctx.signal,
+      run: async ({ signal, commitSync }) => {
+        const resolved = await runtime.resolveModel(ctx as any);
+        if (!resolved.ok) {
+          if (!runtime.resolveFailureNotified && ctx.hasUI && ctx.ui) {
+            ctx.ui.notify(`Hybrid memory: observer skipped — ${resolved.reason}`, "warning");
+            runtime.resolveFailureNotified = true;
+          }
+          return;
         }
-        return;
-      }
-      runtime.resolveFailureNotified = false;
+        runtime.resolveFailureNotified = false;
 
-      const model = resolved.model as any;
-      const baselineText = observerBaselineText(reflections, baselineObservations);
-      const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
-      const freshCapacity = runtime.observerEpoch.freshEpochCapacity({
-        baselineText,
-        maxTokens: epochMaxTokens,
-        fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
-        deltaOverheadText: OBSERVER_DELTA_INSTRUCTIONS,
-        minimumDeltaTokens: OBSERVER_MINIMUM_DELTA_TOKENS,
-      });
-      runtime.cacheTelemetry.recordObserverCapacity("proactive", freshCapacity);
-      if (freshCapacity.pressured) {
-        if (ctx.hasUI && ctx.ui) ctx.ui.notify(
-          `Hybrid memory: observer baseline pressure leaves only ~${freshCapacity.availableDeltaTokens.toLocaleString()} source tokens; coverage was not advanced.`,
-          "warning",
-        );
-        return;
-      }
-      const freshDeltaBudget = freshCapacity.availableDeltaTokens;
-      const serialized = serializeSourceAddressedBranchEntries(
-        chunkEntries,
-        Math.min(runtime.config.hybrid.observerChunkMaxTokens, freshDeltaBudget),
-        coverageAnchor.sourceProgress,
-      );
-      const { text: chunk, sourceEntryIds } = serialized;
-      const observedUpToId = serialized.coversUpToId ?? boundaryId;
-      if (!chunk.trim() || sourceEntryIds.length === 0) return;
+        const model = resolved.model as any;
+        const baselineText = observerBaselineText(reflections, baselineObservations);
+        const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
+        const freshCapacity = runtime.observerEpoch.freshEpochCapacity({
+          baselineText,
+          maxTokens: epochMaxTokens,
+          fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
+          deltaOverheadText: OBSERVER_DELTA_INSTRUCTIONS,
+          minimumDeltaTokens: OBSERVER_MINIMUM_DELTA_TOKENS,
+        });
+        runtime.cacheTelemetry.recordObserverCapacity("proactive", freshCapacity);
+        if (freshCapacity.pressured) {
+          if (ctx.hasUI && ctx.ui) ctx.ui.notify(
+            `Hybrid memory: observer baseline pressure leaves only ~${freshCapacity.availableDeltaTokens.toLocaleString()} source tokens; coverage was not advanced.`,
+            "warning",
+          );
+          return;
+        }
 
-      const prepared = runtime.observerEpoch.prepare({
-        compatibilityKey: observerCompatibilityKey(model),
-        expectedCoverageId: boundaryId,
-        baselineText,
-        deltaText: observerDeltaText(chunk, sourceEntryIds),
-        maxTokens: epochMaxTokens,
-        fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
-      });
-      if (!prepared.ok) {
-        if (ctx.hasUI && ctx.ui) ctx.ui.notify(
-          `Hybrid memory: observer epoch cannot fit a fresh baseline and source chunk (${prepared.projectedTokens.toLocaleString()} > ${prepared.maxTokens.toLocaleString()} estimated tokens). Coverage was not advanced.`,
-          "warning",
+        const serialized = serializeSourceAddressedBranchEntries(
+          chunkEntries,
+          Math.min(runtime.config.hybrid.observerChunkMaxTokens, freshCapacity.availableDeltaTokens),
+          coverageAnchor.sourceProgress,
         );
-        return;
-      }
+        const { text: chunk, sourceEntryIds } = serialized;
+        const observedUpToId = serialized.coversUpToId ?? boundaryId;
+        if (!chunk.trim() || sourceEntryIds.length === 0) return;
 
-      const result = await runObserver({
-        model,
-        apiKey: resolved.apiKey,
-        headers: resolved.headers,
-        contextMessages: prepared.contextMessages,
-        prompts: prepared.prompts,
-        allowedSourceEntryIds: sourceEntryIds,
-        telemetry: runtime.cacheTelemetry,
-        cacheOptions: runtime.piSessionId
-          ? operationCacheOptions(runtime.piSessionId, "observer")
-          : undefined,
-        prefixTelemetry: {
-              source: "proactive",
-              epochRunIndex: prepared.runIndex,
-              cold: prepared.cold,
-          predictedPrefixTokens: prepared.predictedPrefixTokens,
-              projectedTokens: prepared.projectedTokens,
-              maxTokens: epochMaxTokens,
-              resetReason: prepared.resetReason,
-        },
-      });
-      if (!result.ok) {
-        if (ctx.hasUI && ctx.ui) ctx.ui.notify(
-          `Hybrid memory: observer failed — ${result.reason}${result.rawResponse ? `\n\nRaw response (first 300 chars):\n${result.rawResponse}` : ""}`,
-          "warning",
+        const prepared = runtime.observerEpoch.prepare({
+          compatibilityKey: observerCompatibilityKey(model),
+          expectedCoverageId: boundaryId,
+          baselineText,
+          deltaText: observerDeltaText(chunk, sourceEntryIds),
+          maxTokens: epochMaxTokens,
+          fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
+        });
+        if (!prepared.ok) {
+          if (ctx.hasUI && ctx.ui) ctx.ui.notify(
+            `Hybrid memory: observer epoch cannot fit a fresh baseline and source chunk (${prepared.projectedTokens.toLocaleString()} > ${prepared.maxTokens.toLocaleString()} estimated tokens). Coverage was not advanced.`,
+            "warning",
+          );
+          return;
+        }
+
+        const result = await runObserver({
+          model,
+          apiKey: resolved.apiKey,
+          headers: resolved.headers,
+          contextMessages: prepared.contextMessages,
+          prompts: prepared.prompts,
+          allowedSourceEntryIds: sourceEntryIds,
+          signal,
+          telemetry: runtime.cacheTelemetry,
+          cacheOptions: runtime.piSessionId
+            ? operationCacheOptions(runtime.piSessionId, "observer")
+            : undefined,
+          prefixTelemetry: {
+            source: "proactive",
+            epochRunIndex: prepared.runIndex,
+            cold: prepared.cold,
+            predictedPrefixTokens: prepared.predictedPrefixTokens,
+            projectedTokens: prepared.projectedTokens,
+            maxTokens: epochMaxTokens,
+            resetReason: prepared.resetReason,
+          },
+        });
+        if (!result.ok) {
+          if (ctx.hasUI && ctx.ui) ctx.ui.notify(
+            `Hybrid memory: observer failed — ${result.reason}${result.rawResponse ? `\n\nRaw response (first 300 chars):\n${result.rawResponse}` : ""}`,
+            "warning",
+          );
+          return;
+        }
+
+        if (result.records.length === 0) {
+          if (serialized.hasMore) {
+            commitSync(() => {
+              runtime.observerEpoch.validateCommit(prepared, result.transcriptSuffix);
+              pi.appendEntry(OBSERVATION_CUSTOM_TYPE, {
+                records: [],
+                coversFromId,
+                coversUpToId: observedUpToId,
+                tokenCount: 0,
+                sourceProgress: serialized.sourceProgress,
+              } satisfies ObservationEntryData);
+              runtime.observerEpoch.commitValidated(prepared, result.transcriptSuffix, observedUpToId);
+            });
+            runtime.clearEmptyObserverBackoff();
+            if (ctx.hasUI && ctx.ui) ctx.ui.notify(
+              "Hybrid memory: observer found nothing in this bounded chunk; coverage advanced and more backlog remains",
+              "info",
+            );
+          } else {
+            runtime.recordEmptyObserverResult(boundaryId, tokens);
+            if (ctx.hasUI && ctx.ui) ctx.ui.notify(
+              "Hybrid memory: observer found nothing worth recording in this chunk; waiting for more context before retrying",
+              "info",
+            );
+          }
+          return;
+        }
+
+        runtime.clearEmptyObserverBackoff();
+        const observationTokens = result.records.reduce(
+          (sum, record) => sum + estimateStringTokens(record.content),
+          0,
         );
-        return;
-      }
-      if (result.records.length === 0) {
-        if (serialized.hasMore) {
+        const data: ObservationEntryData = {
+          records: result.records,
+          coversFromId,
+          coversUpToId: observedUpToId,
+          tokenCount: observationTokens,
+          sourceProgress: serialized.sourceProgress,
+        };
+        commitSync(() => {
           runtime.observerEpoch.validateCommit(prepared, result.transcriptSuffix);
-          pi.appendEntry(OBSERVATION_CUSTOM_TYPE, {
-            records: [],
-            coversFromId,
-            coversUpToId: observedUpToId,
-            tokenCount: 0,
-            sourceProgress: serialized.sourceProgress,
-          } satisfies ObservationEntryData);
+          pi.appendEntry(OBSERVATION_CUSTOM_TYPE, data);
           runtime.observerEpoch.commitValidated(prepared, result.transcriptSuffix, observedUpToId);
-          runtime.clearEmptyObserverBackoff();
-          if (ctx.hasUI && ctx.ui) ctx.ui.notify("Hybrid memory: observer found nothing in this bounded chunk; coverage advanced and more backlog remains", "info");
-        } else {
-          runtime.recordEmptyObserverResult(boundaryId, tokens);
-          if (ctx.hasUI && ctx.ui) ctx.ui.notify("Hybrid memory: observer found nothing worth recording in this chunk; waiting for more context before retrying", "info");
-        }
-        return;
+        });
+        if (ctx.hasUI && ctx.ui) ctx.ui.notify(
+          `Hybrid memory: ${result.records.length} observation(s) recorded (~${observationTokens.toLocaleString()} tokens)${serialized.hasMore ? "; more backlog remains" : ""}`,
+          "info",
+        );
+      },
+    }).then((outcome) => {
+      if (outcome.status === "failed" && ctx.hasUI && ctx.ui) {
+        const message = outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
+        ctx.ui.notify(`Hybrid memory: observer task failed — ${message}`, "warning");
       }
-
-      runtime.clearEmptyObserverBackoff();
-      const observationTokens = result.records.reduce((sum, r) => sum + estimateStringTokens(r.content), 0);
-      const data: ObservationEntryData = {
-        records: result.records,
-        coversFromId,
-        coversUpToId: observedUpToId,
-        tokenCount: observationTokens,
-        sourceProgress: serialized.sourceProgress,
-      };
-      runtime.observerEpoch.validateCommit(prepared, result.transcriptSuffix);
-      pi.appendEntry(OBSERVATION_CUSTOM_TYPE, data);
-      runtime.observerEpoch.commitValidated(prepared, result.transcriptSuffix, observedUpToId);
-      if (ctx.hasUI && ctx.ui) ctx.ui.notify(
-        `Hybrid memory: ${result.records.length} observation(s) recorded (~${observationTokens.toLocaleString()} tokens)${serialized.hasMore ? "; more backlog remains" : ""}`,
-        "info",
-      );
     });
   });
 }

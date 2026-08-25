@@ -9,9 +9,8 @@ import { registerMemoryCommand } from "./memory.js";
 import { registerRecallTool } from "./tools/recall.js";
 import { registerCacheInfoCommand } from "./cache-telemetry.js";
 
-const runtime = new Runtime();
-
 export default function extension(pi: ExtensionAPI): void {
+  const runtime = new Runtime();
   // Config loaded lazily on first hook invocation — see observer-trigger, compaction-hook, status
 
   // Register the unified compaction hook
@@ -28,6 +27,16 @@ export default function extension(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     runtime.setPiSessionId(ctx.sessionManager.getSessionId());
   });
+  const leaveObserverEpoch = (
+    cancellation: "session-switch" | "session-fork" | "tree-navigation" | "session-shutdown",
+  ) => {
+    runtime.observerTask.cancel(cancellation);
+    runtime.observerEpoch.invalidate("session-change");
+  };
+  pi.on("session_before_switch", () => leaveObserverEpoch("session-switch"));
+  pi.on("session_before_fork", () => leaveObserverEpoch("session-fork"));
+  pi.on("session_before_tree", () => leaveObserverEpoch("tree-navigation"));
+  pi.on("session_shutdown", () => leaveObserverEpoch("session-shutdown"));
 
   // Register the /hm-memory command
   registerMemoryCommand(pi, runtime);

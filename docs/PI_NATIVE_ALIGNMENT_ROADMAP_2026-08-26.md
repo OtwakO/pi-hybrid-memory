@@ -155,7 +155,7 @@ Required cases:
 
 Done when no configured source budget can be bypassed through whitespace-poor input and old persistence remains readable.
 
-### Milestone D — Observer lifecycle safety — Next
+### Milestone D — Observer lifecycle safety — Completed
 
 Scope:
 
@@ -164,9 +164,11 @@ Scope:
 - cancel session-owned observation on `session_shutdown`;
 - ensure abort, navigation, reload, and persistence failure leave durable coverage and epoch state unchanged.
 
-This milestone may be combined with Milestone E only if separating them would duplicate transaction work.
+Implemented independently from Milestone E through a deep `ObserverTaskCoordinator` module. Its small interface owns task exclusivity, turn/session cancellation, failure classification, originating session/branch ancestry fencing, and the final synchronous persistence-and-epoch commit seam. Same-branch descendant growth remains valid; navigation away from the originating branch path, session replacement, active-turn abort, shutdown, or persistence failure cannot advance durable coverage or epoch state.
 
-### Milestone E — Pi-native observer inference
+The synchronous bootstrap boundary write remains outside the coordinator because it performs no `await`; Pi cannot interleave branch navigation between its branch read and append in the same JavaScript turn.
+
+### Milestone E — Pi-native observer inference — Next
 
 Scope:
 

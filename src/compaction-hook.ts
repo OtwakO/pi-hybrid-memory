@@ -95,8 +95,8 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       let compactionFence = captureSessionBranchFence(ctx.sessionManager);
 
       // ── Step 1: Run observer on any gap (catch-up) ──
-      if (runtime.observerPromise) {
-        try { await runtime.observerPromise; } catch { /* already notified */ }
+      if (runtime.observerTask.promise) {
+        await runtime.observerTask.promise;
         entries = ctx.sessionManager.getBranch() as Entry[];
         const advancedFence = advanceFenceAcrossObservationAppends(
           compactionFence,
@@ -140,7 +140,6 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
           "info",
         );
 
-        runtime.observerInFlight = true;
         const accumulatedRecords: ObservationRecord[] = [];
         const draftEpoch = runtime.observerEpoch.fork();
         let remainingGap = gap;
@@ -282,9 +281,6 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
             "warning",
           );
           return { cancel: true };
-        } finally {
-          runtime.observerInFlight = false;
-          runtime.observerPromise = null;
         }
       } else if (gap.length > 0 && isBootstrap) {
         // Bootstrap mode: skip gap observer — VCC will handle structural summary of old content

@@ -72,10 +72,10 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
         lines.push(`Compaction model: ${runtime.config.hybrid.compactionModel.provider}/${runtime.config.hybrid.compactionModel.id}`);
       }
 
-      if (runtime.observerInFlight || runtime.compactHookInFlight || runtime.autoCompactionInFlight) {
+      if (runtime.observerTask.active || runtime.compactHookInFlight || runtime.autoCompactionInFlight) {
         lines.push("");
         lines.push("── In flight ──");
-        if (runtime.observerInFlight) lines.push("Observer: running");
+        if (runtime.observerTask.active) lines.push("Observer: running");
         if (runtime.compactHookInFlight) lines.push("Compaction: running");
         if (runtime.autoCompactionInFlight) lines.push("Automatic compaction: requested");
       }

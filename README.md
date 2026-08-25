@@ -220,7 +220,9 @@ prepare epoch draft
 → commit the exact transcript suffix to the runtime epoch
 ```
 
-Failures, aborts, invalid provenance, stale transactions, or persistence failures do not advance epoch coverage. Compaction catch-up uses an isolated fork: every uncovered chunk must succeed before one consolidated durable entry is written. A failed catch-up discards the fork and cancels compaction; successful compaction invalidates the live epoch because reflection, pruning, and branch boundaries may have changed.
+Failures, aborts, invalid provenance, stale transactions, or persistence failures do not advance epoch coverage. Proactive observer work is session-scoped: active-turn abort, session switch/fork/tree navigation, reload/shutdown, or navigation away from the originating branch path cancels the task. Same-branch descendant appends remain valid, and the final ancestry check, durable append, and epoch commit run as one synchronous transaction window.
+
+Compaction catch-up uses an isolated fork: every uncovered chunk must succeed before one consolidated durable entry is written. A failed catch-up discards the fork and cancels compaction; successful compaction invalidates the live epoch because reflection, pruning, and branch boundaries may have changed.
 
 The epoch is safely rebuilt when its retained context reaches capacity or when continuity cannot be proven. Common reset reasons shown by `/hm-cache-info` are:
 

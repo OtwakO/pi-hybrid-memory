@@ -4,6 +4,7 @@ import type { ResolveResult, UnifiedConfig } from "./types.js";
 import { DEFAULT_EXTENSION_CONFIG, DEFAULT_HYBRID_SETTINGS, loadConfig } from "./config.js";
 import { CacheTelemetry } from "./cache-telemetry.js";
 import { ObserverEpochManager } from "./om/observer-epoch.js";
+import { ObserverTaskCoordinator } from "./observer-task.js";
 
 const hasUsableAuth = (auth: {
   ok: boolean;
@@ -20,14 +21,13 @@ export class Runtime {
   loadedConfig = false;
   readonly cacheTelemetry = new CacheTelemetry();
   readonly observerEpoch = new ObserverEpochManager();
+  readonly observerTask = new ObserverTaskCoordinator();
   piSessionId: string | null = null;
 
   // In-flight state
-  observerInFlight = false;
   compactHookInFlight = false;
   autoCompactionInFlight = false;
   resolveFailureNotified = false;
-  observerPromise: Promise<void> | null = null;
   observerEmptyBackoff: { boundaryId: string; tokensAtEmpty: number } | null = null;
 
   // One-shot notice: set when we've surfaced the "old compaction boundary
@@ -102,25 +102,5 @@ export class Runtime {
       return { ok: false, reason: "session model has no usable API key or auth header" };
     }
     return { ok: true, model: ctx.model, apiKey: auth.apiKey ?? "", headers: auth.headers };
-  }
-
-  async launchObserverTask<T>(
-    ctx: { hasUI: boolean; ui?: { notify: (msg: string, level?: "info" | "warning" | "error") => void } },
-    taskName: string,
-    fn: () => Promise<T>,
-  ): Promise<void> {
-    this.observerInFlight = true;
-    this.observerPromise = (async () => {
-      try {
-        await fn();
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        if (ctx.hasUI && ctx.ui) ctx.ui.notify(`Observer "${taskName}" failed: ${msg}`, "warning");
-      } finally {
-        this.observerInFlight = false;
-        this.observerPromise = null;
-      }
-    })();
-    await this.observerPromise;
   }
 }
