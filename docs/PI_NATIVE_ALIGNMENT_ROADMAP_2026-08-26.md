@@ -206,9 +206,40 @@ Implemented through the pure `prepareVccCompactionInput()` module. Removed histo
 
 The retained tail is intentionally excluded from VCC input because Pi keeps it verbatim after the compaction summary. Copying it into VCC would duplicate active context, consume summary tokens, and destabilize the post-compaction prefix without adding information. Volatile outstanding context therefore reflects the newly removed delta; active blockers in the retained tail remain directly visible. Whole-branch reconstruction, hand-written custom-message conversion, and ad hoc prior-summary parsing were removed from the compaction hook.
 
-### Milestone G — Review remaining alignment scope — Next
+### Milestone G — Review remaining alignment scope — Completed
 
-Re-audit the deferred list and current Pi-host contracts before choosing another implementation milestone. Cache-prefix changes, observation retirement, and broader UI or packaging changes still require separate evidence and decision gates.
+The source audit found the recent Pi-native routing, observer epoch transaction, branch fencing, retention-safe fold, and VCC cut-point work to be sound foundations rather than patch stacks. No production dead code, unused exports, or import cycles remain. The main remaining risks are semantic convergence and a small set of cross-session/protocol correctness gaps—not missing cache knobs.
+
+#### Immediate correctness findings
+
+1. **Observer prompt/transport contract drift — major.** `OBSERVER_SYSTEM` still instructs free-form JSON-only output, while `runObserver()` accepts only `record_observations` tool calls and treats a normal response with no tool call as successful termination. This is a remnant from the pre-native observer and can silently produce an empty verdict despite useful source content. Remove the obsolete JSON contract, make the tool protocol authoritative, and bump the observer prompt compatibility version.
+2. **Empty compaction catch-up has no durable coverage marker — major.** Catch-up persists an observation entry only when `accumulatedRecords.length > 0`; a fully examined deliberate-empty gap proceeds to compaction without advancing branch-authoritative coverage. Persist one empty consolidated coverage entry after complete successful catch-up, under the same final branch fence, before compaction assembly.
+3. **Runtime config is cached across project/session changes — major.** `Runtime.ensureConfig()` loads only once per extension process. Switching cwd or project trust can leave the prior project's model and thresholds active. Key loaded config by canonical cwd plus trust state, reload at session/project scope changes, and reset config-derived notices with that scope.
+4. **Memory-details version guard is forward-unsafe — major before schema evolution.** `isSupportedMemoryDetails()` accepts any observational-memory version `>= 3` and casts it to V4 without shape validation. Replace it with explicit version readers/normalizers before introducing retired evidence or a new details version.
+
+#### Strategic memory-quality findings
+
+5. **Retention is safe but cannot converge — expected high-priority gap.** `foldMemory()` structurally returns `retiredObservationIds: []`; all observations remain in durable details. This prevents data loss but guarantees monotonic growth and recurring protected overflow. Continue Q2–Q6 of the compaction-quality roadmap: additive retired-evidence persistence, explicit absorption proof, reflection lifecycle, deterministic conservative retirement, and 300/600/900-item evaluation.
+6. **Reflections accumulate without supersession lifecycle — major for long sessions.** Validation can add or strengthen exact-content duplicates but cannot replace or mark stale/conflicting reflections. Existing reflections consume the 50% reflection allocation first, so stale anchors can eventually block useful new synthesis. Define strengthening/supersession/current-projection semantics before claiming convergence.
+7. **Recall has split state readers and incomplete evidence traversal — major before retirement.** Live memory reads committed observations from the latest compaction details, but `hm_recall` searches observations only in custom observation entries and reflections across all compactions without dedup/current-state semantics. It also does not traverse a reflection's supporting observation evidence. Introduce one branch memory index used by live state, UI, metrics, and recall before retiring any observation.
+8. **Compaction effectiveness is not measured end to end — major observability gap.** Telemetry records extension LLM calls but not summary contribution, retained-tail estimate, protected-overflow composition, or post-compaction reduction. Add content-free compaction lifecycle metrics before tuning summary/cache behavior further.
+
+#### Lower-priority cleanup
+
+9. Share the duplicated abort/deadline race helper between observer and reflector only when touching those modules; it is real policy duplication but not urgent.
+10. Remove test-only obsolete observer free-form prompt/schema exports with the prompt-contract fix.
+11. Reset `boundaryRecoveryNotified` per session rather than per extension process.
+12. Replace the two obsolete `resolved.model as any` casts after the current Pi model types are confirmed sufficient.
+13. Keep the large `/hm-memory` TUI stable unless changed for the unified branch memory index; size alone is not a reason to rewrite it.
+
+### Ordered next work
+
+1. **G1 — Protocol and scope correctness:** fix observer tool prompt, empty catch-up coverage, config scoping, per-session notices, and explicit memory-details readers. These are localized and should land before new memory semantics.
+2. **G2 — Canonical branch memory index:** one read model for current observations, reflections, provenance, compaction details, UI, metrics, and recall. Preserve V4 compatibility and make future retired evidence discoverable.
+3. **G3 — Additive retired-evidence persistence and reflection lifecycle design:** pause for approval on the new details version, supersession semantics, and recall scope.
+4. **G4 — Safe convergence implementation:** validated absorption proof plus deterministic conservative retirement; no omission-sensitive keep-list model.
+5. **G5 — Long-session quality/effectiveness evaluation:** required-fact, contradiction, chronology, recall, summary-size, retained-tail, and deterministic-rendering fixtures at 300/600/900 observations.
+6. **G6 — Cache optimization after convergence:** measure reflection-prefix reuse and first-main-request cold transition; optimize only quality-neutral stable prefixes. Do not restructure evidence solely for cache percentage.
 
 ### Deferred
 
