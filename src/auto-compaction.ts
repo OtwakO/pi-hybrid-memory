@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Runtime } from "./runtime.js";
 
 export interface AutoCompactionThreshold {
@@ -31,19 +31,8 @@ export const activeAutoCompactionThreshold = (
   };
 };
 
-interface AgentSettledEvents {
-  on(
-    event: "agent_settled",
-    handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>,
-  ): void;
-}
-
 export function registerAutoCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): void {
-  // agent_settled was added after the legacy @mariozechner 0.66 typings used by
-  // this project. Pi 0.84+ provides it at runtime; keep the compatibility cast
-  // isolated here rather than weakening event/context types across the module.
-  const settledEvents = pi as unknown as AgentSettledEvents;
-  settledEvents.on("agent_settled", (_event, ctx) => {
+  pi.on("agent_settled", (_event, ctx) => {
     runtime.ensureConfig(ctx.cwd);
     if (!runtime.config.extension.overrideDefaultCompaction) return;
     if (runtime.autoCompactionInFlight || runtime.compactHookInFlight) return;

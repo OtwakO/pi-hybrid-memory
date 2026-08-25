@@ -534,7 +534,7 @@ class MemoryOverlay {
 
   private wrapCache = new Map<string, string[]>();
   private wrapLine(text: string, w: number): string[] {
-    const key = `${text.length}:${w}`;
+    const key = `${w}:${text}`;
     if (this.wrapCache.has(key)) return this.wrapCache.get(key)!;
     const out: string[] = [];
     for (const line of text.split("\n")) {

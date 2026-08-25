@@ -1,7 +1,6 @@
 // HM-Recall tool: retrieves memory evidence by ID — ported from pi-observational-memory
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { Text } from "@earendil-works/pi-tui";
 import type { Entry, ObservationRecord, ReflectionRecord, MemoryReflection } from "../types.js";
 import { OBSERVATION_CUSTOM_TYPE, MEMORY_ID_PATTERN } from "../types.js";
@@ -229,14 +228,14 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
         pattern: RECALL_ID_PATTERN.source,
         description: "A 12-character lowercase alphanumeric observation/reflection id, or an 8-character lowercase hex Pi source-entry id shown in Sources.",
       }),
-    }) as any,
+    }),
     renderCall(args) {
       const id = args && typeof args === "object" && "id" in args
         ? String(args.id)
         : "...";
       return new Text(`recall ${id}`, 0, 0);
     },
-    renderResult(result, options) {
+    renderResult(result, _options) {
       const details = result.details as MatchDetails | undefined;
       if (!details) {
         const text = result.content
@@ -289,8 +288,8 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
 
       return new Text(lines.join("\n"), 0, 0);
     },
-    async execute(_toolCallId, params: Record<string, unknown>, _signal, _onUpdate, ctx) {
-      const memoryId = typeof params.id === "string" ? params.id : String(params.id ?? "");
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const memoryId = params.id;
       if (!RECALL_ID_PATTERN.test(memoryId)) {
         const message = `Recall id must be a 12-character memory id or 8-character source id. Received: ${memoryId}.`;
         return textResult(message, emptyDetails("invalid_id", memoryId, message));

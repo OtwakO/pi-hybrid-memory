@@ -28,6 +28,7 @@ https://github.com/sting8k/pi-vcc
 6. `vcc_recall` lossless history recall must work unchanged — it reads raw JSONL and is hook-independent
 7. All extension-owned config lives in one flat `pi-hybrid-memory-config.json` with global defaults and optional sparse project overrides
 8. TypeScript throughout, compiled and tested against the active `@earendil-works` Pi 0.84.3 ecosystem rather than legacy package aliases
+9. Prefer Pi's current public extension boundaries for provider inference, lifecycle, trust, token accounting, and prepared compaction inputs; keep only memory semantics Pi does not provide. Track the staged migration in `docs/PI_NATIVE_ALIGNMENT_ROADMAP_2026-08-26.md`.
 
 ---
 
@@ -76,7 +77,9 @@ pi-hybrid-memory/
 
 ### Pi Runtime Baseline
 
-The extension targets `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, and `@earendil-works/pi-tui` 0.84.3. Source, tests, peer dependencies, and the production build use the current namespace directly. The observer retains its bounded append-only low-level loop. Reflection uses Pi's canonical extension inference boundary, `ctx.modelRegistry.complete()`, with a provider-neutral tool schema and universal request options; Pi owns provider translation, authentication, routing, hooks, and inference behavior.
+The extension targets `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, and `@earendil-works/pi-tui` 0.84.3. Source, tests, peer dependencies, and the production build use the current namespace directly. Reflection uses Pi's canonical extension inference boundary, `ctx.modelRegistry.complete()`, with a provider-neutral tool schema and universal request options; Pi owns provider translation, authentication, routing, hooks, and inference behavior.
+
+The observer still retains its bounded append-only low-level loop through the explicit Pi compatibility stream. This is now a tracked migration seam rather than the target architecture: observation needs a bounded multi-turn protocol, but each provider turn should ultimately route through Pi's session-owned model runtime. Reflection remains a bounded fixed-evidence fold and must not be expanded into a general agent loop. See `docs/PI_NATIVE_ALIGNMENT_ROADMAP_2026-08-26.md`.
 
 ### Compaction Flow (Single Hook)
 
@@ -443,6 +446,15 @@ The README must include:
 8. Cost model: when LLM calls happen vs. when they don't
 9. Migration guide from pi-observational-memory and from pi-vcc separately
 10. Token growth ceiling explanation: what `maxSummaryTokens` is (a long-term cap, not a minimization target), when trim activates, and the trim priority table
+
+---
+
+## Current State
+
+- Retention-safe reflection folding is implemented through Pi's native `ctx.modelRegistry.complete()` boundary; observation retirement remains disabled.
+- Pi-native alignment **Milestone A — low-risk cleanup** is complete. The next milestone is **Milestone B — configuration safety** from `docs/PI_NATIVE_ALIGNMENT_ROADMAP_2026-08-26.md`.
+- Conservative token accounting, observer lifecycle fencing, observer transport migration, and VCC input policy remain separate later milestones in that order.
+- Do not introduce a reflection agent loop. Observation and reflection intentionally have different bounded inference protocols.
 
 ---
 

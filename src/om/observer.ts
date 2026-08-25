@@ -1,7 +1,7 @@
 // OM Observer: LLM-based observation extraction using agentLoop + tool calling
 // Matches pi-observational-memory's design — no JSON parsing, structured via tool schema
 import { agentLoop, type AgentContext, type AgentLoopConfig, type AgentTool } from "@earendil-works/pi-agent-core";
-import type { Message, Model, Usage } from "@earendil-works/pi-ai";
+import { StringEnum, type Message, type Model, type Usage } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { CachePrefixMetadata, CacheTelemetry } from "../cache-telemetry.js";
 import type { CacheOptions } from "../cache-options.js";
@@ -10,12 +10,7 @@ import type { Static } from "typebox";
 import type { ObservationRecord, Relevance } from "../types.js";
 import { OBSERVER_SYSTEM } from "./prompts.js";
 
-const RelevanceSchema = Type.Union([
-  Type.Literal("low"),
-  Type.Literal("medium"),
-  Type.Literal("high"),
-  Type.Literal("critical"),
-]);
+const RelevanceSchema = StringEnum(["low", "medium", "high", "critical"] as const);
 
 const RecordObservationsSchema = Type.Object({
   observations: Type.Array(

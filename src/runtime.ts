@@ -1,7 +1,7 @@
 // Runtime: holds config, in-flight state, and model resolution
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ResolveResult, UnifiedConfig } from "./types.js";
-import { loadConfig } from "./config.js";
+import { DEFAULT_EXTENSION_CONFIG, DEFAULT_HYBRID_SETTINGS, loadConfig } from "./config.js";
 import { CacheTelemetry } from "./cache-telemetry.js";
 import { ObserverEpochManager } from "./om/observer-epoch.js";
 
@@ -38,20 +38,8 @@ export class Runtime {
 
   constructor() {
     this.config = {
-      extension: { overrideDefaultCompaction: true, debug: false },
-      hybrid: {
-        observationThresholdTokens: 1000,
-        observerChunkMaxTokens: 60000,
-        observerEpochMaxTokens: 96000,
-        compactionThresholdTokens: 50000,
-        compactionThresholdPercentage: 80,
-        reflectionThresholdTokens: 30000,
-        compactionModel: null,
-        transcriptLines: 120,
-        maxFiles: 40,
-        maxCommits: 8,
-        maxSummaryTokens: 16000,
-      },
+      extension: { ...DEFAULT_EXTENSION_CONFIG },
+      hybrid: { ...DEFAULT_HYBRID_SETTINGS },
     };
   }
 
