@@ -9,7 +9,7 @@ const renderedReflection = (reflection: MemoryReflection): string =>
 const CHARS_PER_TOKEN = 4;
 const FIXED_OUTPUT_OVERHEAD_TOKENS = 256;
 const CONTEXT_SAFETY_TOKENS = 2_048;
-const MAX_REASONING_RESERVE_TOKENS = 16_384;
+const MAX_PROVIDER_OUTPUT_RESERVE_TOKENS = 16_384;
 const REFLECTION_SUMMARY_BUDGET_RATIO = 0.5;
 export const MAX_REFLECTION_CONTENT_CHARS = 2_048;
 
@@ -23,7 +23,7 @@ export interface ReflectionRequestPlan {
   maxReflections: number;
   maxReflectionContentChars: number;
   estimatedInputTokens: number;
-  reasoningReserveTokens: number;
+  providerOutputReserveTokens: number;
   estimatedWorstCaseContractTokens: number;
   estimatedWorstCaseOutputTokens: number;
 }
@@ -72,14 +72,14 @@ export const planReflectionRequest = (
 
   const estimatedInputTokens = estimateStringTokens(`${input.systemPrompt}\n${input.userPrompt}`);
   const contextOutputHeadroom = contextWindow - estimatedInputTokens - CONTEXT_SAFETY_TOKENS;
-  const reasoningReserveTokens = Math.min(
-    MAX_REASONING_RESERVE_TOKENS,
+  const providerOutputReserveTokens = Math.min(
+    MAX_PROVIDER_OUTPUT_RESERVE_TOKENS,
     Math.floor(modelMaxTokens / 2),
   );
   const contractCapacity = Math.min(
     availableSummaryTokens,
-    modelMaxTokens - reasoningReserveTokens,
-    contextOutputHeadroom - reasoningReserveTokens,
+    modelMaxTokens - providerOutputReserveTokens,
+    contextOutputHeadroom - providerOutputReserveTokens,
   );
   const perReflectionWorstCaseTokens = Math.ceil(MAX_REFLECTION_CONTENT_CHARS / CHARS_PER_TOKEN) + 64;
   const maxReflections = Math.min(
@@ -90,7 +90,7 @@ export const planReflectionRequest = (
 
   const estimatedWorstCaseContractTokens =
     FIXED_OUTPUT_OVERHEAD_TOKENS + maxReflections * perReflectionWorstCaseTokens;
-  const estimatedWorstCaseOutputTokens = estimatedWorstCaseContractTokens + reasoningReserveTokens;
+  const estimatedWorstCaseOutputTokens = estimatedWorstCaseContractTokens + providerOutputReserveTokens;
   const maxOutputTokens = estimatedWorstCaseOutputTokens;
 
   return {
@@ -100,7 +100,7 @@ export const planReflectionRequest = (
       maxReflections,
       maxReflectionContentChars: MAX_REFLECTION_CONTENT_CHARS,
       estimatedInputTokens,
-      reasoningReserveTokens,
+      providerOutputReserveTokens,
       estimatedWorstCaseContractTokens,
       estimatedWorstCaseOutputTokens,
     },

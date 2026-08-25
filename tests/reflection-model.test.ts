@@ -12,7 +12,7 @@ const plan: ReflectionRequestPlan = {
   maxReflections: 4,
   maxReflectionContentChars: 2_048,
   estimatedInputTokens: 100,
-  reasoningReserveTokens: 1_000,
+  providerOutputReserveTokens: 1_000,
   estimatedWorstCaseContractTokens: 1_000,
   estimatedWorstCaseOutputTokens: 2_000,
 };
@@ -65,7 +65,7 @@ describe("completion reflection model", () => {
     complete = vi.fn<ReflectionComplete>();
   });
 
-  it("uses the current completion seam with required structured output and bounded execution", async () => {
+  it("uses Pi's native completion seam with a universal tool schema and bounded execution", async () => {
     complete.mockResolvedValue(response([
       toolCall({
         reflections: [{
@@ -99,17 +99,14 @@ describe("completion reflection model", () => {
       }],
     });
     expect(options).toMatchObject({
-      reasoningEffort: "high",
       maxTokens: plan.maxOutputTokens,
       maxRetries: 0,
       timeoutMs: 300_000,
       cacheRetention: "long",
       sessionId: "session-reflector",
-      toolChoice: {
-        type: "function",
-        function: { name: "submit_reflections" },
-      },
     });
+    expect(options).not.toHaveProperty("toolChoice");
+    expect(options).not.toHaveProperty("reasoningEffort");
     expect(options.signal).toBeInstanceOf(AbortSignal);
   });
 
@@ -205,13 +202,17 @@ describe("completion reflection model", () => {
     vi.useRealTimers();
   });
 
-  it("fails closed before dispatch for unsupported provider APIs", async () => {
-    const unsupportedModel = { ...model, api: "anthropic-messages" } as Model<Api>;
+  it("dispatches non-OpenAI API models through the same Pi-native seam", async () => {
+    const anthropicModel = { ...model, api: "anthropic-messages" } as Model<Api>;
+    complete.mockResolvedValue({
+      ...response([toolCall({ reflections: [] })]),
+      api: "anthropic-messages",
+    });
 
     const result = await createCompletionReflectionModel({ complete })
-      .propose({ ...params, model: unsupportedModel }, "system", "evidence", plan);
+      .propose({ ...params, model: anthropicModel }, "system", "evidence", plan);
 
-    expect(result).toEqual({ ok: false, reason: "unsupported-api" });
-    expect(complete).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, proposal: { reflections: [] } });
+    expect(complete.mock.calls[0][0]).toBe(anthropicModel);
   });
 });

@@ -455,17 +455,17 @@ The fold is split into cohesive modules: policy/orchestration (`memory-fold.ts`)
 
 Current implementation:
 
-- The hook injects the session-owned `ctx.modelRegistry.complete()` operation behind the narrow fold port.
-- One request must call the named `submit_reflections` tool. There is no provider retry or corrective model turn.
-- The request uses high reasoning, a five-minute caller deadline combined with compaction cancellation, and a bounded provider output allowance split into a durable-contract allowance plus reasoning reserve.
-- The current typed adapter deliberately supports only `openai-completions`, which covers the configured `opencode-go/deepseek-v4-flash` model. Unsupported APIs fail before dispatch rather than receiving guessed provider options.
+- The hook injects Pi's canonical session-owned `ctx.modelRegistry.complete()` operation behind the narrow fold port.
+- One request exposes only the provider-neutral `submit_reflections` tool schema. The prompt directs the model to call it exactly once, including an empty array when no reflection qualifies; missing or extra tool calls fail closed locally. There is no provider retry or corrective model turn.
+- The request uses only universal stream options, a five-minute caller deadline combined with compaction cancellation, and a bounded provider output allowance split into a durable-contract allowance plus conservative provider-output reserve. Pi owns provider selection, tool-schema translation, authentication, routing, hooks, and inference behavior.
+- The same path is used for every Pi model/API that supports tools; hybrid-memory has no API-family adapter or provider-specific reasoning/tool-choice translation.
 - The total carried reflection set, including existing rendered reflections, is limited to 50% of `maxSummaryTokens`; this is a temporary transition policy while observation retirement is disabled.
 - Full evidence is never reduced to satisfy output capacity. Infeasible input/output capacity fails closed before provider work.
-- Local schema/provenance/duplicate validation remains authoritative, and every unsupported, failed, aborted, timed-out, truncated, malformed, or invalid result retains the complete pre-fold memory set.
+- Local schema/provenance/duplicate validation remains authoritative, and every missing-tool, failed, aborted, timed-out, truncated, malformed, or invalid result retains the complete pre-fold memory set.
 
 **Risk:** standard/high
 **Rollback:** revert the ModelRegistry completion adapter while retaining Q0's retention-only fold seam
-**Verification:** focused reflection budget, completion adapter, fold policy, compaction-hook integration, and telemetry suites pass together (39 tests); the complete repository passes 183 tests across 21 files, TypeScript is clean, and the 34-module production bundle builds successfully. Changed-scope inspection reports no diagnostics, cycles, dead code, or unused exports. An independent review rejected the earlier API-generic reasoning mapping and prompted the explicit typed `openai-completions` boundary plus the 50% total-reflection budget.
+**Verification:** focused reflection budget, native completion seam, fold policy, compaction-hook integration, and telemetry suites pass together (39 tests), including a non-OpenAI API model dispatched through the same operation; all 183 repository tests across 21 files pass, TypeScript is clean, and the 34-module production bundle builds successfully. The prior API-specific reasoning/tool-choice adapter was removed after rechecking Pi's extension documentation, official nested-inference examples, public `ExtensionContext`, and `ModelRegistry` source. Changed-scope inspection reports no diagnostics, cycles, dead code, unused exports, or duplicate groups.
 
 **Done when:** representative large pools reliably produce valid reflection outcomes without free-form JSON parsing or unbounded nested-agent execution.
 
@@ -648,7 +648,7 @@ The fold-quality roadmap is complete only when:
 | Assumption or risk | Current judgment | Required check |
 |---|---|---|
 | Constrained tool sampling alone guarantees valid output | False; unsupported providers may fall back under `strict: "prefer"`, and semantic validation is still local | Keep local validation authoritative and test supported/fallback paths |
-| More reasoning always improves memory quality | Unproven; excessive reasoning may still produce poor tool arguments or consume the tool-result allowance | Q1 uses the user-selected high policy with an explicit reasoning reserve and measures outcomes before any later tuning |
+| More reasoning always improves memory quality | Unproven; Pi's public extension completion facade currently exposes provider-native rather than universal reasoning options | Use Pi's native model behavior now; do not recreate provider reasoning translation inside hybrid-memory |
 | A reflection citing an observation makes the observation removable | False | Require explicit preservation/retirement claim and local policy |
 | Critical relevance reliably marks only indispensable facts | False for existing pools | Treat relevance as a signal, never sole retirement authority |
 | A fixed reflection-count cap is safe | False | Derive item capacity from the serialized contract, model/context limits, and the 50% total-reflection allocation rather than choosing an arbitrary count |

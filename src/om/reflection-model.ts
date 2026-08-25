@@ -1,11 +1,10 @@
-import {
-  hasApi,
-  type Api,
-  type AssistantMessage,
-  type Context,
-  type Model,
-  type OpenAICompletionsOptions,
-  type ToolCall,
+import type {
+  Api,
+  AssistantMessage,
+  Context,
+  Model,
+  StreamOptions,
+  ToolCall,
 } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 import type { CacheTelemetry } from "../cache-telemetry.js";
@@ -39,7 +38,6 @@ export interface ReflectionModelParams {
 export type ReflectionModelFailureReason =
   | "truncated-output"
   | "missing-tool-call"
-  | "unsupported-api"
   | "invalid-output"
   | "timeout"
   | "error"
@@ -59,9 +57,9 @@ export interface ReflectionModelPort {
 }
 
 export type ReflectionComplete = (
-  model: Model<"openai-completions">,
+  model: Model<Api>,
   context: Context,
-  options: OpenAICompletionsOptions,
+  options: StreamOptions,
 ) => Promise<AssistantMessage>;
 
 interface CompletionReflectionModelOptions {
@@ -124,10 +122,6 @@ export const createCompletionReflectionModel = (
 ): ReflectionModelPort => ({
   async propose(params, systemPrompt, userPrompt, plan): Promise<ReflectionModelResult> {
     const model = params.model;
-    if (!hasApi(model, "openai-completions")) {
-      return { ok: false, reason: "unsupported-api" };
-    }
-
     const timeoutMs = options.timeoutMs ?? DEFAULT_REFLECTION_TIMEOUT_MS;
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const signal = params.signal
@@ -151,17 +145,12 @@ export const createCompletionReflectionModel = (
     try {
       message = await raceWithAbort(options.complete(model, context, {
         signal,
-        reasoningEffort: "high",
         maxTokens: plan.maxOutputTokens,
         maxRetries: 0,
         maxRetryDelayMs: 0,
         timeoutMs,
         cacheRetention: params.cacheOptions?.cacheRetention,
         sessionId: params.cacheOptions?.sessionId,
-        toolChoice: {
-          type: "function",
-          function: { name: "submit_reflections" },
-        },
       }), signal);
     } catch {
       const reason: ReflectionModelFailureReason = params.signal?.aborted

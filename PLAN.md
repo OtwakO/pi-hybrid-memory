@@ -76,7 +76,7 @@ pi-hybrid-memory/
 
 ### Pi Runtime Baseline
 
-The extension targets `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, and `@earendil-works/pi-tui` 0.84.3. Source, tests, peer dependencies, and the production build use the current namespace directly. The observer retains its bounded append-only low-level loop. Reflection uses the supported session-owned `ctx.modelRegistry.complete()` boundary through an explicitly typed `openai-completions` adapter; other APIs fail closed before dispatch until they have separately tested adapters.
+The extension targets `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, and `@earendil-works/pi-tui` 0.84.3. Source, tests, peer dependencies, and the production build use the current namespace directly. The observer retains its bounded append-only low-level loop. Reflection uses Pi's canonical extension inference boundary, `ctx.modelRegistry.complete()`, with a provider-neutral tool schema and universal request options; Pi owns provider translation, authentication, routing, hooks, and inference behavior.
 
 ### Compaction Flow (Single Hook)
 
@@ -96,13 +96,13 @@ session_before_compact fires
         │
         ▼
 [3] Check OM gate: is observation pool ≥ reflectionThresholdTokens?
-    YES → run the validated fold module through one required submit_reflections tool call
-           on the session-owned ModelRegistry completion boundary, with high reasoning,
+    YES → call the session-owned ModelRegistry completion boundary with the sole
+           provider-neutral submit_reflections tool, prompt-directed tool use,
            no retries, a five-minute caller deadline, and pre-call capacity validation
     NO  → skip, use existing reflections as-is (zero LLM cost)
     The total carried reflection set may occupy at most 50% of maxSummaryTokens.
-    Unsupported API, missing tool completion, infeasible capacity, failed/aborted/
-    truncated/invalid-provenance output → retain the exact pre-fold memory set.
+    Missing tool completion, infeasible capacity, failed/aborted/truncated/
+    invalid-provenance output → retain the exact pre-fold memory set.
     Observation retirement remains disabled until an auditable retirement contract is approved.
         │
         ▼

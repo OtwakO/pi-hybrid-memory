@@ -26,7 +26,7 @@ describe("planReflectionRequest", () => {
         maxOutputTokens: 5_408,
         maxReflections: 2,
         maxReflectionContentChars: 2_048,
-        reasoningReserveTokens: 4_000,
+        providerOutputReserveTokens: 4_000,
         estimatedWorstCaseContractTokens: 1_408,
       },
     });
@@ -95,7 +95,7 @@ describe("planReflectionRequest", () => {
       ).toBeLessThanOrEqual(5_000);
       expect(result.plan.maxOutputTokens).toBe(result.plan.estimatedWorstCaseOutputTokens);
       expect(result.plan.estimatedWorstCaseOutputTokens).toBe(
-        result.plan.estimatedWorstCaseContractTokens + result.plan.reasoningReserveTokens,
+        result.plan.estimatedWorstCaseContractTokens + result.plan.providerOutputReserveTokens,
       );
     }
   });

@@ -262,7 +262,7 @@ describe("compaction catch-up safety integration", () => {
         maxReflections: 4,
         maxReflectionContentChars: 2_048,
         estimatedInputTokens: 100,
-        reasoningReserveTokens: 1_000,
+        providerOutputReserveTokens: 1_000,
         estimatedWorstCaseContractTokens: 1_000,
         estimatedWorstCaseOutputTokens: 2_000,
       });
@@ -283,14 +283,11 @@ describe("compaction catch-up safety integration", () => {
     const [, context, options] = fixture.complete.mock.calls[0];
     expect(context.tools[0].name).toBe("submit_reflections");
     expect(options).toMatchObject({
-      reasoningEffort: "high",
       maxRetries: 0,
       timeoutMs: 300_000,
-      toolChoice: {
-        type: "function",
-        function: { name: "submit_reflections" },
-      },
     });
+    expect(options).not.toHaveProperty("toolChoice");
+    expect(options).not.toHaveProperty("reasoningEffort");
   });
 
   it("cancels if the active branch changes while memory folding is in progress", async () => {
