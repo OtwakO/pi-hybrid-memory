@@ -131,6 +131,7 @@ const setup = (entries: Entry[]) => {
   const complete = vi.fn();
   const ctx = {
     cwd: "/project",
+    isProjectTrusted: () => true,
     hasUI: false,
     modelRegistry: { complete },
     sessionManager: {

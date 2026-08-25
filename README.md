@@ -58,7 +58,9 @@ All extension settings live in `pi-hybrid-memory-config.json`:
 - Global: `~/.pi/agent/pi-hybrid-memory-config.json`
 - Project overrides: `<project>/.pi/pi-hybrid-memory-config.json`
 
-The global file is created automatically. Project files override individual fields rather than replacing the entire global config.
+The global file is created automatically. Project files are read only for projects Pi marks as trusted, and override individual valid fields rather than replacing the entire global config. Untrusted project overrides are ignored.
+
+Configuration is validated field by field. Invalid known fields fall back to the lower-precedence global/default value and produce an error notification. Malformed or unreadable files are never overwritten: that scope is ignored for the current load so the original file and diagnostic evidence remain intact. Unknown fields are preserved in the global file for forward compatibility but are ignored by this version.
 
 ```json
 {
@@ -94,7 +96,7 @@ The global file is created automatically. Project files override individual fiel
 | `maxCommits` | 8 | Max commits in the VCC summary |
 | `maxSummaryTokens` | 16000 | Growth ceiling for the merged summary; stale transcript and lower-priority units trim first, while protected durable memory may exceed it rather than be silently dropped |
 
-Automatic threshold checks run only after the full agent run settles, not between tool calls. Invalid percentage values are ignored and the token threshold is used instead.
+Automatic threshold checks run only after the full agent run settles, not between tool calls. Invalid percentage values fall back to the lower-precedence configured value (the default is 80); set the field explicitly to `null` to use the token threshold instead.
 
 The extension does not read hybrid-memory configuration from Pi's `settings.json`; `pi-hybrid-memory-config.json` is the only configuration surface.
 

@@ -574,7 +574,7 @@ export function registerMemoryCommand(pi: ExtensionAPI, runtime: Runtime): void 
     handler: async (_args, ctx) => {
       if (!ctx.hasUI) { ctx.ui.notify("hm-memory requires interactive mode", "warning"); return; }
 
-      runtime.ensureConfig(ctx.cwd);
+      runtime.ensureConfig(ctx.cwd, ctx.isProjectTrusted());
       const entries = ctx.sessionManager.getBranch() as Entry[];
       const memoryState = getMemoryState(entries);
       const obs = collectObservations(entries);

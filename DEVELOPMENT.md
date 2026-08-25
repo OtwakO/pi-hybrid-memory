@@ -177,3 +177,10 @@
 - **Reason**: Remove obsolete 0.66-era compatibility remnants before behavior-changing migrations. Observation remains an iterative bounded tool protocol; reflection remains a fixed-evidence `ModelRegistry.complete()` fold and should not use a general agent loop.
 - **Verified**: Focused auto-compaction, observer, and recall tests pass; all 21 test files pass; TypeScript and whitespace checks are clean; the 34-module production bundle builds successfully.
 - **Watch out**: Configuration trust/error handling, conservative token accounting, observer lifecycle fencing, observer transport migration, and VCC input policy are deliberately separate milestones. Do not combine them into cleanup commits.
+
+### [2026-08-26] Made configuration loading trusted and non-destructive
+- **Context**: The old loader treated missing, malformed, and unreadable JSON as the same empty config, then rewrote the global file with defaults. It also honored project-local overrides without Pi's trust gate and validated only a few settings.
+- **Change**: Added one declarative TypeBox schema, field-local validation, explicit read outcomes, `CONFIG_DIR_NAME`, and required `ctx.isProjectTrusted()` decisions at every production config load. Only missing global config is scaffolded; malformed/unreadable files and files with invalid known fields are preserved, with rejected values falling back by precedence. Unknown fields remain untouched.
+- **Reason**: Prevent silent configuration loss and untrusted repositories from changing provider cost or memory thresholds while keeping startup usable when one field is bad.
+- **Verified**: Focused tests cover scaffolding, sparse merge, unknown-field preservation, trusted/untrusted project overrides, malformed and unreadable input, field-local fallback, and malformed project config. TypeScript and structural diagnostics are clean.
+- **Watch out**: Runtime config is still loaded once per extension instance. Reload or session replacement is required after editing the file; lifecycle-state redesign belongs to the later observer milestone.

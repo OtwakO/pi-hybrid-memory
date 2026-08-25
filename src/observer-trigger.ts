@@ -26,7 +26,7 @@ import type { Runtime } from "./runtime.js";
 
 export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): void {
   pi.on("turn_end", (_event, ctx) => {
-    runtime.ensureConfig(ctx.cwd);
+    runtime.ensureConfig(ctx.cwd, ctx.isProjectTrusted());
     if (runtime.observerInFlight) return;
 
     const entries = ctx.sessionManager.getBranch() as Entry[];

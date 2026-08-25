@@ -43,9 +43,13 @@ export class Runtime {
     };
   }
 
-  ensureConfig(cwd: string, notify?: (msg: string, level?: "info" | "warning" | "error") => void): void {
+  ensureConfig(
+    cwd: string,
+    projectTrusted: boolean,
+    notify?: (msg: string, level?: "info" | "warning" | "error") => void,
+  ): void {
     if (!this.loadedConfig) {
-      this.config = loadConfig(cwd, notify);
+      this.config = loadConfig(cwd, projectTrusted, notify);
       this.loadedConfig = true;
     }
   }

@@ -452,8 +452,8 @@ The README must include:
 ## Current State
 
 - Retention-safe reflection folding is implemented through Pi's native `ctx.modelRegistry.complete()` boundary; observation retirement remains disabled.
-- Pi-native alignment **Milestone A — low-risk cleanup** is complete. The next milestone is **Milestone B — configuration safety** from `docs/PI_NATIVE_ALIGNMENT_ROADMAP_2026-08-26.md`.
-- Conservative token accounting, observer lifecycle fencing, observer transport migration, and VCC input policy remain separate later milestones in that order.
+- Pi-native alignment **Milestones A–B** are complete: low-risk current-Pi cleanup plus trusted, non-destructive, schema-validated configuration loading. The next milestone is **Milestone C — conservative token accounting** from `docs/PI_NATIVE_ALIGNMENT_ROADMAP_2026-08-26.md`.
+- Observer lifecycle fencing, observer transport migration, and VCC input policy remain separate later milestones in that order.
 - Do not introduce a reflection agent loop. Observation and reflection intentionally have different bounded inference protocols.
 
 ---

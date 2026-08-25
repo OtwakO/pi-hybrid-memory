@@ -123,7 +123,7 @@ Done when:
 - production behavior and persistence formats are unchanged;
 - changes are committed separately from prior reflection work.
 
-### Milestone B — Configuration safety — Next
+### Milestone B — Configuration safety — Completed
 
 Scope:
 
@@ -136,7 +136,7 @@ Scope:
 
 Done when regressions cover missing-file scaffolding, malformed JSON preservation, unreadable-file fallback, invalid fields, trusted overrides, and ignored untrusted overrides.
 
-### Milestone C — Conservative token accounting
+### Milestone C — Conservative token accounting — Next
 
 Scope:
 

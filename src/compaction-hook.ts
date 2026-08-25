@@ -65,7 +65,7 @@ export const vccMessagesFromEntries = (entries: Entry[]): Message[] => {
 
 export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void {
   pi.on("session_before_compact", async (event, ctx) => {
-    runtime.ensureConfig(ctx.cwd);
+    runtime.ensureConfig(ctx.cwd, ctx.isProjectTrusted());
     if (!runtime.config.extension.overrideDefaultCompaction) return;
 
     if (runtime.compactHookInFlight) {

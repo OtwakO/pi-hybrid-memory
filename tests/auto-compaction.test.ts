@@ -23,6 +23,7 @@ const context = (tokens: number | null, contextWindow = 100_000) => {
   return {
     ctx: {
       cwd: "/project",
+      isProjectTrusted: () => true,
       hasUI: true,
       ui: { notify },
       getContextUsage: () => ({

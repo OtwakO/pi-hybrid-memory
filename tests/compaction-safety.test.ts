@@ -81,7 +81,10 @@ describe("compaction session and branch safety", () => {
     const resolveModel = vi.spyOn(runtime, "resolveModel");
 
     registerCompactionHook(pi as never, runtime);
-    const result = await handler?.({} as never, { cwd: "/project" } as never);
+    const result = await handler?.({} as never, {
+      cwd: "/project",
+      isProjectTrusted: () => true,
+    } as never);
 
     expect(result).toBeUndefined();
     expect(resolveModel).not.toHaveBeenCalled();

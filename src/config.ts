@@ -1,10 +1,16 @@
-// Unified config loading from pi-hybrid-memory-config.json.
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+// Unified configuration for pi-hybrid-memory.
+// Global defaults live in ~/.pi/agent/pi-hybrid-memory-config.json; trusted projects may override
+// individual fields in <cwd>/<CONFIG_DIR_NAME>/pi-hybrid-memory-config.json.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Type, type TSchema } from "typebox";
+import { Check } from "typebox/value";
 import type { ExtensionConfig, HybridSettings, UnifiedConfig } from "./types.js";
 
 const EXTENSION_CONFIG_FILENAME = "pi-hybrid-memory-config.json";
+
+type Notify = (message: string, level?: "info" | "warning" | "error") => void;
 
 export const DEFAULT_EXTENSION_CONFIG: ExtensionConfig = {
   overrideDefaultCompaction: true,
@@ -32,112 +38,211 @@ export const DEFAULT_CONFIG_FILE: ConfigFile = {
   ...DEFAULT_HYBRID_SETTINGS,
 };
 
-const globalExtensionConfigPath = (): string => join(getAgentDir(), EXTENSION_CONFIG_FILENAME);
+const PositiveInteger = (minimum = 1) => Type.Integer({ minimum });
+const NonBlankString = Type.String({ minLength: 1, pattern: "\\S" });
+const CompactionModelSchema = Type.Union([
+  Type.Null(),
+  Type.Object({
+    provider: NonBlankString,
+    id: NonBlankString,
+  }, { additionalProperties: false }),
+]);
 
-function readJson(path: string): Record<string, unknown> | null {
-  try {
-    if (!existsSync(path)) return null;
-    return JSON.parse(readFileSync(path, "utf-8"));
-  } catch {
-    return null;
-  }
-}
+export const CONFIG_FILE_SCHEMA = Type.Object({
+  overrideDefaultCompaction: Type.Boolean(),
+  debug: Type.Boolean(),
+  observationThresholdTokens: PositiveInteger(),
+  observerChunkMaxTokens: PositiveInteger(256),
+  observerEpochMaxTokens: PositiveInteger(4096),
+  compactionThresholdTokens: PositiveInteger(),
+  compactionThresholdPercentage: Type.Union([
+    Type.Null(),
+    Type.Integer({ minimum: 1, maximum: 99 }),
+  ]),
+  reflectionThresholdTokens: PositiveInteger(),
+  compactionModel: CompactionModelSchema,
+  transcriptLines: PositiveInteger(),
+  maxFiles: PositiveInteger(),
+  maxCommits: PositiveInteger(),
+  maxSummaryTokens: PositiveInteger(),
+}, { additionalProperties: true });
 
-function writeJson(path: string, value: Record<string, unknown>): void {
-  try {
-    const dir = dirname(path);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
-  } catch {
-    // Best-effort scaffolding. Runtime defaults remain usable if disk writes fail.
-  }
-}
+const CONFIG_FIELDS = Object.keys(DEFAULT_CONFIG_FILE) as Array<keyof ConfigFile>;
+const CONFIG_FIELD_SCHEMAS = CONFIG_FILE_SCHEMA.properties as Record<keyof ConfigFile, TSchema>;
 
 export const validCompactionThresholdPercentage = (value: unknown): number | null =>
-  typeof value === "number" && Number.isInteger(value) && value > 0 && value < 100
-    ? value
+  Check(CONFIG_FIELD_SCHEMAS.compactionThresholdPercentage, value) && value !== null
+    ? value as number
     : null;
 
-const normalizeConfig = (value: ConfigFile): ConfigFile => ({
-  ...value,
-  observerChunkMaxTokens:
-    typeof value.observerChunkMaxTokens === "number" && Number.isFinite(value.observerChunkMaxTokens)
-      ? Math.max(256, Math.floor(value.observerChunkMaxTokens))
-      : DEFAULT_HYBRID_SETTINGS.observerChunkMaxTokens,
-  observerEpochMaxTokens:
-    typeof value.observerEpochMaxTokens === "number" && Number.isFinite(value.observerEpochMaxTokens)
-      ? Math.max(4096, Math.floor(value.observerEpochMaxTokens))
-      : DEFAULT_HYBRID_SETTINGS.observerEpochMaxTokens,
-  compactionThresholdPercentage: validCompactionThresholdPercentage(
-    value.compactionThresholdPercentage,
-  ),
-});
+const globalExtensionConfigPath = (): string => join(getAgentDir(), EXTENSION_CONFIG_FILENAME);
 
 interface ConfigPaths {
   globalConfigPath: string;
   projectConfigPath: string;
 }
 
-export function loadConfigFromPaths(
-  paths: ConfigPaths,
-  notify?: (msg: string, level?: "info" | "warning" | "error") => void,
-): UnifiedConfig {
-  const globalExisting = readJson(paths.globalConfigPath) ?? {};
-  const globalConfig = normalizeConfig({
-    ...DEFAULT_CONFIG_FILE,
-    ...globalExisting,
-  } as ConfigFile);
+interface LoadConfigOptions {
+  projectTrusted: boolean;
+  notify?: Notify;
+}
 
-  // Keep the global file complete so it is the single discoverable config surface.
-  writeJson(paths.globalConfigPath, globalConfig as unknown as Record<string, unknown>);
+type ConfigScope = "global" | "project";
+type ReadResult =
+  | { status: "missing" }
+  | { status: "valid"; value: Record<string, unknown> }
+  | { status: "invalid" };
 
-  const projectExisting = readJson(paths.projectConfigPath) ?? {};
-  const merged = normalizeConfig({
-    ...globalConfig,
-    ...projectExisting,
-  } as ConfigFile);
+const describeReadError = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
-  if (notify) {
-    if (!merged.overrideDefaultCompaction) {
-      notify(
-        "pi-hybrid-memory: override is disabled. Pi's default compaction will run. Set overrideDefaultCompaction: true in pi-hybrid-memory-config.json to enable.",
-        "info",
+function readConfigObject(path: string, scope: ConfigScope, notify?: Notify): ReadResult {
+  if (!existsSync(path)) return { status: "missing" };
+
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    notify?.(
+      `pi-hybrid-memory: could not read ${scope} configuration at ${path}: ${describeReadError(error)}. The file was left unchanged and this scope was ignored.`,
+      "error",
+    );
+    return { status: "invalid" };
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("top-level JSON value must be an object");
+    }
+    return { status: "valid", value: parsed as Record<string, unknown> };
+  } catch (error) {
+    notify?.(
+      `pi-hybrid-memory: could not parse ${scope} configuration at ${path}: ${describeReadError(error)}. The file was left unchanged and this scope was ignored.`,
+      "error",
+    );
+    return { status: "invalid" };
+  }
+}
+
+function acceptedConfigFields(
+  value: Record<string, unknown>,
+  scope: ConfigScope,
+  notify?: Notify,
+): { values: Partial<ConfigFile>; valid: boolean } {
+  const values: Partial<ConfigFile> = {};
+  let valid = true;
+
+  for (const field of CONFIG_FIELDS) {
+    if (!(field in value)) continue;
+    const candidate = value[field];
+    const schema = CONFIG_FIELD_SCHEMAS[field];
+
+    if (!Check(schema, candidate)) {
+      valid = false;
+      notify?.(
+        `pi-hybrid-memory: invalid ${scope} setting ${field}; using the lower-precedence value.`,
+        "error",
       );
-    } else if (!merged.compactionModel) {
-      notify(
-        "pi-hybrid-memory: observer is using your session model. Set compactionModel in pi-hybrid-memory-config.json to a cheaper model to reduce cost.",
-        "info",
-      );
+      continue;
+    }
+    values[field] = candidate as never;
+  }
+
+  return { values, valid };
+}
+
+function writeGlobalConfig(path: string, value: Record<string, unknown>, notify?: Notify): void {
+  try {
+    const dir = dirname(path);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+  } catch (error) {
+    notify?.(
+      `pi-hybrid-memory: could not write global configuration at ${path}: ${describeReadError(error)}. Runtime defaults remain active.`,
+      "warning",
+    );
+  }
+}
+
+const toUnifiedConfig = (config: ConfigFile): UnifiedConfig => ({
+  extension: {
+    overrideDefaultCompaction: config.overrideDefaultCompaction,
+    debug: config.debug,
+  },
+  hybrid: {
+    observationThresholdTokens: config.observationThresholdTokens,
+    observerChunkMaxTokens: config.observerChunkMaxTokens,
+    observerEpochMaxTokens: config.observerEpochMaxTokens,
+    compactionThresholdTokens: config.compactionThresholdTokens,
+    compactionThresholdPercentage: config.compactionThresholdPercentage,
+    reflectionThresholdTokens: config.reflectionThresholdTokens,
+    compactionModel: config.compactionModel,
+    transcriptLines: config.transcriptLines,
+    maxFiles: config.maxFiles,
+    maxCommits: config.maxCommits,
+    maxSummaryTokens: config.maxSummaryTokens,
+  },
+});
+
+export function loadConfigFromPaths(paths: ConfigPaths, options: LoadConfigOptions): UnifiedConfig {
+  const { notify, projectTrusted } = options;
+  const globalRead = readConfigObject(paths.globalConfigPath, "global", notify);
+  let globalConfig = { ...DEFAULT_CONFIG_FILE };
+
+  if (globalRead.status === "missing") {
+    writeGlobalConfig(paths.globalConfigPath, globalConfig, notify);
+  } else if (globalRead.status === "valid") {
+    const accepted = acceptedConfigFields(globalRead.value, "global", notify);
+    globalConfig = { ...globalConfig, ...accepted.values };
+    if (accepted.valid) {
+      writeGlobalConfig(paths.globalConfigPath, {
+        ...globalRead.value,
+        ...globalConfig,
+      }, notify);
     }
   }
 
-  const extension: ExtensionConfig = {
-    overrideDefaultCompaction: merged.overrideDefaultCompaction,
-    debug: merged.debug,
-  };
-  const hybrid: HybridSettings = {
-    observationThresholdTokens: merged.observationThresholdTokens,
-    observerChunkMaxTokens: merged.observerChunkMaxTokens,
-    observerEpochMaxTokens: merged.observerEpochMaxTokens,
-    compactionThresholdTokens: merged.compactionThresholdTokens,
-    compactionThresholdPercentage: merged.compactionThresholdPercentage,
-    reflectionThresholdTokens: merged.reflectionThresholdTokens,
-    compactionModel: merged.compactionModel,
-    transcriptLines: merged.transcriptLines,
-    maxFiles: merged.maxFiles,
-    maxCommits: merged.maxCommits,
-    maxSummaryTokens: merged.maxSummaryTokens,
-  };
+  let merged = globalConfig;
+  if (!projectTrusted) {
+    if (existsSync(paths.projectConfigPath)) {
+      notify?.(
+        "pi-hybrid-memory: ignored project configuration because the project is not trusted.",
+        "warning",
+      );
+    }
+  } else {
+    const projectRead = readConfigObject(paths.projectConfigPath, "project", notify);
+    if (projectRead.status === "valid") {
+      merged = {
+        ...merged,
+        ...acceptedConfigFields(projectRead.value, "project", notify).values,
+      };
+    }
+  }
 
-  return { extension, hybrid };
+  if (!merged.overrideDefaultCompaction) {
+    notify?.(
+      "pi-hybrid-memory: override is disabled. Pi's default compaction will run. Set overrideDefaultCompaction: true in pi-hybrid-memory-config.json to enable.",
+      "info",
+    );
+  } else if (!merged.compactionModel) {
+    notify?.(
+      "pi-hybrid-memory: observer is using your session model. Set compactionModel in pi-hybrid-memory-config.json to a cheaper model to reduce cost.",
+      "info",
+    );
+  }
+
+  return toUnifiedConfig(merged);
 }
 
 export function loadConfig(
   cwd: string,
-  notify?: (msg: string, level?: "info" | "warning" | "error") => void,
+  projectTrusted: boolean,
+  notify?: Notify,
 ): UnifiedConfig {
   return loadConfigFromPaths({
     globalConfigPath: globalExtensionConfigPath(),
-    projectConfigPath: join(cwd, ".pi", EXTENSION_CONFIG_FILENAME),
-  }, notify);
+    projectConfigPath: join(cwd, CONFIG_DIR_NAME, EXTENSION_CONFIG_FILENAME),
+  }, { projectTrusted, notify });
 }
