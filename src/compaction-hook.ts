@@ -28,40 +28,15 @@ import { extractGoals, extractFiles, extractCommits, extractPreferences, extract
 import { buildBriefSections, stringifyBrief, capBrief } from "./vcc/transcript.js";
 import { formatFileActivity, formatVccSections } from "./vcc/formatter.js";
 import { mergeVccSummaries } from "./vcc/merger.js";
+import { prepareVccCompactionInput } from "./vcc/compaction-input.js";
 import { mergePipelines } from "./merge/pipeline.js";
 import type { Runtime } from "./runtime.js";
 import { operationCacheOptions } from "./cache-options.js";
-import type { Message } from "@earendil-works/pi-ai";
 import {
   advanceFenceAcrossObservationAppends,
   captureSessionBranchFence,
   isSessionBranchFenceCurrent,
 } from "./compaction-safety.js";
-
-export const vccMessagesFromEntries = (entries: Entry[]): Message[] => {
-  const messages: Message[] = [];
-  for (const entry of entries) {
-    if (entry.type === "message" && entry.message) {
-      messages.push(entry.message as Message);
-    } else if (
-      entry.type === "custom_message" &&
-      (typeof entry.content === "string" || Array.isArray(entry.content))
-    ) {
-      messages.push({
-        role: "user",
-        content: entry.content,
-        timestamp: new Date(entry.timestamp ?? 0).getTime(),
-      } as Message);
-    } else if (entry.type === "branch_summary" && typeof entry.summary === "string") {
-      messages.push({
-        role: "user",
-        content: `Branch summary:\n${entry.summary}`,
-        timestamp: new Date(entry.timestamp ?? 0).getTime(),
-      } as Message);
-    }
-  }
-  return messages;
-};
 
 export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void {
   pi.on("session_before_compact", async (event, ctx) => {
@@ -349,14 +324,10 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       // ── Step 4: Build VCC summary ──
       if (ctx.hasUI) ctx.ui.notify("Hybrid memory: building structural VCC summary...", "info");
 
-      // Extract from branch entries since last compaction
-      const tailStart = priorCompactionIdx >= 0 ? liveTailStartIndex(entries) : 0;
-      const tailEntries = entries.slice(tailStart);
-      const tailMessages = vccMessagesFromEntries(tailEntries);
-
-      const blocks = normalize(tailMessages);
+      const vccInput = prepareVccCompactionInput(preparation);
+      const blocks = normalize(vccInput.messages);
       const sessionGoal = extractGoals(blocks);
-      const fileOps = extractFiles(blocks, preparation.fileOps);
+      const fileOps = extractFiles(blocks, vccInput.fileOps);
       const commits = extractCommits(blocks);
       const preferences = extractPreferences(blocks);
       const outstandingContext = extractOutstandingContext(blocks);
@@ -376,24 +347,13 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
 
       let freshVccSummary = formatVccSections(vccSectionData);
 
-      // Merge with prior VCC summary if exists
-      const prevSummary = preparation.previousSummary;
-      if (prevSummary) {
-        // Extract the VCC section from the previous summary (after the --- separator if present)
-        const vccSeparator = "\n\n---\n\n";
-        const prevVccIdx = prevSummary.indexOf(vccSeparator);
-        const prevVccPart = prevVccIdx >= 0 ? prevSummary.slice(prevVccIdx + vccSeparator.length) : "";
-        // Try to identify VCC section — it's the part after "## Session State"
-        const sessionStateIdx = prevVccPart.indexOf("## Session State");
-        const prevVccCore = sessionStateIdx >= 0 ? prevVccPart.slice(sessionStateIdx) : prevVccPart;
-        if (prevVccCore.trim()) {
-          freshVccSummary = mergeVccSummaries(
-            prevVccCore,
-            freshVccSummary,
-            runtime.config.hybrid.transcriptLines,
-            runtime.config.hybrid.maxFiles,
-          );
-        }
+      if (vccInput.previousSummary) {
+        freshVccSummary = mergeVccSummaries(
+          vccInput.previousSummary,
+          freshVccSummary,
+          runtime.config.hybrid.transcriptLines,
+          runtime.config.hybrid.maxFiles,
+        );
       }
 
       // ── Step 5: Merge OM + VCC into unified summary ──
@@ -433,13 +393,3 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
     }
   });
 }
-
-const liveTailStartIndex = (entries: Entry[]): number => {
-  const compactionIdx = findLastCompactionIndex(entries);
-  if (compactionIdx === -1) return 0;
-  const firstKept = entries[compactionIdx].firstKeptEntryId;
-  if (!firstKept) return 0;
-  const firstKeptIdx = entries.findIndex((e) => e.id === firstKept);
-  if (firstKeptIdx === -1) return 0;
-  return firstKeptIdx;
-};

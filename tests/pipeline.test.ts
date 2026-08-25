@@ -8,7 +8,6 @@ import { mergeVccSummaries } from "../src/vcc/merger.js";
 import { estimateStringTokens } from "../src/om/tokens.js";
 import { countByRelevance, formatRelevanceHistogram } from "../src/om/relevance.js";
 import { mergePipelines } from "../src/merge/pipeline.js";
-import { vccMessagesFromEntries } from "../src/compaction-hook.js";
 
 // ── VCC Normalizer ──
 
@@ -70,26 +69,6 @@ describe("normalize", () => {
   });
 });
 
-describe("vccMessagesFromEntries", () => {
-  it("includes message, custom message, and branch summary entries in order", () => {
-    const messages = vccMessagesFromEntries([
-      { type: "message", id: "a", timestamp: "2026-01-01T00:00:00Z", message: { role: "user", content: "normal" } },
-      { type: "custom_message", id: "b", timestamp: "2026-01-01T00:00:01Z", content: "custom context", customType: "test" },
-      { type: "custom_message", id: "c", timestamp: "2026-01-01T00:00:02Z", content: [{ type: "text", text: "structured custom context" }], customType: "test" },
-      { type: "branch_summary", id: "d", timestamp: "2026-01-01T00:00:03Z", summary: "abandoned branch details" },
-      { type: "custom", id: "e", timestamp: "2026-01-01T00:00:04Z", customType: "hybrid-memory.observation", data: {} },
-      { type: "compaction", id: "f", timestamp: "2026-01-01T00:00:05Z", summary: "old compaction" },
-    ]);
-
-    expect(messages).toHaveLength(4);
-    expect(messages.map((message: any) => message.content)).toEqual([
-      "normal",
-      "custom context",
-      [{ type: "text", text: "structured custom context" }],
-      "Branch summary:\nabandoned branch details",
-    ]);
-  });
-});
 
 // ── VCC Extractor ──
 

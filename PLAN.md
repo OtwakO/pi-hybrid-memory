@@ -42,6 +42,8 @@ pi-hybrid-memory/
 │   ├── types.ts                  # Shared types across both pipelines
 │   │
 │   ├── vcc/                      # Ported from pi-vcc
+│   │   ├── compaction-input.ts   # Pi-prepared removed delta, prior VCC, authoritative file ops
+│   │   ├── summary.ts            # Exact structural-summary rendering/extraction contract
 │   │   ├── normalizer.ts         # Raw Pi messages → uniform blocks
 │   │   ├── extractor.ts          # Section extractors: goal, files, commits, preferences, blockers
 │   │   ├── transcript.ts         # Brief transcript builder (rolling window, tool call collapsing)
@@ -452,8 +454,8 @@ The README must include:
 ## Current State
 
 - Retention-safe reflection folding is implemented through Pi's native `ctx.modelRegistry.complete()` boundary; observation retirement remains disabled.
-- Pi-native alignment **Milestones A–E** are complete: low-risk current-Pi cleanup, trusted/non-destructive schema-validated configuration, Pi-aligned conservative token accounting, branch/session-safe proactive observer lifecycle coordination, and bounded Pi-native observer inference. The next milestone is **Milestone F — VCC input policy** from `docs/PI_NATIVE_ALIGNMENT_ROADMAP_2026-08-26.md`.
-- The observer and reflector now both route provider requests through `ctx.modelRegistry.complete()`, while intentionally retaining different bounded domain protocols.
+- Pi-native alignment **Milestones A–F** are complete: low-risk current-Pi cleanup, trusted/non-destructive schema-validated configuration, Pi-aligned conservative token accounting, branch/session-safe proactive observer lifecycle coordination, bounded Pi-native observer inference, and Pi-prepared VCC compaction input. The next step is **Milestone G — review remaining alignment scope** from `docs/PI_NATIVE_ALIGNMENT_ROADMAP_2026-08-26.md` before selecting another implementation change.
+- The observer and reflector route provider requests through `ctx.modelRegistry.complete()` with intentionally different bounded domain protocols. VCC is zero-LLM and now folds only Pi's removed delta plus prior structural state and authoritative file activity; the retained live tail remains verbatim and is not duplicated into the summary.
 - Do not introduce a reflection agent loop. Observation and reflection intentionally have different bounded inference protocols.
 
 ---

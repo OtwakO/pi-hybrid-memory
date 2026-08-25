@@ -189,7 +189,7 @@ Raw conversation → (Observer → Observations) → (Reflector → Reflections)
 
 1. **Observer** (LLM): At each turn end, extracts durable observations from new conversation when enough tokens have accumulated. Every provider turn uses Pi's canonical `ctx.modelRegistry.complete()` path. The extension owns a bounded multi-turn `record_observations` protocol so the model can submit or correct batches while the exact Pi assistant/tool-result suffix remains reusable by the append-only epoch. Pi owns provider selection, schema translation, authentication and OAuth refresh, routing, hooks, monitoring, and request transport. Local schema and current-chunk provenance validation remain authoritative; timeout, abort, truncation, provider failure, unsupported tools, invalid final provenance, or turn-limit exhaustion cannot advance coverage.
 2. **Memory fold**: At compaction time, a bounded tool-driven reflector may synthesize validated orientation anchors. The full evidence pool is preserved in the request. Reflection also uses Pi's canonical `ctx.modelRegistry.complete()` path, but intentionally does not use the observer's multi-turn protocol: it is a fixed-evidence fold with one provider-neutral `submit_reflections` request. The prompt directs the model to call that sole tool, including an empty submission when nothing qualifies. The request has no provider retry and a five-minute caller deadline. The total carried reflection set is limited to 50% of `maxSummaryTokens`. Local schema and provenance validation remain authoritative, and missing tool completion, infeasible capacity, failure, truncation, malformed output, or unsupported provenance retains the complete pre-fold memory set. Observation retirement remains disabled.
-3. **VCC Pipeline** (algorithmic): Extracts goals, files, commits, preferences, blockers, and builds a compressed transcript.
+3. **VCC Pipeline** (algorithmic): Extracts goals, files, commits, preferences, blockers, and a compressed transcript from exactly the history Pi selected for removal, including a split-turn prefix when present. It folds that delta into the prior structural summary and seeds file activity from Pi's authoritative compaction `fileOps`. The retained tail is not copied into VCC because Pi keeps it verbatim after the summary; this avoids duplicate context and preserves a smaller, deterministic post-compaction prefix.
 4. **Merge Pipeline**: Combines both layers into one summary. When over budget it may omit low-relevance observations from the visible summary projection only; durable compaction details remain unchanged.
 
 ## Observer epoch and cache reuse
@@ -243,7 +243,7 @@ src/
 ├── index.ts              # Extension entry point
 ├── types.ts              # Unified type definitions
 ├── config.ts             # Unified flat config loading
-├── runtime.ts            # Runtime state, observer epoch, and in-flight tracking
+├── runtime.ts            # Runtime state, model selection, and observer epoch
 ├── auto-compaction.ts    # Post-agent percentage/token compaction trigger
 ├── cache-options.ts      # Stable per-session operation cache identities
 ├── cache-telemetry.ts    # Session-local usage, cost, and epoch diagnostics
@@ -253,6 +253,8 @@ src/
 ├── tools/
 │   └── recall.ts         # hm_recall tool
 ├── vcc/
+│   ├── compaction-input.ts # Pi-prepared removed delta → VCC input
+│   ├── summary.ts        # Structural-summary header and exact extraction
 │   ├── normalizer.ts     # Raw messages → NormalizedBlocks
 │   ├── extractor.ts      # Goals, files, commits, preferences, blockers
 │   ├── transcript.ts     # Brief transcript builder

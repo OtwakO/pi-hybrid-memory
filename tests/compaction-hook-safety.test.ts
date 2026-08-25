@@ -123,7 +123,11 @@ const setup = (entries: Entry[]) => {
       firstKeptEntryId: "new-kept",
       tokensBefore: 50_000,
       previousSummary: "",
-      fileOps: undefined,
+      messagesToSummarize: [],
+      turnPrefixMessages: [],
+      isSplitTurn: false,
+      fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+      settings: { enabled: true, reserveTokens: 16_384, keepRecentTokens: 20_000 },
     },
     branchEntries: entries,
     signal: undefined,
@@ -213,6 +217,31 @@ describe("compaction catch-up safety integration", () => {
 
     expect(result).toEqual({ cancel: true });
     expect(fixture.appendEntry).not.toHaveBeenCalled();
+  });
+
+  it("builds VCC from Pi's removed delta without duplicating the retained tail", async () => {
+    const entries = branch();
+    const retained = entries.find((entry) => entry.id === "new-kept");
+    if (retained?.type === "message") {
+      retained.message = { role: "user", content: "Implement retained-tail-only feature", timestamp: 2 };
+    }
+    const fixture = setup(entries);
+    fixture.event.preparation.messagesToSummarize = [{
+      role: "user",
+      content: "Implement removed-history feature",
+      timestamp: 1,
+    }];
+    runObserverMock.mockImplementation(async (params: any) => ({
+      ok: true,
+      records: [],
+      transcriptSuffix: [...params.prompts, assistantMessage("examined")],
+    }));
+
+    await fixture.getHandler()(fixture.event, fixture.ctx);
+
+    const vccSummary = mergePipelinesMock.mock.calls.at(-1)?.[0]?.vccSummary as string;
+    expect(vccSummary).toContain("removed-history feature");
+    expect(vccSummary).not.toContain("retained-tail-only feature");
   });
 
   it("accepts its own catch-up persistence as the new final-fence leaf", async () => {

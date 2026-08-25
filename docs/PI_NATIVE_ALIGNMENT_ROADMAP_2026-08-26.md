@@ -193,7 +193,7 @@ Implemented as a bounded observation-protocol module behind the existing `runObs
 
 Manual API-key/header resolution and the `pi-ai/compat`/`agentLoop` transport were removed. Runtime now selects only the configured or active model. The observer protocol compatibility key was bumped so the first post-upgrade observer run cold-resets rather than mixing legacy agent-loop and native-completion transcripts in one epoch.
 
-### Milestone F — VCC input policy — Next
+### Milestone F — VCC input policy — Completed
 
 Before editing code, decide explicitly which inputs own:
 
@@ -202,7 +202,13 @@ Before editing code, decide explicitly which inputs own:
 - prior structural summary;
 - authoritative file operations.
 
-Prefer Pi-prepared messages for Pi-owned cut-point semantics and an explicit bounded retained-tail input for current-state enrichment. Do not silently change summary meaning.
+Implemented through the pure `prepareVccCompactionInput()` module. Removed historical conversation comes only from Pi's `messagesToSummarize` plus split-turn `turnPrefixMessages`, converted through Pi's canonical `convertToLlm()`. Prior structural state is parsed from the exact hybrid VCC header, and Pi's `fileOps` seeds authoritative cumulative file activity while transcript tool calls enrich it.
+
+The retained tail is intentionally excluded from VCC input because Pi keeps it verbatim after the compaction summary. Copying it into VCC would duplicate active context, consume summary tokens, and destabilize the post-compaction prefix without adding information. Volatile outstanding context therefore reflects the newly removed delta; active blockers in the retained tail remain directly visible. Whole-branch reconstruction, hand-written custom-message conversion, and ad hoc prior-summary parsing were removed from the compaction hook.
+
+### Milestone G — Review remaining alignment scope — Next
+
+Re-audit the deferred list and current Pi-host contracts before choosing another implementation milestone. Cache-prefix changes, observation retirement, and broader UI or packaging changes still require separate evidence and decision gates.
 
 ### Deferred
 

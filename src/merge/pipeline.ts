@@ -4,6 +4,7 @@ import type {
   MemoryReflection,
   ObservationRecord,
 } from "../types.js";
+import { VCC_SUMMARY_HEADER } from "../vcc/summary.js";
 import { applySummaryBudget } from "./budget.js";
 
 export interface MergeInput {
@@ -28,9 +29,6 @@ const MEMORY_HEADER =
   "The following is compressed semantic memory from prior conversation. " +
   "Use `hm_recall` to recover supporting evidence and exact source entries when needed.\n\n";
 
-const VCC_HEADER =
-  "## Session State (Structural Summary)\n" +
-  "The following is a structural summary of what happened in this session.\n\n";
 
 export const mergePipelines = (input: MergeInput): MergeOutput => {
   const budgeted = applySummaryBudget({
@@ -39,7 +37,7 @@ export const mergePipelines = (input: MergeInput): MergeOutput => {
     vccSummary: input.vccSummary,
     maxTokens: input.settings.maxSummaryTokens,
     memoryHeader: MEMORY_HEADER,
-    vccHeader: VCC_HEADER,
+    vccHeader: VCC_SUMMARY_HEADER,
   });
 
   return {
