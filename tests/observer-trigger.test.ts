@@ -77,7 +77,7 @@ const setup = () => {
     },
   };
   const runtime = new Runtime();
-  runtime.loadedConfig = true;
+  runtime.ensureConfig = vi.fn();
   runtime.config.hybrid.observationThresholdTokens = 1;
   runtime.setPiSessionId(sessionId);
   registerObserverTrigger(pi as never, runtime);

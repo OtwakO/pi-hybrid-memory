@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   OBSERVER_FIXED_TOKEN_RESERVE,
+  OBSERVER_PROMPT_VERSION,
   OBSERVER_SERIALIZER_VERSION,
   observerDeltaText,
 } from "../src/om/observer-context.js";
@@ -22,6 +23,10 @@ describe("observer delta provenance guidance", () => {
     expect(prompt).toContain("Do not cite source IDs from earlier epoch messages");
   });
 });
+
+  it("invalidates old epochs when the tool-only prompt contract becomes active", () => {
+    expect(OBSERVER_PROMPT_VERSION).toBe("observer-v4-tool-contract");
+  });
 
   it("invalidates old epochs when segmented source serialization becomes active", () => {
     expect(OBSERVER_SERIALIZER_VERSION).toBe("source-segments-v2");

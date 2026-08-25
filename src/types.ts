@@ -89,13 +89,61 @@ export interface Entry {
 
 export type SupportedMemoryDetails = MemoryDetailsV4;
 
+const RELEVANCE_VALUES = new Set<Relevance>(["low", "medium", "high", "critical"]);
+
+const isObservationRecord = (value: unknown): value is ObservationRecord => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === "string"
+    && MEMORY_ID_PATTERN.test(record.id)
+    && typeof record.content === "string"
+    && record.content.length > 0
+    && typeof record.timestamp === "string"
+    && RELEVANCE_VALUES.has(record.relevance as Relevance)
+    && (record.sourceEntryIds === undefined
+      || (Array.isArray(record.sourceEntryIds)
+        && record.sourceEntryIds.every(id => typeof id === "string" && id.length > 0)));
+};
+
+const isMemoryReflection = (value: unknown): value is MemoryReflection => {
+  if (typeof value === "string") return value.length > 0;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const reflection = value as Record<string, unknown>;
+  return typeof reflection.id === "string"
+    && MEMORY_ID_PATTERN.test(reflection.id)
+    && typeof reflection.content === "string"
+    && reflection.content.length > 0
+    && Array.isArray(reflection.supportingObservationIds)
+    && reflection.supportingObservationIds.every(id => typeof id === "string" && id.length > 0)
+    && (reflection.legacy === undefined || typeof reflection.legacy === "boolean");
+};
+
+/** Read known persisted memory detail versions into the current in-memory shape. */
+export const readMemoryDetails = (value: unknown): MemoryDetailsV4 | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const details = value as Record<string, unknown>;
+  if (details.type !== "observational-memory" || (details.version !== 3 && details.version !== 4)) {
+    return undefined;
+  }
+  if (!Array.isArray(details.observations) || !details.observations.every(isObservationRecord)) {
+    return undefined;
+  }
+  if (!Array.isArray(details.reflections) || !details.reflections.every(isMemoryReflection)) {
+    return undefined;
+  }
+  return {
+    type: "observational-memory",
+    version: 4,
+    observations: structuredClone(details.observations),
+    reflections: structuredClone(details.reflections),
+  };
+};
+
 // ── Type guards ──
 
 export const isObservationEntryData = (v: unknown): v is ObservationEntryData =>
   !!v && typeof v === "object" && "records" in v && Array.isArray((v as ObservationEntryData).records);
 
-export const isSupportedMemoryDetails = (v: unknown): v is SupportedMemoryDetails =>
-  !!v && typeof v === "object" && "type" in v && (v as Record<string, unknown>).type === "observational-memory" && "version" in v && typeof (v as Record<string, unknown>).version === "number" && ((v as Record<string, unknown>).version as number) >= 3;
 
 // ── Config types ──
 

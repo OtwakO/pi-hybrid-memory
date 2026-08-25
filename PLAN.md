@@ -454,9 +454,9 @@ The README must include:
 ## Current State
 
 - Retention-safe reflection folding is implemented through Pi's native `ctx.modelRegistry.complete()` boundary; observation retirement remains disabled.
-- Pi-native alignment **Milestones A–G** are complete: cleanup, trusted schema-validated configuration, conservative token accounting, observer lifecycle fencing, Pi-native observer inference, cut-point-aligned VCC input, and a full engine audit. The next implementation is **G1 — protocol and scope correctness** from `docs/PI_NATIVE_ALIGNMENT_ROADMAP_2026-08-26.md`.
-- G1 fixes the stale observer JSON-vs-tool prompt contract, durable empty catch-up coverage, cwd/trust-scoped configuration, per-session recovery notices, and explicit memory-details version readers before any new persistence semantics.
-- After G1, build a canonical branch memory index shared by live state, UI, metrics, and recall. Only then pause for the additive retired-evidence and reflection-supersession design gate required by Q2–Q6 of `docs/COMPACTION_QUALITY_ROADMAP_2026-08-25.md`.
+- Pi-native alignment **Milestones A–G plus G1** are complete: cleanup, trusted schema-validated configuration, conservative token accounting, observer lifecycle fencing, Pi-native observer inference, cut-point-aligned VCC input, full engine audit, and immediate protocol/scope correctness repairs.
+- Observer inference now has one authoritative tool-only contract; deliberate-empty catch-up advances durable coverage; runtime config is keyed by canonical cwd and trust scope; session-local recovery state resets per session; known V3/V4 details are explicitly validated and normalized while writes remain V4.
+- The next implementation is **G2 — canonical branch memory index**, shared by live state, UI, metrics, and recall. After G2, pause for the additive retired-evidence and reflection-supersession design gate required by Q2–Q6 of `docs/COMPACTION_QUALITY_ROADMAP_2026-08-25.md`.
 - The observer and reflector route provider requests through `ctx.modelRegistry.complete()` with intentionally different bounded domain protocols. VCC is zero-LLM and folds only Pi's removed delta plus prior structural state and authoritative file activity; the retained live tail remains verbatim and is not duplicated into the summary.
 - Do not introduce a reflection agent loop. Observation and reflection intentionally have different bounded inference protocols.
 

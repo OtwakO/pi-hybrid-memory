@@ -63,6 +63,64 @@ const completionQueue = (...messages: AssistantMessage[]) => {
   return complete;
 };
 
+describe("Runtime configuration scope", () => {
+  it("reuses config within one canonical cwd/trust scope and reloads when either changes", () => {
+    const loader = vi.fn((_cwd: string, trusted: boolean) => {
+      const runtime = new Runtime();
+      runtime.config.hybrid.maxFiles = trusted ? 90 : 40;
+      return runtime.config;
+    });
+    const runtime = new Runtime(loader);
+    const configContext = (cwd: string, trusted: boolean) => ({
+      cwd,
+      isProjectTrusted: () => trusted,
+      hasUI: false,
+      ui: { notify: vi.fn() },
+    });
+
+    runtime.ensureConfig(configContext("/project/./nested/..", true));
+    runtime.ensureConfig(configContext("/project", true));
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(runtime.config.hybrid.maxFiles).toBe(90);
+
+    runtime.ensureConfig(configContext("/project", false));
+    expect(loader).toHaveBeenCalledTimes(2);
+    expect(runtime.config.hybrid.maxFiles).toBe(40);
+
+    runtime.ensureConfig(configContext("/other-project", false));
+    expect(loader).toHaveBeenCalledTimes(3);
+  });
+
+  it("forwards loader diagnostics through Pi's UI notifier", () => {
+    const loader = vi.fn((_cwd: string, _trusted: boolean, notify?: (message: string, level?: "info" | "warning" | "error") => void) => {
+      notify?.("invalid project setting", "error");
+      return new Runtime().config;
+    });
+    const notify = vi.fn();
+    const runtime = new Runtime(loader);
+
+    runtime.ensureConfig({
+      cwd: "/project",
+      isProjectTrusted: () => true,
+      hasUI: true,
+      ui: { notify },
+    });
+
+    expect(notify).toHaveBeenCalledWith("invalid project setting", "error");
+  });
+
+  it("resets session-local notices and empty backoff when the session changes", () => {
+    const runtime = new Runtime();
+    runtime.boundaryRecoveryNotified = true;
+    runtime.recordEmptyObserverResult("boundary", 1_000);
+
+    runtime.setPiSessionId("session-a");
+
+    expect(runtime.boundaryRecoveryNotified).toBe(false);
+    expect(runtime.observerEmptyBackoff).toBeNull();
+  });
+});
+
 describe("Runtime model selection", () => {
   const context = () => ({
     model,
@@ -180,6 +238,30 @@ describe("Pi-native observer inference", () => {
       ...params.contextMessages,
       ...result.transcriptSuffix.slice(0, -1),
     ]);
+  });
+
+  it("fails if the model stops before submitting the observation tool", async () => {
+    complete.mockResolvedValue(assistant([{ type: "text", text: "nothing worth recording" }]));
+
+    const result = await runObserver({ ...params, complete });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "observer stopped without submitting record_observations",
+      rawResponse: "",
+    });
+  });
+
+  it("accepts an explicit deliberate-empty tool submission followed by text", async () => {
+    complete = completionQueue(
+      assistant([toolCall({ observations: [] })], "toolUse"),
+      assistant([{ type: "text", text: "nothing durable in this chunk" }]),
+    );
+
+    const result = await runObserver({ ...params, complete });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.records).toEqual([]);
   });
 
   it("uses all current source ids when provenance is omitted", async () => {

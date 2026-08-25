@@ -7,7 +7,7 @@ import type {
   SourceProgress,
   SupportedMemoryDetails,
 } from "../types.js";
-import { OBSERVATION_CUSTOM_TYPE, isObservationEntryData, isSupportedMemoryDetails } from "../types.js";
+import { OBSERVATION_CUSTOM_TYPE, isObservationEntryData, readMemoryDetails } from "../types.js";
 import { estimateEntryTokens } from "./tokens.js";
 
 const RAW_TYPES = new Set(["message", "custom_message", "branch_summary"]);
@@ -150,8 +150,7 @@ export const rawTailEntriesBetween = (entries: Entry[], fromId: string, untilId:
 const getPriorMemoryDetails = (entries: Entry[]): SupportedMemoryDetails | undefined => {
   const idx = findLastCompactionIndex(entries);
   if (idx === -1) return undefined;
-  const details = entries[idx].details;
-  return isSupportedMemoryDetails(details) ? details : undefined;
+  return readMemoryDetails(entries[idx].details);
 };
 
 const collectObservationsPendingNextCompaction = (

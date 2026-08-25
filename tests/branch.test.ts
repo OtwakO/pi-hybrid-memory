@@ -9,6 +9,7 @@ import {
   findLastCompactionIndex,
   resolveObservationCoverageAnchor,
 } from "../src/om/branch.js";
+import { readMemoryDetails } from "../src/types.js";
 import { OBSERVATION_CUSTOM_TYPE } from "../src/types.js";
 import type {
   Entry,
@@ -65,6 +66,43 @@ const obsData = (coversFromId: string, coversUpToId: string, records: Observatio
   coversFromId,
   coversUpToId,
   tokenCount: records.length * 10,
+});
+
+describe("memory details compatibility reader", () => {
+  it("normalizes validated V3 details to the current V4 read model", () => {
+    expect(readMemoryDetails({
+      type: "observational-memory",
+      version: 3,
+      observations: [obsRecord()],
+      reflections: ["legacy reflection"],
+    })).toEqual({
+      type: "observational-memory",
+      version: 4,
+      observations: [obsRecord()],
+      reflections: ["legacy reflection"],
+    });
+  });
+
+  it("rejects unknown future versions and malformed nested records", () => {
+    expect(readMemoryDetails({
+      type: "observational-memory",
+      version: 5,
+      observations: [],
+      reflections: [],
+    })).toBeUndefined();
+    expect(readMemoryDetails({
+      type: "observational-memory",
+      version: 4,
+      observations: [{ id: "bad", relevance: "urgent" }],
+      reflections: [],
+    })).toBeUndefined();
+    expect(readMemoryDetails({
+      type: "observational-memory",
+      version: 4,
+      observations: [],
+      reflections: [{ id: "bad", content: "missing provenance" }],
+    })).toBeUndefined();
+  });
 });
 
 // ── Regression: missing prior firstKeptEntryId on old sessions ─────────────

@@ -10,7 +10,7 @@ import { Runtime } from "../src/runtime.js";
 const registeredHandler = () => {
   const on = vi.fn();
   const runtime = new Runtime();
-  runtime.loadedConfig = true;
+  runtime.ensureConfig = vi.fn();
   registerAutoCompactionTrigger({ on } as any, runtime);
   expect(on).toHaveBeenCalledOnce();
   expect(on.mock.calls[0][0]).toBe("agent_settled");

@@ -77,7 +77,7 @@ const branch = (): Entry[] => [
 
 const warmEpoch = (runtime: Runtime, coverageEndId: string) => {
   const prepared = runtime.observerEpoch.prepare({
-    compatibilityKey: "test|openai-completions|model|observer-v3-provenance|record-observations-v4-native|source-segments-v2",
+    compatibilityKey: "test|openai-completions|model|observer-v4-tool-contract|record-observations-v4-native|source-segments-v2",
     expectedCoverageId: "initial",
     baselineText: "baseline",
     deltaText: "delta",
@@ -100,7 +100,7 @@ const setup = (entries: Entry[]) => {
     appendEntry,
   };
   const runtime = new Runtime();
-  runtime.loadedConfig = true;
+  runtime.ensureConfig = vi.fn();
   runtime.config.hybrid.reflectionThresholdTokens = Number.MAX_SAFE_INTEGER;
   registerCompactionHook(pi as never, runtime);
 
@@ -242,6 +242,32 @@ describe("compaction catch-up safety integration", () => {
     const vccSummary = mergePipelinesMock.mock.calls.at(-1)?.[0]?.vccSummary as string;
     expect(vccSummary).toContain("removed-history feature");
     expect(vccSummary).not.toContain("retained-tail-only feature");
+  });
+
+  it("persists a durable coverage marker when catch-up finds no observations", async () => {
+    const fixture = setup(branch());
+    runObserverMock.mockImplementation(async (params: any) => ({
+      ok: true,
+      records: [],
+      transcriptSuffix: [...params.prompts, assistantMessage("examined")],
+    }));
+
+    const result = await fixture.getHandler()(fixture.event, fixture.ctx);
+
+    expect(result).toHaveProperty("compaction");
+    expect(fixture.appendEntry).toHaveBeenCalledWith(
+      OBSERVATION_CUSTOM_TYPE,
+      expect.objectContaining({
+        records: [],
+        coversFromId: "raw-1",
+        coversUpToId: "raw-1",
+        tokenCount: 0,
+      }),
+    );
+    expect(fixture.runtime.observerEpoch.stats()).toMatchObject({
+      active: false,
+      lastResetReason: "compaction",
+    });
   });
 
   it("accepts its own catch-up persistence as the new final-fence leaf", async () => {

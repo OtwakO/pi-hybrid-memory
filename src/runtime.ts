@@ -1,4 +1,5 @@
 // Runtime: holds config, in-flight state, and model resolution
+import { resolve } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ResolveResult, UnifiedConfig } from "./types.js";
 import { DEFAULT_EXTENSION_CONFIG, DEFAULT_HYBRID_SETTINGS, loadConfig } from "./config.js";
@@ -6,9 +7,18 @@ import { CacheTelemetry } from "./cache-telemetry.js";
 import { ObserverEpochManager } from "./om/observer-epoch.js";
 import { ObserverTaskCoordinator } from "./observer-task.js";
 
+type ConfigLoader = typeof loadConfig;
+
+interface ConfigContext {
+  cwd: string;
+  isProjectTrusted(): boolean;
+  hasUI: boolean;
+  ui: { notify(message: string, level?: "info" | "warning" | "error"): void };
+}
+
 export class Runtime {
   config: UnifiedConfig;
-  loadedConfig = false;
+  private configScopeKey: string | null = null;
   readonly cacheTelemetry = new CacheTelemetry();
   readonly observerEpoch = new ObserverEpochManager();
   readonly observerTask = new ObserverTaskCoordinator();
@@ -26,27 +36,32 @@ export class Runtime {
   // Reset explicitly only by re-instantiation (process restart).
   boundaryRecoveryNotified = false;
 
-  constructor() {
+  constructor(private readonly configLoader: ConfigLoader = loadConfig) {
     this.config = {
       extension: { ...DEFAULT_EXTENSION_CONFIG },
       hybrid: { ...DEFAULT_HYBRID_SETTINGS },
     };
   }
 
-  ensureConfig(
-    cwd: string,
-    projectTrusted: boolean,
-    notify?: (msg: string, level?: "info" | "warning" | "error") => void,
-  ): void {
-    if (!this.loadedConfig) {
-      this.config = loadConfig(cwd, projectTrusted, notify);
-      this.loadedConfig = true;
-    }
+  ensureConfig(ctx: ConfigContext): void {
+    const canonicalCwd = resolve(ctx.cwd);
+    const projectTrusted = ctx.isProjectTrusted();
+    const scopeKey = `${canonicalCwd}\u0000${projectTrusted ? "trusted" : "untrusted"}`;
+    if (this.configScopeKey === scopeKey) return;
+    const notify = ctx.hasUI
+      ? (message: string, level?: "info" | "warning" | "error") => ctx.ui.notify(message, level)
+      : undefined;
+    this.config = this.configLoader(canonicalCwd, projectTrusted, notify);
+    this.configScopeKey = scopeKey;
   }
 
   setPiSessionId(sessionId: string | undefined): void {
     const next = sessionId?.trim() || null;
-    if (this.piSessionId !== next) this.observerEpoch.invalidate("session-change");
+    if (this.piSessionId !== next) {
+      this.observerEpoch.invalidate("session-change");
+      this.observerEmptyBackoff = null;
+      this.boundaryRecoveryNotified = false;
+    }
     this.piSessionId = next;
   }
 

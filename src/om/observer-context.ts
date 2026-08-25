@@ -3,7 +3,7 @@ import type { MemoryReflection, ObservationRecord } from "../types.js";
 import { reflectionContent } from "./compaction.js";
 import { observationsToPromptLines } from "./observer.js";
 
-export const OBSERVER_PROMPT_VERSION = "observer-v3-provenance";
+export const OBSERVER_PROMPT_VERSION = "observer-v4-tool-contract";
 export const OBSERVER_TOOL_VERSION = "record-observations-v4-native";
 export const OBSERVER_SERIALIZER_VERSION = "source-segments-v2";
 

@@ -76,7 +76,7 @@ describe("compaction session and branch safety", () => {
       }),
     };
     const runtime = new Runtime();
-    runtime.loadedConfig = true;
+    runtime.ensureConfig = vi.fn();
     runtime.config.extension.overrideDefaultCompaction = false;
     const resolveModel = vi.spyOn(runtime, "resolveModel");
 

@@ -23,7 +23,7 @@ const fold = (
   telemetry: CacheTelemetry,
   modelPort: ReflectionModelPort,
 ) => foldMemory({
-  params: { model, apiKey: "key", telemetry },
+  params: { model, telemetry },
   reflections: [],
   observations: [observation],
   reflectionThresholdTokens: 0,
@@ -61,7 +61,7 @@ describe("memory-fold lifecycle telemetry", () => {
 
     await fold(telemetry, { propose: async () => ({ ok: true, proposal: { reflections: [] } }) });
     await foldMemory({
-      params: { model, apiKey: "key", telemetry },
+      params: { model, telemetry },
       reflections: [{
         id: "bbbbbbbbbbbb",
         content: "durable reflection",

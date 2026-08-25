@@ -1,4 +1,4 @@
-// Prompts for OM observer, reflector, and pruner — ported from pi-observational-memory
+// Stable system prompts for observation and reflection.
 import type { MemoryReflection, ObservationRecord } from "../types.js";
 
 export type Reflection = MemoryReflection;
@@ -6,13 +6,10 @@ export type Observation = ObservationRecord;
 
 export const OBSERVER_SYSTEM = `You are an archival memory observer. You extract durable observations from a raw conversation log. These observations may be the assistant's only memory after raw messages are compacted, so preserve important meaning accurately without turning routine activity into durable memory.
 
-OUTPUT FORMAT: Respond with one JSON object and nothing else—no preamble, explanation, or markdown fence:
-{
-  "observations": [
-    { "content": "one sentence observation", "relevance": "low|medium|high|critical", "sourceEntryIds": ["supporting source id"] }
-  ]
-}
-If nothing new is worth recording, return: { "observations": [] }
+Tool protocol:
+- Submit every result through record_observations. Do not return observations as prose or JSON text.
+- Call record_observations with an empty observations array when nothing in the current chunk is worth recording.
+- You may call the tool again only to add another batch or correct a rejected submission. After at least one accepted tool submission, stop with a short plain-text confirmation.
 
 Observation rules:
 - Capture exactly one independent fact, decision, completion, constraint, correction, question, or unresolved blocker per observation. Split compound facts rather than hiding them together.
@@ -24,53 +21,6 @@ Observation rules:
 - Group repetitive low-information tool activity; omit routine events that are trivially recoverable and have no durable outcome.
 - Use critical only for load-bearing facts whose loss could cause real harm, repeated completed work, contradiction of an explicit correction, or violation of a persistent user constraint. Most observations should be low or medium.`;
 
-export const OBSERVER_PROMPT = (
-  priorReflections: string[],
-  priorObservations: string[],
-): string => {
-  const lines = [
-    "Extract observations from the conversation chunk below.",
-    "",
-    "Rules:",
-    "- Do not repeat observations already recorded (below). If something is already captured, skip it.",
-    "- Do not contradict existing reflections (below). If the conversation invalidates a prior reflection, note that explicitly.",
-    "- Keep each observation self-contained. No 'as discussed earlier' or 'see above'.",
-    "- Preserve the exact technical and user-specific details required to act safely later.",
-    "- Prefer specific facts and concrete outcomes over narration or general commentary.",
-    "- Relevance levels: 'low' (trivial detail), 'medium' (useful context), 'high' (important decision/fact), 'critical' (blocking issue/crucial constraint).",
-    "",
-    "RESPOND WITH VALID JSON ONLY. Do not add any text before or after the JSON object.",
-    "",
-    priorReflections.length > 0 ? `Existing reflections (do not repeat these):\n${priorReflections.join("\n")}` : "",
-    priorObservations.length > 0 ? `Existing observations (do not repeat these):\n${priorObservations.join("\n")}` : "",
-  ].filter(Boolean);
-
-  return lines.join("\n");
-};
-
-export const OBSERVER_RESPONSE_SCHEMA = {
-  type: "object" as const,
-  properties: {
-    observations: {
-      type: "array" as const,
-      items: {
-        type: "object" as const,
-        properties: {
-          content: { type: "string" as const },
-          relevance: { type: "string" as const, enum: ["low", "medium", "high", "critical"] },
-          sourceEntryIds: {
-            type: "array" as const,
-            items: { type: "string" as const },
-            minItems: 1,
-            description: "Optional exact subset of source entry ids that directly support this observation.",
-          },
-        },
-        required: ["content", "relevance"],
-      },
-    },
-  },
-  required: ["observations"],
-};
 
 // ── Reflector prompts ──
 

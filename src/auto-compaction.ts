@@ -33,7 +33,7 @@ export const activeAutoCompactionThreshold = (
 
 export function registerAutoCompactionTrigger(pi: ExtensionAPI, runtime: Runtime): void {
   pi.on("agent_settled", (_event, ctx) => {
-    runtime.ensureConfig(ctx.cwd, ctx.isProjectTrusted());
+    runtime.ensureConfig(ctx);
     if (!runtime.config.extension.overrideDefaultCompaction) return;
     if (runtime.autoCompactionInFlight || runtime.compactHookInFlight) return;
 

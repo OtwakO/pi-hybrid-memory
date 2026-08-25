@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  OBSERVER_PROMPT,
-  OBSERVER_RESPONSE_SCHEMA,
   OBSERVER_SYSTEM,
   REFLECTOR_PROMPT,
   REFLECTOR_SYSTEM,
@@ -17,6 +15,9 @@ describe("memory prompt hardening", () => {
     expect(OBSERVER_SYSTEM).toContain("error text and codes");
     expect(OBSERVER_SYSTEM).toContain("completed or verified outcomes");
     expect(OBSERVER_SYSTEM).toContain("routine events");
+    expect(OBSERVER_SYSTEM).toContain("record_observations");
+    expect(OBSERVER_SYSTEM).toContain("empty observations array");
+    expect(OBSERVER_SYSTEM).not.toContain("Respond with one JSON object");
   });
 
   it("gives the reflector a strong durable-value and abstraction gate", () => {
@@ -29,12 +30,6 @@ describe("memory prompt hardening", () => {
   });
 
   it("keeps dynamic memory data after stable prompt instructions", () => {
-    const observer = OBSERVER_PROMPT(["stable reflection"], ["recent observation"]);
-    expect(observer.indexOf("Rules:")).toBeLessThan(observer.indexOf("Existing reflections (do not repeat these):"));
-    expect(observer.indexOf("Existing reflections (do not repeat these):")).toBeLessThan(
-      observer.indexOf("Existing observations (do not repeat these):"),
-    );
-
     const reflector = REFLECTOR_PROMPT(
       [{ id: "aaaaaaaaaaaa", content: "existing durable fact", supportingObservationIds: [], createdAt: 1 }],
       [{
@@ -49,11 +44,5 @@ describe("memory prompt hardening", () => {
     expect(reflector).toContain("calling submit_reflections exactly once");
     expect(reflector).toContain("empty reflections array");
     expect(reflector.indexOf("Existing reflections:")).toBeLessThan(reflector.indexOf("Observations to synthesize:"));
-  });
-
-  it("keeps persisted contracts stable while allowing optional source provenance", () => {
-    expect(OBSERVER_RESPONSE_SCHEMA.required).toEqual(["observations"]);
-    expect(OBSERVER_RESPONSE_SCHEMA.properties.observations.items.required).toEqual(["content", "relevance"]);
-    expect(OBSERVER_RESPONSE_SCHEMA.properties.observations.items.properties).toHaveProperty("sourceEntryIds");
   });
 });

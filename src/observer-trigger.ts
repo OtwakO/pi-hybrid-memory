@@ -26,7 +26,7 @@ import type { Runtime } from "./runtime.js";
 
 export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): void {
   pi.on("turn_end", (_event, ctx) => {
-    runtime.ensureConfig(ctx.cwd, ctx.isProjectTrusted());
+    runtime.ensureConfig(ctx);
     if (runtime.observerTask.active) return;
 
     const entries = ctx.sessionManager.getBranch() as Entry[];
@@ -105,7 +105,7 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
         }
         runtime.resolveFailureNotified = false;
 
-        const model = resolved.model as any;
+        const model = resolved.model;
         const baselineText = observerBaselineText(reflections, baselineObservations);
         const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
         const freshCapacity = runtime.observerEpoch.freshEpochCapacity({

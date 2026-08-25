@@ -178,6 +178,7 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
   const transcriptSuffix: Message[] = structuredClone(params.prompts);
   const records: ObservationRecord[] = [];
   let finalToolFailure: string | null = null;
+  let acceptedToolSubmission = false;
 
   for (let turn = 0; turn < MAX_OBSERVER_TURNS; turn++) {
     const appendedPrefixTokens = transcriptSuffix
@@ -261,6 +262,13 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
         return { ok: false, reason: "observer returned toolUse without a tool call", rawResponse: "" };
       }
       if (finalToolFailure) return { ok: false, reason: finalToolFailure, rawResponse: "" };
+      if (!acceptedToolSubmission) {
+        return {
+          ok: false,
+          reason: "observer stopped without submitting record_observations",
+          rawResponse: "",
+        };
+      }
       return { ok: true, records, transcriptSuffix };
     }
 
@@ -271,6 +279,7 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
         finalToolFailure = execution.failure;
       } else {
         records.push(...execution.records);
+        acceptedToolSubmission = true;
         finalToolFailure = null;
       }
     }

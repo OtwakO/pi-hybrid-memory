@@ -13,7 +13,7 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
   pi.registerCommand("hm-status", {
     description: "Show hybrid memory status",
     handler: async (_args, ctx) => {
-      runtime.ensureConfig(ctx.cwd, ctx.isProjectTrusted());
+      runtime.ensureConfig(ctx);
       const entries = ctx.sessionManager.getBranch() as Entry[];
       const sinceBound = rawTokensSinceLastBound(entries);
 

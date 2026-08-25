@@ -234,7 +234,7 @@ The source audit found the recent Pi-native routing, observer epoch transaction,
 
 ### Ordered next work
 
-1. **G1 — Protocol and scope correctness:** fix observer tool prompt, empty catch-up coverage, config scoping, per-session notices, and explicit memory-details readers. These are localized and should land before new memory semantics.
+1. **G1 — Protocol and scope correctness — Completed.** The observer stable prompt now defines only the native `record_observations` tool protocol; stopping before an accepted submission fails closed, deliberate empty requires an explicit empty tool call, obsolete free-form prompt/schema exports were removed, and the compatibility key was bumped. Successful compaction catch-up always writes one consolidated coverage entry, including deliberate-empty gaps. Runtime configuration reloads when canonical cwd or trust scope changes, session-local recovery/backoff state resets with session identity, obsolete model casts were removed, and known V3/V4 memory details are shape-validated through an explicit reader while unknown future versions are rejected. Writes remain V4.
 2. **G2 — Canonical branch memory index:** one read model for current observations, reflections, provenance, compaction details, UI, metrics, and recall. Preserve V4 compatibility and make future retired evidence discoverable.
 3. **G3 — Additive retired-evidence persistence and reflection lifecycle design:** pause for approval on the new details version, supersession semantics, and recall scope.
 4. **G4 — Safe convergence implementation:** validated absorption proof plus deterministic conservative retirement; no omission-sensitive keep-list model.

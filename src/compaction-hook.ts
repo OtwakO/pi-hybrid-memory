@@ -40,7 +40,7 @@ import {
 
 export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void {
   pi.on("session_before_compact", async (event, ctx) => {
-    runtime.ensureConfig(ctx.cwd, ctx.isProjectTrusted());
+    runtime.ensureConfig(ctx);
     if (!runtime.config.extension.overrideDefaultCompaction) return;
 
     if (runtime.compactHookInFlight) {
@@ -123,7 +123,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         let expectedCoverageId = coverageAnchor.coveredSourceId ?? firstKeptEntryId;
         let gapFailedReason: string | null = null;
         try {
-          const model = resolved.model as any;
+          const model = resolved.model;
           const baselineText = observerBaselineText(memoryState.reflections, baselineObservations);
           const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
           const freshCapacity = draftEpoch.freshEpochCapacity({
@@ -227,28 +227,29 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
             return { cancel: true };
           }
 
-          if (accumulatedRecords.length > 0) {
-            const observationTokens = accumulatedRecords.reduce((sum, record) => sum + estimateStringTokens(record.content), 0);
-            gapObservationData = {
-              records: accumulatedRecords,
-              coversFromId: gap[0].id,
-              coversUpToId: gap[gap.length - 1].id,
-              tokenCount: observationTokens,
-              sourceProgress: undefined,
-            };
-            pi.appendEntry(OBSERVATION_CUSTOM_TYPE, gapObservationData);
-            // The extension-owned durable write advances Pi's active leaf. Treat
-            // that new leaf as the expected branch state for final assembly;
-            // later user/session navigation must still fail the final fence.
-            compactionFence = captureSessionBranchFence(ctx.sessionManager);
-            runtime.observerEpoch.invalidate("catch-up-persisted");
-            if (ctx.hasUI) ctx.ui.notify(
-              `Hybrid memory: sync catch-up recorded ${accumulatedRecords.length} observation(s) (~${observationTokens.toLocaleString()} tokens)`,
-              "info",
-            );
-          } else if (ctx.hasUI) {
-            ctx.ui.notify("Hybrid memory: sync catch-up examined the full gap and found nothing worth recording", "info");
-          }
+          const observationTokens = accumulatedRecords.reduce(
+            (sum, record) => sum + estimateStringTokens(record.content),
+            0,
+          );
+          gapObservationData = {
+            records: accumulatedRecords,
+            coversFromId: gap[0].id,
+            coversUpToId: expectedCoverageId,
+            tokenCount: observationTokens,
+            sourceProgress: undefined,
+          };
+          pi.appendEntry(OBSERVATION_CUSTOM_TYPE, gapObservationData);
+          // Positive and deliberate-empty catch-up share one durable coverage
+          // transaction. The write advances Pi's active leaf, which becomes the
+          // expected branch state for final assembly.
+          compactionFence = captureSessionBranchFence(ctx.sessionManager);
+          runtime.observerEpoch.invalidate("catch-up-persisted");
+          if (ctx.hasUI) ctx.ui.notify(
+            accumulatedRecords.length > 0
+              ? `Hybrid memory: sync catch-up recorded ${accumulatedRecords.length} observation(s) (~${observationTokens.toLocaleString()} tokens)`
+              : "Hybrid memory: sync catch-up examined the full gap and persisted an empty coverage marker",
+            "info",
+          );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (ctx.hasUI) ctx.ui.notify(
