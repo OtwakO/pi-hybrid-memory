@@ -17,14 +17,6 @@ export interface SectionData {
   briefTranscript: string;
 }
 
-export interface TranscriptEntry {
-  role: "user" | "assistant" | "tool_error";
-  text?: string;
-  tool?: string;
-  cmd?: string;
-  ref?: string;
-  count?: number;
-}
 
 // ── OM types ──
 
