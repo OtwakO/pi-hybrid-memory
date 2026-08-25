@@ -112,6 +112,22 @@ describe("ObserverEpochManager", () => {
     expect(incompatible.resetReason).toBe("compatibility-change");
   });
 
+  it("classifies fresh baseline pressure before attempting a source request", () => {
+    const manager = new ObserverEpochManager();
+
+    const capacity = manager.freshEpochCapacity({
+      baselineText: "baseline ".repeat(200),
+      deltaOverheadText: "instructions",
+      maxTokens: 300,
+      fixedTokens: 100,
+      minimumDeltaTokens: 256,
+    });
+
+    expect(capacity.availableDeltaTokens).toBe(0);
+    expect(capacity.occupiedTokens).toBeGreaterThan(300);
+    expect(capacity.pressured).toBe(true);
+  });
+
   it("computes the source-delta budget remaining after baseline and safety reservations", () => {
     const manager = new ObserverEpochManager();
     const small = manager.freshDeltaTokenBudget({

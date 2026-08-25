@@ -94,6 +94,25 @@ describe("CacheTelemetry", () => {
     expect(formatCacheInfo(telemetry)).toContain("resets: initial 1");
   });
 
+  it("aggregates baseline pressure even when no provider call is made", () => {
+    const telemetry = new CacheTelemetry();
+
+    telemetry.recordObserverCapacity("proactive", {
+      availableDeltaTokens: 120,
+      minimumDeltaTokens: 256,
+      occupiedTokens: 9_880,
+      maxTokens: 10_000,
+    });
+
+    expect(telemetry.calls()).toEqual([]);
+    expect(telemetry.observerEpochAggregate()).toMatchObject({
+      baselinePressureEvents: 1,
+      minimumFreshDeltaTokens: 120,
+    });
+    expect(formatCacheInfo(telemetry)).toContain("baseline pressure: 1 event(s)");
+    expect(formatCacheInfo(telemetry)).toContain("minimum fresh delta: ~120 tokens");
+  });
+
   it("counts locally warm provider misses without treating them as epoch resets", () => {
     const telemetry = new CacheTelemetry();
     telemetry.record("observer", model, "success", usage({ input: 5_000, cacheRead: 0 }), 1, {

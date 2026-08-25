@@ -731,7 +731,7 @@ A future cache or memory architecture change is complete only when:
 | B — Epoch observability | Not started |
 | C — Provenance quality | Implemented locally: optional validated per-observation source subsets with legacy all-chunk fallback and observer compatibility-version bump; focused verification complete, not committed |
 | D — Oversized-entry coverage | Implemented locally: additive optional `sourceProgress`, contiguous resumable segments, full-coverage anchor advancement only after final segment, and serializer compatibility-version bump; focused verification complete, not committed |
-| E — Baseline pressure | Evidence gathering not started |
+| E — Baseline pressure | Measurement implemented locally: explicit 256-token minimum useful delta, proactive skip and fail-closed catch-up cancellation, pressure event count, and minimum fresh-delta telemetry; staged-fold remedy remains unapproved pending evidence |
 | F — Compaction cache observability | Implemented locally: observer proactive/catch-up source, cold/warm/reset aggregates, provider hit/miss counts, capacity headroom, shared fixed reservation, and reflector/pruner skip/outcome/input/result counts; focused verification complete, not committed |
 | G — Quality-neutral compaction prefix experiment | Deferred pending Milestone F telemetry |
 | H — Optional unified transactional fold prototype | Not approved; evidence and quality evaluation required |

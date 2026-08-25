@@ -16,6 +16,7 @@ import { estimateStringTokens } from "./om/tokens.js";
 import {
   OBSERVER_DELTA_INSTRUCTIONS,
   OBSERVER_FIXED_TOKEN_RESERVE,
+  OBSERVER_MINIMUM_DELTA_TOKENS,
   observerBaselineText,
   observerCompatibilityKey,
   observerDeltaText,
@@ -104,12 +105,22 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
       const model = resolved.model as any;
       const baselineText = observerBaselineText(reflections, baselineObservations);
       const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
-      const freshDeltaBudget = runtime.observerEpoch.freshDeltaTokenBudget({
+      const freshCapacity = runtime.observerEpoch.freshEpochCapacity({
         baselineText,
         maxTokens: epochMaxTokens,
         fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
         deltaOverheadText: OBSERVER_DELTA_INSTRUCTIONS,
+        minimumDeltaTokens: OBSERVER_MINIMUM_DELTA_TOKENS,
       });
+      runtime.cacheTelemetry.recordObserverCapacity("proactive", freshCapacity);
+      if (freshCapacity.pressured) {
+        if (ctx.hasUI && ctx.ui) ctx.ui.notify(
+          `Hybrid memory: observer baseline pressure leaves only ~${freshCapacity.availableDeltaTokens.toLocaleString()} source tokens; coverage was not advanced.`,
+          "warning",
+        );
+        return;
+      }
+      const freshDeltaBudget = freshCapacity.availableDeltaTokens;
       const serialized = serializeSourceAddressedBranchEntries(
         chunkEntries,
         Math.min(runtime.config.hybrid.observerChunkMaxTokens, freshDeltaBudget),

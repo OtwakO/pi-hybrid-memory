@@ -44,6 +44,18 @@ export interface FreshEpochBudgetInput {
   deltaOverheadText: string;
 }
 
+export interface FreshEpochCapacityInput extends FreshEpochBudgetInput {
+  minimumDeltaTokens: number;
+}
+
+export interface FreshEpochCapacity {
+  occupiedTokens: number;
+  availableDeltaTokens: number;
+  maxTokens: number;
+  minimumDeltaTokens: number;
+  pressured: boolean;
+}
+
 export interface ObserverEpochStats {
   active: boolean;
   runCount: number;
@@ -95,11 +107,22 @@ export class ObserverEpochManager {
   private state: EpochState | null = null;
   private transactionCounter = 0;
 
-  freshDeltaTokenBudget(input: FreshEpochBudgetInput): number {
+  freshEpochCapacity(input: FreshEpochCapacityInput): FreshEpochCapacity {
     const baselineMessage = userMessage(`${BASELINE_PREFIX}${input.baselineText.trim()}`);
     const overheadMessage = userMessage(`${DELTA_PREFIX}${input.deltaOverheadText.trim()}`);
-    const occupied = input.fixedTokens + messageTokens([baselineMessage, overheadMessage]);
-    return Math.max(0, input.maxTokens - occupied);
+    const occupiedTokens = input.fixedTokens + messageTokens([baselineMessage, overheadMessage]);
+    const availableDeltaTokens = Math.max(0, input.maxTokens - occupiedTokens);
+    return {
+      occupiedTokens,
+      availableDeltaTokens,
+      maxTokens: input.maxTokens,
+      minimumDeltaTokens: input.minimumDeltaTokens,
+      pressured: availableDeltaTokens < input.minimumDeltaTokens,
+    };
+  }
+
+  freshDeltaTokenBudget(input: FreshEpochBudgetInput): number {
+    return this.freshEpochCapacity({ ...input, minimumDeltaTokens: 0 }).availableDeltaTokens;
   }
 
   prepare(input: ObserverEpochPrepareInput): ObserverEpochPreparation {

@@ -53,6 +53,13 @@ export interface CacheTelemetryCall {
   prefix?: CachePrefixMetadata;
 }
 
+export interface ObserverCapacityMetadata {
+  availableDeltaTokens: number;
+  minimumDeltaTokens: number;
+  occupiedTokens: number;
+  maxTokens: number;
+}
+
 export interface ObserverEpochAggregate {
   calls: number;
   proactiveCalls: number;
@@ -62,6 +69,8 @@ export interface ObserverEpochAggregate {
   warmProviderHits: number;
   warmProviderMisses: number;
   minimumHeadroomTokens?: number;
+  baselinePressureEvents: number;
+  minimumFreshDeltaTokens?: number;
   resetReasons: Record<string, number>;
 }
 
@@ -139,6 +148,7 @@ const newObserverEpochAggregate = (): ObserverEpochAggregate => ({
   warmCalls: 0,
   warmProviderHits: 0,
   warmProviderMisses: 0,
+  baselinePressureEvents: 0,
   resetReasons: {},
 });
 
@@ -247,6 +257,19 @@ export class CacheTelemetry {
       : undefined;
   }
 
+  recordObserverCapacity(
+    _source: ObserverCallSource,
+    capacity: ObserverCapacityMetadata,
+  ): void {
+    const epoch = this.observerEpochTotals;
+    epoch.minimumFreshDeltaTokens = epoch.minimumFreshDeltaTokens === undefined
+      ? capacity.availableDeltaTokens
+      : Math.min(epoch.minimumFreshDeltaTokens, capacity.availableDeltaTokens);
+    if (capacity.availableDeltaTokens < capacity.minimumDeltaTokens) {
+      epoch.baselinePressureEvents++;
+    }
+  }
+
   recordMemoryLifecycle(
     operation: MemoryLifecycleOperation,
     outcome: MemoryLifecycleOutcome,
@@ -325,13 +348,13 @@ export const formatCacheInfo = (
   const lifecycleAggregates = (["reflector", "pruner"] as const)
     .map(operation => telemetry.memoryLifecycleAggregate(operation))
     .filter(aggregate => aggregate.attempts > 0);
-  if (calls.length === 0 && lifecycleAggregates.length === 0) {
+  const observerEpochAggregate = telemetry.observerEpochAggregate();
+  if (calls.length === 0 && lifecycleAggregates.length === 0 && observerEpochAggregate.baselinePressureEvents === 0) {
     lines.push("", "No observer, reflector, or pruner activity recorded in this session.");
     return lines.join("\n");
   }
 
-  const observerEpochAggregate = telemetry.observerEpochAggregate();
-  if (observerEpochAggregate.calls > 0) {
+  if (observerEpochAggregate.calls > 0 || observerEpochAggregate.baselinePressureEvents > 0) {
     const resets = Object.entries(observerEpochAggregate.resetReasons)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([reason, count]) => `${reason} ${count}`)
@@ -343,6 +366,7 @@ export const formatCacheInfo = (
       `warm provider cache: ${observerEpochAggregate.warmProviderHits} hit, ${observerEpochAggregate.warmProviderMisses} miss (usage-reported calls only)`,
       `resets: ${resets}`,
       `minimum capacity headroom: ${observerEpochAggregate.minimumHeadroomTokens === undefined ? "unknown" : `~${formatTokens(observerEpochAggregate.minimumHeadroomTokens)} tokens`}`,
+      `baseline pressure: ${observerEpochAggregate.baselinePressureEvents} event(s); minimum fresh delta: ${observerEpochAggregate.minimumFreshDeltaTokens === undefined ? "unknown" : `~${formatTokens(observerEpochAggregate.minimumFreshDeltaTokens)} tokens`}`,
     );
   }
 

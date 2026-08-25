@@ -10,6 +10,7 @@ export const OBSERVER_SERIALIZER_VERSION = "source-segments-v2";
 // Conservative allowance for observer output, tool schemas, provider framing,
 // and the final tool-continuation turn. Both observer paths must use one value.
 export const OBSERVER_FIXED_TOKEN_RESERVE = 6_144;
+export const OBSERVER_MINIMUM_DELTA_TOKENS = 256;
 
 const joinOrEmpty = (items: string[]): string => items.length ? items.join("\n") : "(none yet)";
 

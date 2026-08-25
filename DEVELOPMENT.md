@@ -111,3 +111,9 @@
 - **Change**: Observation entries can now carry optional `sourceProgress`; oversized sources are observed as contiguous resumable segments and full `coversUpToId` advances only after the final segment.
 - **Reason**: Preserve semantic coverage without reducing observer input quality or breaking existing session entries.
 - **Verified**: Focused serializer, durable-resume, branch, observer, epoch compatibility, and compaction catch-up tests pass with clean TypeScript.
+
+### [2026-08-25] Added explicit observer baseline-pressure measurement
+- **Context**: A growing durable baseline can leave too little room for meaningful new source input and eventually block compaction catch-up.
+- **Change**: Both observer paths measure fresh baseline occupancy against a 256-token minimum useful delta; proactive observation skips without advancing coverage, catch-up cancels fail-closed, and `/hm-cache-info` aggregates pressure events and minimum fresh-delta capacity.
+- **Reason**: Gather evidence before introducing any reflection/pruning lifecycle change or reducing memory quality.
+- **Verified**: Focused epoch, telemetry, observer, and catch-up safety tests pass with clean TypeScript.

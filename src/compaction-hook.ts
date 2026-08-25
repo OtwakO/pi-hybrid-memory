@@ -15,6 +15,7 @@ import { runObserver } from "./om/observer.js";
 import {
   OBSERVER_DELTA_INSTRUCTIONS,
   OBSERVER_FIXED_TOKEN_RESERVE,
+  OBSERVER_MINIMUM_DELTA_TOKENS,
   observerBaselineText,
   observerCompatibilityKey,
   observerDeltaText,
@@ -133,12 +134,22 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
           const model = resolved.model as any;
           const baselineText = observerBaselineText(memoryState.reflections, baselineObservations);
           const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
-          const freshDeltaBudget = draftEpoch.freshDeltaTokenBudget({
+          const freshCapacity = draftEpoch.freshEpochCapacity({
             baselineText,
             maxTokens: epochMaxTokens,
             fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
             deltaOverheadText: OBSERVER_DELTA_INSTRUCTIONS,
+            minimumDeltaTokens: OBSERVER_MINIMUM_DELTA_TOKENS,
           });
+          runtime.cacheTelemetry.recordObserverCapacity("catch-up", freshCapacity);
+          if (freshCapacity.pressured) {
+            if (ctx.hasUI) ctx.ui.notify(
+              `Hybrid memory: compaction catch-up blocked by baseline pressure (${freshCapacity.availableDeltaTokens.toLocaleString()} source tokens available; ${freshCapacity.minimumDeltaTokens.toLocaleString()} required). Cancelling compaction.`,
+              "warning",
+            );
+            return { cancel: true };
+          }
+          const freshDeltaBudget = freshCapacity.availableDeltaTokens;
           while (remainingGap.length > 0) {
             const serialized = serializeSourceAddressedBranchEntries(
               remainingGap,
