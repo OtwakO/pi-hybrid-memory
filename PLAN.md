@@ -24,7 +24,7 @@ https://github.com/sting8k/pi-vcc
 2. Single `session_before_compact` hook — no hook races, no duplicate summaries
 3. Additive value — the merged summary must be more useful than either alone, not just larger
 4. Cost discipline — short sessions must remain zero LLM cost (same gate behavior as pi-observational-memory)
-5. Controlled growth — the merged summary will naturally be larger than either extension alone (it combines both layers), and that is acceptable. The goal is not to minimize size but to prevent unbounded growth across many compaction cycles. A trim priority exists to drop low-value content when the summary becomes genuinely large, not to compete with either source extension on byte count.
+5. Controlled growth — the merged summary may be larger than either extension alone, but long-session compaction must materially reduce the main-model context. Durable evidence and the model-visible projection must not remain coupled: evidence may stay recallable without forcing every retired detail into the normal summary. See `docs/COMPACTION_QUALITY_ROADMAP_2026-08-25.md` for the staged design and decision gates.
 6. `vcc_recall` lossless history recall must work unchanged — it reads raw JSONL and is hook-independent
 7. All extension-owned config lives in one flat `pi-hybrid-memory-config.json` with global defaults and optional sparse project overrides
 8. TypeScript throughout, same toolchain as the source repos
@@ -92,8 +92,9 @@ session_before_compact fires
         │
         ▼
 [3] Check OM gate: is observation pool ≥ reflectionThresholdTokens?
-    YES → run reflector + pruner (LLM calls)
+    YES → run the validated fold module (reflection, then explicit safe retirement)
     NO  → skip, use existing reflections as-is (zero LLM cost)
+    Any failed/aborted/truncated/unsafe stage → retain the pre-fold memory set
         │
         ▼
 [4] Assemble OM block
@@ -446,7 +447,10 @@ The README must include:
 - [ ] OM pipeline observer runs async without blocking turns
 - [ ] Flush-before-compaction awaits in-flight observer correctly
 - [ ] Merged summary on short sessions is correctly larger than either source extension (not artificially capped)
-- [ ] Merged summary on long multi-compaction sessions stays under `maxSummaryTokens` ceiling
+- [ ] Merged summary on long multi-compaction sessions stays near `maxSummaryTokens` unless explicitly diagnosed protected active memory cannot fit
+- [ ] Retired evidence remains recallable without remaining in the normal main-model summary
+- [ ] No observation is retired without a locally validated preservation reason and durable audit trail
+- [ ] Representative long-session compactions materially reduce `summary + retained tail` relative to `tokensBefore`
 - [ ] Trim warning is emitted when ceiling is hit; trim priority order is enforced
 - [ ] Below `reflectionThresholdTokens` gate: zero LLM calls during compaction
 - [ ] `vcc_recall` / `/hm-recall` returns correct results after compaction
@@ -466,4 +470,4 @@ The README must include:
 - Do not add vector search or embedding-based recall — `vcc_recall` regex search is sufficient
 - Do not modify Pi core behavior
 - Do not support any Pi version prior to whatever both source extensions currently target
-- Do not add telemetry or analytics
+- Do not add persistent or content-bearing analytics; session-local content-free operational telemetry is allowed

@@ -1,7 +1,7 @@
 # Third-Party Cache and Memory Review — Independent Verification and Progressive Roadmap
 
 **Date:** 2026-08-25
-**Status:** Analysis complete; progressive implementation tracked below
+**Status:** Analysis complete; milestones A–F implemented. Fold correctness and main-context effectiveness now continue in [`COMPACTION_QUALITY_ROADMAP_2026-08-25.md`](./COMPACTION_QUALITY_ROADMAP_2026-08-25.md).
 **Source review:** [`pi-hybrid-memory-cache-independent-third-party-review.md`](./pi-hybrid-memory-cache-independent-third-party-review.md)
 
 ## Purpose
@@ -464,6 +464,8 @@ Metadata must remain session-local and content-free unless a separate persistenc
 
 ### 14. Evaluate a stable common memory prefix for reflector and pruner
 
+> **Ordering update (2026-08-25):** Production telemetry found invalid reflector and pruner outputs with no consolidation benefit. This experiment is paused until the fold-safety, retired-evidence, and compaction-effectiveness milestones in [`COMPACTION_QUALITY_ROADMAP_2026-08-25.md`](./COMPACTION_QUALITY_ROADMAP_2026-08-25.md) are complete.
+
 The current reflector and pruner prompts serialize overlapping memory through different operation-specific structures. A low-risk experiment may factor their prompts into:
 
 ```text
@@ -486,6 +488,8 @@ Different system prompts, operation cache identities, provider cache breakpoints
 - The experiment is reverted if quality equivalence cannot be established.
 
 ### 15. Prototype a unified transactional fold only if measurements justify it
+
+> **Design correction (2026-08-25):** A unified or separate second LLM retirement stage is no longer assumed. The quality roadmap first compares deterministic retirement, preservation claims in the reflection call, and a separate retirement call. Any host persistence spanning a custom entry and Pi's later compaction write is a split transaction, not atomic.
 
 A larger future experiment could combine reflection and pruning as sequential stages of one cache-continuous agent conversation:
 
@@ -726,14 +730,14 @@ A future cache or memory architecture change is complete only when:
 
 | Milestone | Status |
 |---|---|
-| Localized `/hm-memory` context and reflection-gate reporting | Implemented locally; focused tests, typecheck, build, and installation verified; not committed |
-| A — Branch-authoritative coverage | Implemented locally: shared durable coverage anchor, session/leaf catch-up fence, catch-up-persisted epoch invalidation, and functional compaction override off-switch; focused verification complete, not committed |
-| B — Epoch observability | Not started |
-| C — Provenance quality | Implemented locally: optional validated per-observation source subsets with legacy all-chunk fallback and observer compatibility-version bump; focused verification complete, not committed |
-| D — Oversized-entry coverage | Implemented locally: additive optional `sourceProgress`, contiguous resumable segments, full-coverage anchor advancement only after final segment, and serializer compatibility-version bump; focused verification complete, not committed |
-| E — Baseline pressure | Measurement implemented locally: explicit 256-token minimum useful delta, proactive skip and fail-closed catch-up cancellation, pressure event count, and minimum fresh-delta telemetry; staged-fold remedy remains unapproved pending evidence |
-| F — Compaction cache observability | Implemented locally: observer proactive/catch-up source, cold/warm/reset aggregates, provider hit/miss counts, capacity headroom, shared fixed reservation, and reflector/pruner skip/outcome/input/result counts; focused verification complete, not committed |
-| G — Quality-neutral compaction prefix experiment | Deferred pending Milestone F telemetry |
-| H — Optional unified transactional fold prototype | Not approved; evidence and quality evaluation required |
+| Localized `/hm-memory` context and reflection-gate reporting | Implemented, verified, installed, and committed in `fd9ca43` |
+| A — Branch-authoritative coverage | Implemented, verified, installed, and committed in `fd9ca43` |
+| B — Epoch observability | Implemented, verified, installed, and committed in `f361f44` |
+| C — Provenance quality | Implemented in `686ec03`; corrected-provenance recovery is installed and committed locally in `ec97eb1` but not yet pushed |
+| D — Oversized-entry coverage | Implemented, verified, installed, and committed in `b92c9b1` |
+| E — Baseline pressure | Measurement implemented, verified, installed, and committed in `3cf9727`; staged fold is replaced by the quality roadmap's explicit design gates |
+| F — Compaction cache observability | Implemented, verified, installed, and committed in `62088db`; production sample captured |
+| G — Quality-neutral compaction prefix experiment | Paused: production fold outputs were invalid; fold correctness and effective context reduction take priority |
+| H — Optional unified transactional fold prototype | Not approved; superseded by a staged deep fold-module design and later explicit decision gate |
 | I — Other measured cache refinements | Deferred pending telemetry |
 | J — SDK alignment | Deferred as separate compatibility milestone |

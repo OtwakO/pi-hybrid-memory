@@ -123,3 +123,9 @@
 - **Change**: Every delta now lists its exact valid source IDs, the observer tool compatibility version was bumped, and a later valid tool call clears a prior invalid provenance attempt while an uncorrected final invalid attempt still fails closed.
 - **Reason**: Preserve strict provenance without discarding a fully corrected observer run or repeatedly retrying an otherwise valid source chunk.
 - **Verified**: Focused provenance, epoch-compatibility, compaction catch-up, and segmented-source tests pass with clean TypeScript.
+
+### [2026-08-25] Reprioritized roadmap around fold correctness and compaction effectiveness
+- **Context**: Production telemetry from a 253,316-token compaction showed healthy observer caching but invalid reflector/pruner outputs (40,990 and 68,229 output tokens), zero accepted reflections, and all 828 observations retained.
+- **Change**: Added `docs/COMPACTION_QUALITY_ROADMAP_2026-08-25.md`, pausing cache-prefix experiments until constrained fold output, explicit safe retirement, durable recallable evidence, and main-context effectiveness are designed and verified.
+- **Reason**: The current keep-list pruner can over-delete on a parseable incomplete result, reflection citation does not prove full absorption, and summary budgeting currently couples model-visible projection to durable memory retention.
+- **Watch out**: Do not approve observation retirement or a new details schema without the roadmap's explicit decision gate. Until the immediate safety patch lands, avoid reflection-eligible manual compaction on valuable sessions.
