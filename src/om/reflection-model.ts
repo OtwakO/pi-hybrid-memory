@@ -1,16 +1,18 @@
 import {
-  agentLoop,
-  type AgentContext,
-  type AgentEvent,
-  type AgentLoopConfig,
-  type AgentTool,
-} from "@earendil-works/pi-agent-core";
-import type { Message, Model, Usage } from "@earendil-works/pi-ai";
-import { streamSimple } from "@earendil-works/pi-ai/compat";
+  hasApi,
+  type Api,
+  type AssistantMessage,
+  type Context,
+  type Model,
+  type OpenAICompletionsOptions,
+  type ToolCall,
+} from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 import type { CacheTelemetry } from "../cache-telemetry.js";
 import type { CacheOptions } from "../cache-options.js";
 import type { ReflectionRequestPlan } from "./reflection-budget.js";
+
+const DEFAULT_REFLECTION_TIMEOUT_MS = 5 * 60_000;
 
 const reflectionProposalSchema = (plan: ReflectionRequestPlan) => Type.Object({
   reflections: Type.Array(Type.Object({
@@ -19,18 +21,16 @@ const reflectionProposalSchema = (plan: ReflectionRequestPlan) => Type.Object({
       minItems: 1,
       uniqueItems: true,
     }),
-  }), {
+  }, { additionalProperties: false }), {
     maxItems: plan.maxReflections,
     description: "New durable reflections. Use an empty array when no new reflection is justified.",
   }),
-});
+}, { additionalProperties: false });
 
 type ReflectionProposal = Static<ReturnType<typeof reflectionProposalSchema>>;
 
 export interface ReflectionModelParams {
-  model: unknown;
-  apiKey: string;
-  headers?: Record<string, string>;
+  model: Model<Api>;
   signal?: AbortSignal;
   telemetry?: CacheTelemetry;
   cacheOptions?: CacheOptions;
@@ -39,7 +39,9 @@ export interface ReflectionModelParams {
 export type ReflectionModelFailureReason =
   | "truncated-output"
   | "missing-tool-call"
+  | "unsupported-api"
   | "invalid-output"
+  | "timeout"
   | "error"
   | "aborted";
 
@@ -56,120 +58,146 @@ export interface ReflectionModelPort {
   ): Promise<ReflectionModelResult>;
 }
 
-const assistantMessages = (event: AgentEvent): Array<{
-  role?: string;
-  stopReason?: string;
-  usage?: Usage;
-}> => {
-  if (event.type === "message_end" || event.type === "turn_end") {
-    return event.message && typeof event.message === "object"
-      ? [event.message as { role?: string; stopReason?: string; usage?: Usage }]
-      : [];
+export type ReflectionComplete = (
+  model: Model<"openai-completions">,
+  context: Context,
+  options: OpenAICompletionsOptions,
+) => Promise<AssistantMessage>;
+
+interface CompletionReflectionModelOptions {
+  complete: ReflectionComplete;
+  timeoutMs?: number;
+}
+
+const isReflectionProposal = (
+  value: unknown,
+  plan: ReflectionRequestPlan,
+): value is ReflectionProposal => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const object = value as Record<string, unknown>;
+  if (Object.keys(object).some(key => key !== "reflections")) return false;
+  if (!Array.isArray(object.reflections) || object.reflections.length > plan.maxReflections) return false;
+
+  for (const reflection of object.reflections) {
+    if (!reflection || typeof reflection !== "object" || Array.isArray(reflection)) return false;
+    const item = reflection as Record<string, unknown>;
+    if (Object.keys(item).some(key => key !== "content" && key !== "supportingObservationIds")) return false;
+    if (typeof item.content !== "string") return false;
+    if (item.content.length < 1 || item.content.length > plan.maxReflectionContentChars) return false;
+    if (!Array.isArray(item.supportingObservationIds) || item.supportingObservationIds.length < 1) return false;
+    if (item.supportingObservationIds.some(id => typeof id !== "string" || id.length < 1)) return false;
+    if (new Set(item.supportingObservationIds).size !== item.supportingObservationIds.length) return false;
   }
-  if (event.type === "agent_end") {
-    return event.messages.filter((message): message is Message =>
-      !!message && typeof message === "object" && (message as { role?: string }).role === "assistant");
-  }
-  return [];
+  return true;
 };
 
-const terminalFailureFromEvent = (event: AgentEvent): ReflectionModelFailureReason | null => {
-  for (const message of assistantMessages(event)) {
-    if (message.role !== "assistant") continue;
-    if (message.stopReason === "length") return "truncated-output";
-    if (message.stopReason === "error") return "error";
-    if (message.stopReason === "aborted") return "aborted";
-  }
-  return null;
+const toolCalls = (message: AssistantMessage): ToolCall[] =>
+  message.content.filter((content): content is ToolCall => content.type === "toolCall");
+
+const completionOutcome = (message: AssistantMessage): "success" | "error" | "aborted" | "truncated" => {
+  if (message.stopReason === "error") return "error";
+  if (message.stopReason === "aborted") return "aborted";
+  if (message.stopReason === "length") return "truncated";
+  return "success";
 };
 
-export const createAgentLoopReflectionModel = (): ReflectionModelPort => ({
-  async propose(params, systemPrompt, userPrompt, plan): Promise<ReflectionModelResult> {
-    let proposal: ReflectionProposal | null = null;
-    let submissionCount = 0;
-    let assistantTurns = 0;
-    let attemptedToolCall = false;
-    let finalTurnFailure: ReflectionModelFailureReason | null = null;
-    let terminalFailure: "error" | "aborted" | null = null;
-
-    const schema = reflectionProposalSchema(plan);
-    const submitReflections: AgentTool<typeof schema> & {
-      constrainedSampling: { type: "json_schema"; strict: "prefer" };
-    } = {
-      name: "submit_reflections",
-      label: "Submit reflections",
-      description:
-        "Submit the complete set of new durable reflections for this fold. " +
-        "Call once with an empty reflections array when no new reflection is justified.",
-      parameters: schema,
-      constrainedSampling: { type: "json_schema", strict: "prefer" },
-      execute: async (_toolCallId, args: ReflectionProposal) => {
-        submissionCount++;
-        if (submissionCount > 1) throw new Error("submit_reflections must be called exactly once");
-        proposal = structuredClone(args);
-        return {
-          content: [{ type: "text" as const, text: "Reflection submission accepted." }],
-          details: { proposed: args.reflections.length },
-          terminate: true,
-        };
+const raceWithAbort = <T>(operation: Promise<T>, signal: AbortSignal): Promise<T> => {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    operation.then(
+      value => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
       },
-    };
+      error => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+};
 
-    const context: AgentContext = {
-      systemPrompt,
-      messages: [],
-      tools: [submitReflections],
-    };
-    const prompts: Message[] = [{ role: "user", content: userPrompt, timestamp: Date.now() }];
-    const config: AgentLoopConfig = {
-      model: params.model as any,
-      apiKey: params.apiKey,
-      headers: params.headers,
-      sessionId: params.cacheOptions?.sessionId,
-      cacheRetention: params.cacheOptions?.cacheRetention,
-      reasoning: "medium",
-      maxTokens: plan.maxOutputTokens,
-      convertToLlm: (messages) => messages as Message[],
-      toolExecution: "sequential",
-    };
-    const configWithBoundedTurns: AgentLoopConfig = {
-      ...config,
-      shouldStopAfterTurn: () => proposal !== null || assistantTurns >= 2,
-    };
-
-    try {
-      const stream = agentLoop(prompts, context, configWithBoundedTurns, params.signal, streamSimple);
-      for await (const event of stream) {
-        const eventFailure = terminalFailureFromEvent(event);
-        if (eventFailure === "error" || eventFailure === "aborted") terminalFailure = eventFailure;
-        if (event.type === "turn_end" && event.message.role === "assistant") {
-          assistantTurns++;
-          finalTurnFailure = eventFailure;
-        }
-        if (event.type === "tool_execution_start") attemptedToolCall = true;
-        if (event.type === "message_end" && event.message.role === "assistant") {
-          const message = event.message as { stopReason?: string; usage?: Usage };
-          const outcome = message.stopReason === "error" ? "error"
-            : message.stopReason === "aborted" ? "aborted"
-              : message.stopReason === "length" ? "truncated"
-                : "success";
-          params.telemetry?.record(
-            "reflector",
-            params.model as Model<any>,
-            outcome,
-            message.usage,
-          );
-        }
-      }
-      await stream.result();
-    } catch {
-      return { ok: false, reason: "error" };
+export const createCompletionReflectionModel = (
+  options: CompletionReflectionModelOptions,
+): ReflectionModelPort => ({
+  async propose(params, systemPrompt, userPrompt, plan): Promise<ReflectionModelResult> {
+    const model = params.model;
+    if (!hasApi(model, "openai-completions")) {
+      return { ok: false, reason: "unsupported-api" };
     }
 
-    if (terminalFailure) return { ok: false, reason: terminalFailure };
-    if (submissionCount > 1) return { ok: false, reason: "invalid-output" };
-    if (proposal) return { ok: true, proposal };
-    if (finalTurnFailure) return { ok: false, reason: finalTurnFailure };
-    return { ok: false, reason: attemptedToolCall ? "invalid-output" : "missing-tool-call" };
+    const timeoutMs = options.timeoutMs ?? DEFAULT_REFLECTION_TIMEOUT_MS;
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = params.signal
+      ? AbortSignal.any([params.signal, timeoutSignal])
+      : timeoutSignal;
+    const schema = reflectionProposalSchema(plan);
+    const context: Context = {
+      systemPrompt,
+      messages: [{ role: "user", content: userPrompt, timestamp: Date.now() }],
+      tools: [{
+        name: "submit_reflections",
+        description:
+          "Submit the complete set of new durable reflections for this fold. " +
+          "Use an empty reflections array when no new reflection is justified.",
+        parameters: schema,
+        constrainedSampling: { type: "json_schema", strict: "prefer" },
+      }],
+    };
+
+    let message: AssistantMessage;
+    try {
+      message = await raceWithAbort(options.complete(model, context, {
+        signal,
+        reasoningEffort: "high",
+        maxTokens: plan.maxOutputTokens,
+        maxRetries: 0,
+        maxRetryDelayMs: 0,
+        timeoutMs,
+        cacheRetention: params.cacheOptions?.cacheRetention,
+        sessionId: params.cacheOptions?.sessionId,
+        toolChoice: {
+          type: "function",
+          function: { name: "submit_reflections" },
+        },
+      }), signal);
+    } catch {
+      const reason: ReflectionModelFailureReason = params.signal?.aborted
+        ? "aborted"
+        : timeoutSignal.aborted
+          ? "timeout"
+          : "error";
+      params.telemetry?.record(
+        "reflector",
+        model,
+        reason === "aborted" ? "aborted" : "error",
+      );
+      return { ok: false, reason };
+    }
+
+    params.telemetry?.record(
+      "reflector",
+      model,
+      completionOutcome(message),
+      message.usage,
+    );
+
+    if (message.stopReason === "length") return { ok: false, reason: "truncated-output" };
+    if (message.stopReason === "aborted") {
+      return { ok: false, reason: params.signal?.aborted ? "aborted" : "error" };
+    }
+    if (message.stopReason === "error") return { ok: false, reason: "error" };
+
+    const calls = toolCalls(message);
+    if (calls.length === 0) return { ok: false, reason: "missing-tool-call" };
+    if (calls.length !== 1 || calls[0].name !== "submit_reflections") {
+      return { ok: false, reason: "invalid-output" };
+    }
+    if (!isReflectionProposal(calls[0].arguments, plan)) {
+      return { ok: false, reason: "invalid-output" };
+    }
+    return { ok: true, proposal: structuredClone(calls[0].arguments) };
   },
 });

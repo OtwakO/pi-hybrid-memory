@@ -47,18 +47,21 @@ describe("foldMemory", () => {
     expect(port.propose).not.toHaveBeenCalled();
   });
 
-  it("retains every observation when reflection fails", async () => {
-    const result = await foldMemory(input(modelPort({ ok: false, reason: "missing-tool-call" })));
+  it.each(["missing-tool-call", "timeout"] as const)(
+    "retains every observation when reflection fails with %s",
+    async (reason) => {
+      const result = await foldMemory(input(modelPort({ ok: false, reason })));
 
-    expect(result).toEqual({
-      ok: false,
-      stage: "reflection",
-      reason: "missing-tool-call",
-      reflections: [],
-      observations: [observation],
-      retiredObservationIds: [],
-    });
-  });
+      expect(result).toEqual({
+        ok: false,
+        stage: "reflection",
+        reason,
+        reflections: [],
+        observations: [observation],
+        retiredObservationIds: [],
+      });
+    },
+  );
 
   it("accepts validated reflections without retiring observations", async () => {
     const result = await foldMemory(input(modelPort({

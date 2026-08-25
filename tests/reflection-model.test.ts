@@ -1,13 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
 
-const agentLoopMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@earendil-works/pi-agent-core")>();
-  return { ...actual, agentLoop: agentLoopMock };
-});
-
-import { createAgentLoopReflectionModel } from "../src/om/reflection-model.js";
+import {
+  createCompletionReflectionModel,
+  type ReflectionComplete,
+} from "../src/om/reflection-model.js";
 import type { ReflectionRequestPlan } from "../src/om/reflection-budget.js";
 
 const plan: ReflectionRequestPlan = {
@@ -15,37 +12,71 @@ const plan: ReflectionRequestPlan = {
   maxReflections: 4,
   maxReflectionContentChars: 2_048,
   estimatedInputTokens: 100,
+  reasoningReserveTokens: 1_000,
+  estimatedWorstCaseContractTokens: 1_000,
   estimatedWorstCaseOutputTokens: 2_000,
 };
 
-const params = {
-  model: { provider: "test-provider", id: "test-model" },
-  apiKey: "key",
+const model = {
+  provider: "opencode-go",
+  id: "deepseek-v4-flash",
+  api: "openai-completions",
+} as Model<Api>;
+
+const usage = {
+  input: 100,
+  output: 20,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 120,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
-const stream = (run?: (context: any, config: any) => Promise<void> | void, events: unknown[] = []) => ({
-  async *[Symbol.asyncIterator]() {
-    const [, context, config] = agentLoopMock.mock.calls.at(-1)!;
-    await run?.(context, config);
-    for (const event of events) yield event;
-  },
-  result: vi.fn().mockResolvedValue([]),
+const response = (
+  content: AssistantMessage["content"],
+  stopReason: AssistantMessage["stopReason"] = "toolUse",
+): AssistantMessage => ({
+  role: "assistant",
+  api: model.api,
+  provider: model.provider,
+  model: model.id,
+  content,
+  stopReason,
+  usage,
+  timestamp: Date.now(),
 });
 
-describe("agent-loop reflection model", () => {
-  beforeEach(() => agentLoopMock.mockReset());
+const params = {
+  model,
+  cacheOptions: { sessionId: "session-reflector", cacheRetention: "long" as const },
+};
 
-  it("uses a constrained terminating submission tool with medium reasoning and a bounded output", async () => {
-    agentLoopMock.mockImplementation((_prompts, context, config) => stream(async () => {
-      await context.tools[0].execute("call", {
+const toolCall = (arguments_: Record<string, unknown>, name = "submit_reflections") => ({
+  type: "toolCall" as const,
+  id: "call-1",
+  name,
+  arguments: arguments_,
+});
+
+describe("completion reflection model", () => {
+  let complete: ReturnType<typeof vi.fn<ReflectionComplete>>;
+
+  beforeEach(() => {
+    complete = vi.fn<ReflectionComplete>();
+  });
+
+  it("uses the current completion seam with required structured output and bounded execution", async () => {
+    complete.mockResolvedValue(response([
+      toolCall({
         reflections: [{
           content: "durable reflection",
           supportingObservationIds: ["aaaaaaaaaaaa"],
         }],
-      });
-    }));
+      }),
+    ]));
 
-    const result = await createAgentLoopReflectionModel().propose(params, "system", "evidence", plan);
+    const result = await createCompletionReflectionModel({ complete, timeoutMs: 300_000 })
+      .propose(params, "system", "evidence", plan);
 
     expect(result).toEqual({
       ok: true,
@@ -56,88 +87,131 @@ describe("agent-loop reflection model", () => {
         }],
       },
     });
-    const [, context, config] = agentLoopMock.mock.calls[0];
-    expect(context.tools[0]).toMatchObject({
-      name: "submit_reflections",
-      constrainedSampling: { type: "json_schema", strict: "prefer" },
+    expect(complete).toHaveBeenCalledTimes(1);
+    const [receivedModel, context, options] = complete.mock.calls[0];
+    expect(receivedModel).toBe(model);
+    expect(context).toMatchObject<Partial<Context>>({
+      systemPrompt: "system",
+      messages: [{ role: "user", content: "evidence" }],
+      tools: [{
+        name: "submit_reflections",
+        constrainedSampling: { type: "json_schema", strict: "prefer" },
+      }],
     });
-    expect(config).toMatchObject({
-      reasoning: "medium",
+    expect(options).toMatchObject({
+      reasoningEffort: "high",
       maxTokens: plan.maxOutputTokens,
-      toolExecution: "sequential",
+      maxRetries: 0,
+      timeoutMs: 300_000,
+      cacheRetention: "long",
+      sessionId: "session-reflector",
+      toolChoice: {
+        type: "function",
+        function: { name: "submit_reflections" },
+      },
     });
+    expect(options.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("accepts an explicit empty submission as deliberate empty evidence", async () => {
-    agentLoopMock.mockImplementation((_prompts, context) => stream(async () => {
-      await context.tools[0].execute("call", { reflections: [] });
-    }));
+  it("accepts an explicit empty submission", async () => {
+    complete.mockResolvedValue(response([toolCall({ reflections: [] })]));
 
-    const result = await createAgentLoopReflectionModel().propose(params, "system", "evidence", plan);
+    const result = await createCompletionReflectionModel({ complete })
+      .propose(params, "system", "evidence", plan);
 
     expect(result).toEqual({ ok: true, proposal: { reflections: [] } });
   });
 
-  it("fails when the model stops without calling the submission tool", async () => {
-    agentLoopMock.mockReturnValue(stream());
+  it("classifies a response without the required tool call", async () => {
+    complete.mockResolvedValue(response([{ type: "text", text: "prose only" }], "stop"));
 
-    const result = await createAgentLoopReflectionModel().propose(params, "system", "evidence", plan);
+    const result = await createCompletionReflectionModel({ complete })
+      .propose(params, "system", "evidence", plan);
 
     expect(result).toEqual({ ok: false, reason: "missing-tool-call" });
   });
 
-  it("allows a valid corrective submission after a length-limited first turn", async () => {
-    agentLoopMock.mockImplementation((_prompts, context) => stream(async () => {
-      await context.tools[0].execute("corrected", { reflections: [] });
-    }, [{
-      type: "turn_end",
-      message: { role: "assistant", stopReason: "length", content: [] },
-      toolResults: [],
-    }]));
+  it("rejects malformed tool arguments", async () => {
+    complete.mockResolvedValue(response([toolCall({ reflections: [{ content: "missing provenance" }] })]));
 
-    const result = await createAgentLoopReflectionModel().propose(params, "system", "evidence", plan);
+    const result = await createCompletionReflectionModel({ complete })
+      .propose(params, "system", "evidence", plan);
 
-    expect(result).toEqual({ ok: true, proposal: { reflections: [] } });
+    expect(result).toEqual({ ok: false, reason: "invalid-output" });
   });
 
-  it("classifies a final length termination without correction as truncation", async () => {
-    agentLoopMock.mockReturnValue(stream(undefined, [{
-      type: "turn_end",
-      message: { role: "assistant", stopReason: "length", content: [] },
-      toolResults: [],
-    }]));
+  it("rejects extra or multiple tool calls", async () => {
+    complete.mockResolvedValue(response([
+      toolCall({ reflections: [] }),
+      { ...toolCall({}), id: "call-2", name: "unexpected_tool" },
+    ]));
 
-    const result = await createAgentLoopReflectionModel().propose(params, "system", "evidence", plan);
+    const result = await createCompletionReflectionModel({ complete })
+      .propose(params, "system", "evidence", plan);
+
+    expect(result).toEqual({ ok: false, reason: "invalid-output" });
+  });
+
+  it("classifies length termination before parsing output", async () => {
+    complete.mockResolvedValue(response([], "length"));
+
+    const result = await createCompletionReflectionModel({ complete })
+      .propose(params, "system", "evidence", plan);
 
     expect(result).toEqual({ ok: false, reason: "truncated-output" });
   });
 
-  it("stops after two unsuccessful assistant turns even for unknown tools", async () => {
-    let config: any;
-    agentLoopMock.mockImplementation((_prompts, _context, receivedConfig) => {
-      config = receivedConfig;
-      return stream(undefined, [
-        { type: "tool_execution_start", toolCallId: "a", toolName: "unknown", args: {} },
-        { type: "turn_end", message: { role: "assistant", stopReason: "toolUse", content: [] }, toolResults: [] },
-        { type: "tool_execution_start", toolCallId: "b", toolName: "unknown", args: {} },
-        { type: "turn_end", message: { role: "assistant", stopReason: "toolUse", content: [] }, toolResults: [] },
-      ]);
+  it("classifies caller cancellation separately from timeout", async () => {
+    const controller = new AbortController();
+    complete.mockImplementation(async (_model, _context, options) => {
+      controller.abort();
+      throw options.signal?.reason ?? new Error("aborted");
     });
 
-    const result = await createAgentLoopReflectionModel().propose(params, "system", "evidence", plan);
+    const result = await createCompletionReflectionModel({ complete })
+      .propose({ ...params, signal: controller.signal }, "system", "evidence", plan);
 
-    expect(result).toEqual({ ok: false, reason: "invalid-output" });
-    expect(config.shouldStopAfterTurn()).toBe(true);
+    expect(result).toEqual({ ok: false, reason: "aborted" });
   });
 
-  it("rejects multiple valid complete submissions", async () => {
-    agentLoopMock.mockImplementation((_prompts, context) => stream(async () => {
-      await context.tools[0].execute("first", { reflections: [] });
-      await expect(context.tools[0].execute("second", { reflections: [] })).rejects.toThrow("exactly once");
-    }));
+  it("propagates the deadline abort to the provider completion", async () => {
+    vi.useFakeTimers();
+    let providerSignal: AbortSignal | undefined;
+    complete.mockImplementation((_model, _context, options) => {
+      providerSignal = options.signal;
+      return new Promise((_resolve, reject) => {
+        options.signal?.addEventListener("abort", () => reject(options.signal?.reason), { once: true });
+      });
+    });
 
-    const result = await createAgentLoopReflectionModel().propose(params, "system", "evidence", plan);
+    const pending = createCompletionReflectionModel({ complete, timeoutMs: 1_000 })
+      .propose(params, "system", "evidence", plan);
+    await vi.advanceTimersByTimeAsync(1_000);
 
-    expect(result).toEqual({ ok: false, reason: "invalid-output" });
+    await expect(pending).resolves.toEqual({ ok: false, reason: "timeout" });
+    expect(providerSignal?.aborted).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("bounds a completion that never settles even when it ignores cancellation", async () => {
+    vi.useFakeTimers();
+    complete.mockImplementation(() => new Promise(() => {}));
+
+    const pending = createCompletionReflectionModel({ complete, timeoutMs: 1_000 })
+      .propose(params, "system", "evidence", plan);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toEqual({ ok: false, reason: "timeout" });
+    vi.useRealTimers();
+  });
+
+  it("fails closed before dispatch for unsupported provider APIs", async () => {
+    const unsupportedModel = { ...model, api: "anthropic-messages" } as Model<Api>;
+
+    const result = await createCompletionReflectionModel({ complete })
+      .propose({ ...params, model: unsupportedModel }, "system", "evidence", plan);
+
+    expect(result).toEqual({ ok: false, reason: "unsupported-api" });
+    expect(complete).not.toHaveBeenCalled();
   });
 });

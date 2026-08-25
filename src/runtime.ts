@@ -1,4 +1,5 @@
 // Runtime: holds config, in-flight state, and model resolution
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ResolveResult, UnifiedConfig } from "./types.js";
 import { loadConfig } from "./config.js";
 import { CacheTelemetry } from "./cache-telemetry.js";
@@ -85,10 +86,10 @@ export class Runtime {
   }
 
   async resolveModel(ctx: {
-    model: unknown;
+    model: Model<Api>;
     modelRegistry: {
-      find: (provider: string, id: string) => unknown | undefined;
-      getApiKeyAndHeaders: (model: unknown) => Promise<{ ok: boolean; apiKey?: string; headers?: Record<string, string> }>;
+      find: (provider: string, id: string) => Model<Api> | undefined;
+      getApiKeyAndHeaders: (model: Model<Api>) => Promise<{ ok: boolean; apiKey?: string; headers?: Record<string, string> }>;
     };
   }): Promise<ResolveResult> {
     const overrideModel = this.config.hybrid.compactionModel;

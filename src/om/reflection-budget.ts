@@ -1,12 +1,16 @@
 import type { MemoryReflection, ObservationRecord } from "../types.js";
 import { estimateStringTokens } from "./tokens.js";
 
-const reflectionContent = (reflection: MemoryReflection): string =>
-  typeof reflection === "string" ? reflection : reflection.content;
+const renderedReflection = (reflection: MemoryReflection): string =>
+  typeof reflection === "string"
+    ? `- ${reflection}`
+    : `- [${reflection.id}] ${reflection.content}`;
 
 const CHARS_PER_TOKEN = 4;
 const FIXED_OUTPUT_OVERHEAD_TOKENS = 256;
 const CONTEXT_SAFETY_TOKENS = 2_048;
+const MAX_REASONING_RESERVE_TOKENS = 16_384;
+const REFLECTION_SUMMARY_BUDGET_RATIO = 0.5;
 export const MAX_REFLECTION_CONTENT_CHARS = 2_048;
 
 export interface ReflectionModelCapacity {
@@ -19,6 +23,8 @@ export interface ReflectionRequestPlan {
   maxReflections: number;
   maxReflectionContentChars: number;
   estimatedInputTokens: number;
+  reasoningReserveTokens: number;
+  estimatedWorstCaseContractTokens: number;
   estimatedWorstCaseOutputTokens: number;
 }
 
@@ -52,27 +58,39 @@ export const planReflectionRequest = (
 
   const modelMaxTokens = positiveInteger(input.model.maxTokens) ?? 4_096;
   const contextWindow = positiveInteger(input.model.contextWindow) ?? 128_000;
+  const reflectionSummaryBudgetTokens = Math.floor(
+    input.targetSummaryTokens * REFLECTION_SUMMARY_BUDGET_RATIO,
+  );
   const existingReflectionTokens = input.existingReflections.reduce(
-    (sum, reflection) => sum + estimateStringTokens(reflectionContent(reflection)),
+    (sum, reflection) => sum + estimateStringTokens(renderedReflection(reflection)),
     0,
   );
-  const availableSummaryTokens = Math.floor(input.targetSummaryTokens - existingReflectionTokens);
+  const availableSummaryTokens = reflectionSummaryBudgetTokens - existingReflectionTokens;
   if (availableSummaryTokens <= FIXED_OUTPUT_OVERHEAD_TOKENS) {
     return { ok: false, reason: "infeasible-request" };
   }
 
   const estimatedInputTokens = estimateStringTokens(`${input.systemPrompt}\n${input.userPrompt}`);
   const contextOutputHeadroom = contextWindow - estimatedInputTokens - CONTEXT_SAFETY_TOKENS;
-  const outputCapacity = Math.min(modelMaxTokens, availableSummaryTokens, contextOutputHeadroom);
+  const reasoningReserveTokens = Math.min(
+    MAX_REASONING_RESERVE_TOKENS,
+    Math.floor(modelMaxTokens / 2),
+  );
+  const contractCapacity = Math.min(
+    availableSummaryTokens,
+    modelMaxTokens - reasoningReserveTokens,
+    contextOutputHeadroom - reasoningReserveTokens,
+  );
   const perReflectionWorstCaseTokens = Math.ceil(MAX_REFLECTION_CONTENT_CHARS / CHARS_PER_TOKEN) + 64;
   const maxReflections = Math.min(
     input.observations.length,
-    Math.floor((outputCapacity - FIXED_OUTPUT_OVERHEAD_TOKENS) / perReflectionWorstCaseTokens),
+    Math.floor((contractCapacity - FIXED_OUTPUT_OVERHEAD_TOKENS) / perReflectionWorstCaseTokens),
   );
   if (maxReflections < 1) return { ok: false, reason: "infeasible-request" };
 
-  const estimatedWorstCaseOutputTokens =
+  const estimatedWorstCaseContractTokens =
     FIXED_OUTPUT_OVERHEAD_TOKENS + maxReflections * perReflectionWorstCaseTokens;
+  const estimatedWorstCaseOutputTokens = estimatedWorstCaseContractTokens + reasoningReserveTokens;
   const maxOutputTokens = estimatedWorstCaseOutputTokens;
 
   return {
@@ -82,6 +100,8 @@ export const planReflectionRequest = (
       maxReflections,
       maxReflectionContentChars: MAX_REFLECTION_CONTENT_CHARS,
       estimatedInputTokens,
+      reasoningReserveTokens,
+      estimatedWorstCaseContractTokens,
       estimatedWorstCaseOutputTokens,
     },
   };

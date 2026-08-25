@@ -14,7 +14,9 @@ export type MemoryLifecycleOutcome =
   | "invalid-provenance"
   | "truncated-output"
   | "missing-tool-call"
+  | "unsupported-api"
   | "infeasible-request"
+  | "timeout"
   | "error"
   | "aborted";
 

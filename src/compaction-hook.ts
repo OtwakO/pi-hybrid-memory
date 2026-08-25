@@ -22,6 +22,7 @@ import {
   observerEpochTokenLimit,
 } from "./om/observer-context.js";
 import { foldMemory } from "./om/memory-fold.js";
+import { createCompletionReflectionModel } from "./om/reflection-model.js";
 import { normalize } from "./vcc/normalizer.js";
 import { extractGoals, extractFiles, extractCommits, extractPreferences, extractOutstandingContext, formatCommits } from "./vcc/extractor.js";
 import { buildBriefSections, stringifyBrief, capBrief } from "./vcc/transcript.js";
@@ -322,11 +323,12 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       if (observationTokens >= runtime.config.hybrid.reflectionThresholdTokens && ctx.hasUI) {
         ctx.ui.notify("Hybrid memory: running reflector (observation retirement disabled for safety)...", "info");
       }
+      const reflectionModel = createCompletionReflectionModel({
+        complete: (model, context, options) => ctx.modelRegistry.complete(model, context, options),
+      });
       const fold = await foldMemory({
         params: {
-          model: resolved.model as any,
-          apiKey: resolved.apiKey,
-          headers: resolved.headers,
+          model: resolved.model,
           signal,
           telemetry: runtime.cacheTelemetry,
           cacheOptions: runtime.piSessionId
@@ -337,6 +339,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         observations: workingObservations,
         reflectionThresholdTokens: runtime.config.hybrid.reflectionThresholdTokens,
         targetSummaryTokens: runtime.config.hybrid.maxSummaryTokens,
+        modelPort: reflectionModel,
       });
       const finalReflections = fold.reflections;
       const finalObservations = fold.observations;

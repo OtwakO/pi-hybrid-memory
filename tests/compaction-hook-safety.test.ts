@@ -128,9 +128,11 @@ const setup = (entries: Entry[]) => {
   registerCompactionHook(pi as never, runtime);
 
   let sessionId = "session-a";
+  const complete = vi.fn();
   const ctx = {
     cwd: "/project",
     hasUI: false,
+    modelRegistry: { complete },
     sessionManager: {
       getSessionId: () => sessionId,
       getLeafId: () => leafId,
@@ -150,6 +152,7 @@ const setup = (entries: Entry[]) => {
 
   return {
     appendEntry,
+    complete,
     event,
     getHandler: () => {
       if (!handler) throw new Error("compaction hook was not registered");
@@ -243,6 +246,51 @@ describe("compaction catch-up safety integration", () => {
 
     expect(result).toHaveProperty("compaction");
     expect(fixture.appendEntry).toHaveBeenCalledOnce();
+  });
+
+  it("supplies memory folding with a current ModelRegistry completion adapter", async () => {
+    const fixture = setup(branch());
+    fixture.runtime.config.hybrid.reflectionThresholdTokens = 0;
+    runObserverMock.mockImplementation(async (params: any) => ({
+      ok: true,
+      records: [],
+      transcriptSuffix: [...params.prompts, assistant("examined")],
+    }));
+    foldMemoryMock.mockImplementationOnce(async (input: any) => {
+      await input.modelPort.propose(input.params, "system", "evidence", {
+        maxOutputTokens: 4_096,
+        maxReflections: 4,
+        maxReflectionContentChars: 2_048,
+        estimatedInputTokens: 100,
+        reasoningReserveTokens: 1_000,
+        estimatedWorstCaseContractTokens: 1_000,
+        estimatedWorstCaseOutputTokens: 2_000,
+      });
+      return {
+        ok: false,
+        stage: "reflection",
+        reason: "missing-tool-call",
+        reflections: input.reflections,
+        observations: input.observations,
+        retiredObservationIds: [],
+      };
+    });
+    fixture.complete.mockResolvedValue(assistant("no tool call"));
+
+    await fixture.getHandler()(fixture.event, fixture.ctx);
+
+    expect(fixture.complete).toHaveBeenCalledOnce();
+    const [, context, options] = fixture.complete.mock.calls[0];
+    expect(context.tools[0].name).toBe("submit_reflections");
+    expect(options).toMatchObject({
+      reasoningEffort: "high",
+      maxRetries: 0,
+      timeoutMs: 300_000,
+      toolChoice: {
+        type: "function",
+        function: { name: "submit_reflections" },
+      },
+    });
   });
 
   it("cancels if the active branch changes while memory folding is in progress", async () => {

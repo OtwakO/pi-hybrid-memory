@@ -1,4 +1,6 @@
 // Unified type definitions for pi-hybrid-memory — reconciles both pi-vcc and pi-observational-memory types
+import type { Api, Model } from "@earendil-works/pi-ai";
+
 // ── VCC types ──
 
 export type NormalizedBlock =
@@ -124,5 +126,5 @@ export interface UnifiedConfig {
 // ── Runtime ──
 
 export type ResolveResult =
-  | { ok: true; model: unknown; apiKey: string; headers?: Record<string, string> }
+  | { ok: true; model: Model<Api>; apiKey: string; headers?: Record<string, string> }
   | { ok: false; reason: string };

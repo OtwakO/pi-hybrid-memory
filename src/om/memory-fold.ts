@@ -6,7 +6,6 @@ import {
   type ReflectionModelCapacity,
 } from "./reflection-budget.js";
 import {
-  createAgentLoopReflectionModel,
   type ReflectionModelFailureReason,
   type ReflectionModelParams,
   type ReflectionModelPort,
@@ -42,7 +41,7 @@ interface MemoryFoldInput {
   observations: ObservationRecord[];
   reflectionThresholdTokens: number;
   targetSummaryTokens: number;
-  modelPort?: ReflectionModelPort;
+  modelPort: ReflectionModelPort;
 }
 
 const recordFailure = (
@@ -79,8 +78,8 @@ const failedFold = (
 /**
  * Produce a validated memory fold while keeping retirement disabled.
  *
- * The fold owns provider orchestration, feasibility, semantic validation, and
- * telemetry. Callers receive either a complete validated result or the exact
+ * The fold owns feasibility, semantic validation, retention policy, and telemetry.
+ * Provider execution arrives through the required model port. Callers receive either a complete validated result or the exact
  * pre-fold memory set.
  */
 export const foldMemory = async (input: MemoryFoldInput): Promise<MemoryFoldResult> => {
@@ -120,7 +119,7 @@ export const foldMemory = async (input: MemoryFoldInput): Promise<MemoryFoldResu
     return failedFold(planResult.reason, reflections, observations);
   }
 
-  const modelResult = await (input.modelPort ?? createAgentLoopReflectionModel()).propose(
+  const modelResult = await input.modelPort.propose(
     input.params,
     systemPrompt,
     userPrompt,
