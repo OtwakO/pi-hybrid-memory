@@ -184,3 +184,10 @@
 - **Reason**: Prevent silent configuration loss and untrusted repositories from changing provider cost or memory thresholds while keeping startup usable when one field is bad.
 - **Verified**: Focused tests cover scaffolding, sparse merge, unknown-field preservation, trusted/untrusted project overrides, malformed and unreadable input, field-local fallback, and malformed project config. TypeScript and structural diagnostics are clean.
 - **Watch out**: Runtime config is still loaded once per extension instance. Reload or session replacement is required after editing the file; lifecycle-state redesign belongs to the later observer milestone.
+
+### [2026-08-26] Aligned memory token accounting with Pi
+- **Context**: The inherited word-count estimator could classify a 100,000-character unbroken source as roughly two tokens, allowing minified code, JSON, paths, stack traces, base64, and CJK text to bypass observer chunk and capacity limits.
+- **Change**: Real Pi messages now use Pi's exported `estimateTokens()` function; extension strings and custom entry bodies use the same conservative `ceil(chars / 4)` rule. Added regressions for 100,000 unbroken characters, CJK, and resumable segmentation of whitespace-poor oversized sources.
+- **Reason**: Keep observer thresholds, source segmentation, epoch capacity, reflection feasibility, summary budgeting, and telemetry aligned with the host and fail safely under pathological text shapes.
+- **Verified**: 188/188 tests pass; TypeScript and whitespace checks pass; structural analysis reports no dead code, unused exports, cycles, or duplicates.
+- **Watch out**: Code-heavy or whitespace-poor sessions may reach thresholds earlier than before. Existing persisted tokenCount metadata remains readable but reflects the estimator used when it was written; new work uses the conservative estimator.

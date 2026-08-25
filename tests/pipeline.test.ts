@@ -353,9 +353,10 @@ describe("mergeVccSummaries", () => {
 // ── OM Tokens ──
 
 describe("estimateStringTokens", () => {
-  it("estimates tokens for a simple string", () => {
-    const tokens = estimateStringTokens("hello world");
-    expect(tokens).toBeGreaterThan(0);
+  it("uses Pi's conservative characters-per-token estimate", () => {
+    expect(estimateStringTokens("hello world")).toBe(3);
+    expect(estimateStringTokens("a".repeat(100_000))).toBe(25_000);
+    expect(estimateStringTokens("你好世界".repeat(1_000))).toBe(1_000);
   });
 
   it("returns 0 for empty string", () => {
@@ -478,10 +479,10 @@ describe("mergePipelines", () => {
       observations,
       reflections: [],
       vccSummary: "[Session Goal]\n- Keep original goal",
-      settings: { maxSummaryTokens: 90 },
+      settings: { maxSummaryTokens: 100 },
     });
 
-    expect(result.tokenCount).toBeLessThanOrEqual(90);
+    expect(result.tokenCount).toBeLessThanOrEqual(100);
     expect(result.details.observations).toEqual(observations);
     expect(result.summary).not.toContain("low-old");
     expect(result.summary).not.toContain("medium-old");

@@ -136,7 +136,7 @@ Scope:
 
 Done when regressions cover missing-file scaffolding, malformed JSON preservation, unreadable-file fallback, invalid fields, trusted overrides, and ignored untrusted overrides.
 
-### Milestone C — Conservative token accounting — Next
+### Milestone C — Conservative token accounting — Completed
 
 Scope:
 
@@ -155,7 +155,7 @@ Required cases:
 
 Done when no configured source budget can be bypassed through whitespace-poor input and old persistence remains readable.
 
-### Milestone D — Observer lifecycle safety
+### Milestone D — Observer lifecycle safety — Next
 
 Scope:
 

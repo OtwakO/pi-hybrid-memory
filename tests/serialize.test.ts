@@ -16,7 +16,7 @@ describe("bounded observer source serialization", () => {
       entry("00000001", "alpha ".repeat(100)),
       entry("00000002", "beta ".repeat(100)),
       entry("00000003", "gamma ".repeat(100)),
-    ], 150);
+    ], 170);
 
     expect(result.sourceEntryIds).toEqual(["00000001"]);
     expect(result.coversUpToId).toBe("00000001");
@@ -35,6 +35,24 @@ describe("bounded observer source serialization", () => {
     expect(result.coversUpToId).toBe("00000002");
     expect(result.hasMore).toBe(false);
     expect(result.truncatedSourceEntryId).toBeUndefined();
+  });
+
+  it("segments whitespace-poor sources instead of underestimating them", () => {
+    const result = serializeSourceAddressedBranchEntries([
+      entry("00000001", "x".repeat(20_000)),
+      entry("00000002", "later"),
+    ], 1_000);
+
+    expect(result.sourceEntryIds).toEqual(["00000001"]);
+    expect(result.coversUpToId).toBeUndefined();
+    expect(result.completedSourceEntryIds).toEqual([]);
+    expect(result.sourceProgress).toMatchObject({
+      sourceEntryId: "00000001",
+      nextOffset: expect.any(Number),
+      totalLength: expect.any(Number),
+    });
+    expect(result.sourceProgress?.nextOffset).toBeLessThan(result.sourceProgress?.totalLength ?? 0);
+    expect(result.hasMore).toBe(true);
   });
 
   it("uses a contiguous resumable segment when the oldest entry alone exceeds the cap", () => {

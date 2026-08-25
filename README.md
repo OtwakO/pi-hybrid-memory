@@ -84,7 +84,7 @@ Configuration is validated field by field. Invalid known fields fall back to the
 |---|---|---|
 | `overrideDefaultCompaction` | `true` | Set to `false` to let Pi's default compaction run instead |
 | `debug` | `false` | Enable debug logging |
-| `observationThresholdTokens` | 1000 | New tokens of raw conversation before the observer runs |
+| `observationThresholdTokens` | 1000 | New estimated tokens of raw conversation before the observer runs |
 | `observerChunkMaxTokens` | 60000 | Maximum serialized source tokens per observer call; large backlogs are processed oldest-first and oversized single entries resume through contiguous durable segments without marking omitted content covered |
 | `observerEpochMaxTokens` | 96000 | Maximum estimated size of the observer's temporary reusable context before it is safely rebuilt from durable memory; the effective cap is the lower of this value and 40% of the observer model's context window |
 | `compactionThresholdTokens` | 50000 | Auto-compact after a completed agent run when current context exceeds this many tokens |
@@ -97,6 +97,8 @@ Configuration is validated field by field. Invalid known fields fall back to the
 | `maxSummaryTokens` | 16000 | Growth ceiling for the merged summary; stale transcript and lower-priority units trim first, while protected durable memory may exceed it rather than be silently dropped |
 
 Automatic threshold checks run only after the full agent run settles, not between tool calls. Invalid percentage values fall back to the lower-precedence configured value (the default is 80); set the field explicitly to `null` to use the token threshold instead.
+
+Extension token estimates follow Pi's conservative compaction accounting: real Pi messages use Pi's exported estimator and extension-generated text uses approximately four characters per token. This intentionally treats minified code, JSON, long paths, stack traces, CJK, and unbroken tool output more safely than whitespace-based word counting, so these inputs may reach observation, segmentation, reflection, or summary thresholds earlier than in older versions.
 
 The extension does not read hybrid-memory configuration from Pi's `settings.json`; `pi-hybrid-memory-config.json` is the only configuration surface.
 
