@@ -129,3 +129,9 @@
 - **Change**: Added `docs/COMPACTION_QUALITY_ROADMAP_2026-08-25.md`, pausing cache-prefix experiments until constrained fold output, explicit safe retirement, durable recallable evidence, and main-context effectiveness are designed and verified.
 - **Reason**: The current keep-list pruner can over-delete on a parseable incomplete result, reflection citation does not prove full absorption, and summary budgeting currently couples model-visible projection to durable memory retention.
 - **Watch out**: Do not approve observation retirement or a new details schema without the roadmap's explicit decision gate. Until the immediate safety patch lands, avoid reflection-eligible manual compaction on valuable sessions.
+
+### [2026-08-25] Verified fold-roadmap findings before implementation
+- **Context**: The quality-first roadmap was challenged against repository HEAD, the active Pi 0.84.3 host contracts, and the captured NovelReader session before any fold-policy implementation.
+- **Change**: Added a verdict table separating confirmed defects/gaps from unproven hypotheses and ordered Q0 by immediate memory-loss risk. Corrected the recall claim: the inspected 659 observations remain recoverable from custom entries, while compaction-only evidence and reflection-support traversal remain compatibility gaps.
+- **Reason**: Ensure implementation work addresses reproduced or source-proven problems without turning hypotheses into mandatory architecture.
+- **Verified**: Source traces confirm destructive keep-list/fallback behavior, unsupported reflection IDs, missing final fold fence, summary-budget state coupling, and split Pi/custom-entry persistence boundaries; active host docs confirm compaction acknowledgment and constrained-tool capabilities.

@@ -112,9 +112,9 @@ forget it from current durable memory state
 
 For high-quality long-session memory, durable evidence and model-visible projection need separate concepts. A smaller main summary should not require deleting recoverable evidence.
 
-### 4.8 Recall cannot currently recover pruned reflection evidence reliably
+### 4.8 Recall has a confirmed compatibility gap for compaction-only evidence
 
-`hm_recall` finds observations in custom observation entries, but observations originating in historical compaction details may not be available from the current branch after later compactions. Reflection recall shows reflection text but does not resolve its supporting observations or source entries. Any design that retires observations from the active set must preserve recallable evidence intentionally.
+The inspected NovelReader compaction did not reproduce observation loss: all 659 observations in its details also existed in custom observation entries and were therefore discoverable by `hm_recall`. However, `hm_recall` indexes observations only from custom observation entries, while `getMemoryState()` can load committed observations from compaction details. Bootstrap or future compaction-only evidence is therefore not guaranteed discoverable. Reflection recall also shows reflection text without traversing supporting observations or source entries. Any retirement design must define carry-forward and recall scope intentionally.
 
 ### 4.9 Relevance calibration is already polluted
 
@@ -134,7 +134,35 @@ Current telemetry measures extension LLM calls but not the main-context outcome:
 
 Without these, cache percentage can be mistaken for efficiency and summary growth can go unnoticed.
 
-## 5. Chosen module design
+## 5. Verification audit of identified issues
+
+The following findings were rechecked against repository HEAD, the active Pi 0.84.3 documentation/types, and the captured NovelReader session before implementation was approved.
+
+| Finding | Verdict | Direct evidence | Implementation order |
+|---|---|---|---|
+| Reflector/pruner outputs are free-form and schemas are not enforced | **Confirmed defect** | `callModel()` invokes `completeSimple()` without tools, constrained sampling, `maxTokens`, or reasoning policy; JSON is recovered heuristically | Q1, after Q0 safety |
+| `stopReason: "length"` is treated as success | **Confirmed defect** | `callModel()` maps only `error` and `aborted` away from success | Q0 |
+| Empty or incomplete pruner keep-list can delete observations | **Confirmed critical defect** | `keepSet` is built from any string array and all omitted observations are removed; `[]` yields an empty set | Q0: disable current deletion path |
+| Keep-all fallback can still delete low/medium observations | **Confirmed critical defect** | `kept.length >= observations.length` enters local destructive fallback at `runPruner()` | Q0: disable fallback |
+| Reflection citation proves full absorption | **False assumption / confirmed model gap** | `supportingObservationIds` records evidence support only; no preservation/absorption field exists | Q2/Q3 schema and retirement decision |
+| Pruner runs after reflector failure | **Confirmed defect** | `runReflector()` returns the old array on failure and caller unconditionally invokes `runPruner()` | Q0 |
+| Reflector accepts unsupported provenance IDs | **Confirmed defect** | It filters strings but never checks IDs against the active observation set; a non-empty unknown-only list can be persisted | Q0 validation, then Q1 module |
+| Reflector failure/success is not explicit to caller | **Confirmed design defect** | `runReflector()` returns only an array, so unchanged fallback, deliberate empty, and successful no-new-reflection states are ambiguous | Q0/Q1 typed result |
+| Branch/session fence is absent after long fold calls | **Confirmed correctness gap** | Fence is checked before catch-up append, but not after reflector/pruner and immediately before returning compaction content | Q0 |
+| Summary budgeting mutates durable carried-forward observation state | **Confirmed correctness gap** | `applySummaryBudget()` removes observations and `mergePipelines()` stores `budgeted.observations` in `MemoryDetailsV4` | Q0 conservative stopgap; Q4 final projection design |
+| Separate custom entry and Pi compaction write can be atomic | **False assumption / confirmed transaction gap** | `pi.appendEntry()` writes immediately; hook only returns proposed compaction and Pi persists it later, acknowledged through `session_compact`/`session_compact_failed` | Q2 transaction decision |
+| Reflections can accumulate indefinitely and conflict after supersession | **Confirmed architectural gap** | Existing reflections are always copied forward; summary budget never trims them; no supersession/current projection field exists | Q4 decision gate |
+| A second LLM pruner is necessary | **Unproven hypothesis, not a defect** | Current two-call design exists, but no comparison against deterministic or combined-call retirement | Q3 compare designs before approval |
+| Current inspected compaction observations are unrecoverable through `hm_recall` | **Not reproduced in inspected session** | All 659 details observations also existed in custom observation entries | Do not claim current loss |
+| Compaction-only/bootstrap observations and reflection support are always recallable | **Confirmed compatibility gap** | `hm_recall` indexes observations only from custom entries, reflections only from compaction details, and does not traverse reflection support | Q2 recall scope/carry-forward decision |
+| Existing relevance labels are reliable retirement authority | **False assumption confirmed by data** | All 659 observations in compaction `80c05f5e` were `critical` | Q5; never sole authority |
+| Fold output always fits one call/correction loop | **Unproven assumption / confirmed feasibility gap** | No current output limit or worst-case contract sizing; active host exposes model limits and `length` | Q1 prerequisite |
+| Main-request post-compaction cache usage is fully observable | **Unproven host capability** | Current extension telemetry excludes main requests; docs prove context estimates but not the full desired provider metrics | Q8 capability spike |
+| Current telemetry measures end-to-end compaction effectiveness | **Confirmed gap** | It measures extension LLM calls, not section sizes, retained tail, or first post-compaction main context | Q4/Q8 |
+
+Only confirmed defects and correctness gaps are mandatory implementation work. Unproven hypotheses remain decision gates or measurement spikes.
+
+## 6. Chosen module design
 
 Introduce one deep fold module behind a small interface. The compaction hook should not orchestrate reflector parsing, preservation rules, pruning validation, retry logic, and telemetry itself.
 
@@ -183,7 +211,7 @@ The provider is a true external dependency. The fold module owns a small interna
 
 Do not expose provider-specific request options through the fold module's public interface.
 
-## 6. Fold protocol
+## 7. Fold protocol
 
 ### Stage 1 — Canonical evidence preparation
 
@@ -275,9 +303,9 @@ A separate retired-evidence custom entry is not approved unless idempotency, dup
 
 Reflection success followed by retirement failure must not partially change durable state in the first implementation. Conservative result: fail the fold and retain the pre-fold memory set. A later milestone may approve keeping validated new reflections while retaining all observations, but only with explicit persistence and idempotency semantics.
 
-## 7. Output and reasoning policy
+## 8. Output and reasoning policy
 
-### 7.1 Quality-first reasoning
+### 8.1 Quality-first reasoning
 
 Do not default all cheaper models to minimal reasoning. Initial policy:
 
@@ -286,7 +314,7 @@ Do not default all cheaper models to minimal reasoning. Initial policy:
 - Measure provider-reported reasoning tokens when available.
 - Change reasoning only after differential quality evaluation.
 
-### 7.2 Bound valid output, not analysis quality
+### 8.2 Bound valid output, not analysis quality
 
 Tool output should be sized from the maximum valid serialized result, not from arbitrary small constants.
 
@@ -296,14 +324,14 @@ Tool output should be sized from the maximum valid serialized result, not from a
 - `stopReason: "length"` is an explicit `truncated-output` failure.
 - Tool-result continuation text must be short and deterministic.
 
-### 7.3 Retry policy
+### 8.3 Retry policy
 
 - Allow one correction within the same agent/tool loop for locally rejected arguments.
 - Do not automatically launch a second fresh provider request in the first implementation.
 - Provider errors, aborts, and truncation fail closed and remain user-visible through telemetry.
 - A future retry may be added only with idempotency, bounded total tokens, and clear operator visibility.
 
-## 8. Durable evidence and projection decision gate
+## 9. Durable evidence and projection decision gate
 
 A high-quality solution likely needs an additive distinction:
 
@@ -337,7 +365,7 @@ Open decisions requiring discussion before implementation:
 
 Until this decision is approved, no new observation-deletion policy should ship.
 
-## 9. Main-context projection and summary budgeting
+## 10. Main-context projection and summary budgeting
 
 After a safe active/retired distinction exists:
 
@@ -358,7 +386,7 @@ Budget diagnostics must report token contribution from:
 
 The summary projection must be deterministic: stable ordering, whitespace, headings, and no volatile display-only data.
 
-## 10. Compaction effectiveness telemetry
+## 11. Compaction effectiveness telemetry
 
 Add a separate session-local compaction outcome aggregate, distinct from extension-call cache telemetry.
 
@@ -398,20 +426,24 @@ After compaction:
 
 This telemetry remains content-free and session-local unless persistence is separately approved.
 
-## 11. Progressive implementation milestones
+## 12. Progressive implementation milestones
 
 ### Q0 — Immediate safety patch
 
-- Push the already-installed observer provenance fix.
-- Add explicit fold outcomes including `truncated-output`, `missing-tool-call`, `invalid-schema`, and `unsafe-retirement`.
-- Do not run retirement/pruning after reflector failure or deliberate-empty-with-no-new-coverage.
-- Disable all observation deletion from the current omission-sensitive keep-list pruner, including its local low/medium fallback. Until the approved retirement contract exists, every qualifying compaction retains the complete pre-prune observation set.
-- Classify `stopReason: "length"` as truncation rather than provider success.
-- Add focused regression tests proving empty, incomplete, unknown-ID, duplicate-ID, and keep-all outputs cannot delete observations.
+Implement confirmed critical defects in this order:
+
+1. Disable all observation deletion from the current omission-sensitive keep-list pruner, including its local low/medium fallback. Until the approved retirement contract exists, every qualifying compaction retains the complete pre-prune observation set.
+2. Add final session/branch fence validation immediately before returning compaction content so navigation during reflector/pruner work cannot apply stale results.
+3. Do not run retirement/pruning after reflector failure or deliberate-empty-with-no-new-coverage.
+4. Make reflector outcome explicit to the caller and validate every supporting observation ID against the active pool.
+5. Classify `stopReason: "length"` as truncation rather than provider success.
+6. Add explicit fold outcomes including `truncated-output`, `missing-tool-call`, `invalid-schema`, and `unsafe-retirement`.
+7. Prevent summary-budget trimming from silently deleting the only carried-forward observation representation. The Q0 stopgap is conservative: if budgeting would remove observations before Q2/Q4 define durable retired evidence, preserve those observations in details and report that projection/durable state remain intentionally decoupled only where fully tested.
+8. Add focused regression tests for all paths above, including empty/incomplete/unknown/duplicate/keep-all pruner outputs, branch change during fold, unsupported reflection IDs, and `length` stop reason.
 
 **Risk:** high correctness, small code surface
 **Rollback:** revert to retaining all observations
-**Done when:** no valid-looking model output can silently delete uncited observations.
+**Done when:** no valid-looking model output, summary-budget trim, or stale branch result can silently delete or misapply observations.
 
 ### Q1 — Deep fold module and constrained reflection tool
 
@@ -537,7 +569,7 @@ The unified cache-continuous fold remains optional and requires a separate appro
 - Verify constrained tools, stop reasons, reasoning options, cache routing, build externals, and package metadata.
 - Do not mix this with memory-policy changes.
 
-## 12. Test matrix
+## 13. Test matrix
 
 ### Fold interface tests
 
@@ -585,7 +617,7 @@ The unified cache-continuous fold remains optional and requires a separate appro
 - `summary + retained tail` materially below `tokensBefore`,
 - deterministic rendering produces byte-identical output for identical state.
 
-## 13. Acceptance criteria
+## 14. Acceptance criteria
 
 The fold-quality roadmap is complete only when:
 
@@ -600,7 +632,7 @@ The fold-quality roadmap is complete only when:
 9. Compaction-model cost/cache improvements do not reduce memory quality.
 10. Focused tests, full typecheck, relevant suite, production build, installation hash, and documentation all pass.
 
-## 14. Risk register and wrong-assumption checks
+## 15. Risk register and wrong-assumption checks
 
 | Assumption or risk | Current judgment | Required check |
 |---|---|---|
@@ -621,7 +653,7 @@ The fold-quality roadmap is complete only when:
 | Historical source entries always remain on the current branch | False | Recall must report missing sources and retired evidence must not depend solely on raw-entry availability |
 | Pruner is necessary as a second LLM stage | Unproven | After explicit reflection coverage exists, compare model retirement with deterministic conservative retirement before retaining two stages |
 
-## 15. Pauses and decision gates
+## 16. Pauses and decision gates
 
 Pause and request discussion before:
 
