@@ -1,5 +1,5 @@
 // Serialization: converts branch entries to text for the observer — ported from pi-observational-memory
-import type { Message } from "@mariozechner/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 import type { Entry, SourceProgress } from "../types.js";
 export type { SourceProgress } from "../types.js";
 import { estimateStringTokens } from "./tokens.js";

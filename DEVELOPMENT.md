@@ -149,3 +149,10 @@
 - **Reason**: Keep complete evidence and memory quality while making completion, provenance, truncation, and capacity failure explicit and testable behind one fold interface.
 - **Verified**: Focused tests cover constrained tool options, missing tool calls, truncation, explicit empty output, infeasible requests, unsupported/duplicate provenance, strengthening, non-mutation, lifecycle telemetry, and hook integration.
 - **Watch out**: Observation retirement remains intentionally disabled. The current proposal cap bounds only new reflection output from model/summary capacity; it does not discard input evidence.
+
+### [2026-08-26] Migrated the development baseline to current Pi packages
+- **Context**: The active Pi runtime was `@earendil-works/*` 0.84.3, while the repository still compiled against legacy `@mariozechner/*` 0.66.1 aliases. This hid current interfaces behind compatibility casts and let tests validate contracts different from production.
+- **Change**: Source, tests, peer dependencies, dev dependencies, and build externals now use `@earendil-works/pi-coding-agent`, `pi-agent-core`, `pi-ai`, and `pi-tui` 0.84.3 directly. Current tool generics, terminating results, and `shouldStopAfterTurn` types replace legacy `any` shims. Existing low-level observer and reflector behavior is preserved through the current package's explicit `@earendil-works/pi-ai/compat` stream entry point.
+- **Reason**: Further fold architecture must be based on the same current contracts used by the installed host, not obsolete aliases. Keeping the compatibility stream imports explicit also identifies the exact seams to remove or reassess in later milestones.
+- **Verified**: TypeScript compiles cleanly against exact 0.84.3 packages, all 21 test files pass, and the Bun production bundle succeeds with only current Pi package externals.
+- **Watch out**: The reflection transport bug is intentionally not fixed in this migration. The next milestone should replace the reflector's low-level loop with `ctx.modelRegistry.complete()`; do not add another compatibility shim around it.

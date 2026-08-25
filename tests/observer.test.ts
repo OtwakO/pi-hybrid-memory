@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const agentLoopMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@mariozechner/pi-agent-core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@mariozechner/pi-agent-core")>();
+vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@earendil-works/pi-agent-core")>();
   return { ...actual, agentLoop: agentLoopMock };
 });
 

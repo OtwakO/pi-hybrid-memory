@@ -15,6 +15,8 @@ The two layers are merged into one summary via a priority-aware budget pipeline.
 
 ## Installation
 
+Requires Pi 0.84.3 or newer from the `@earendil-works` package ecosystem.
+
 ### Option 1: Local copy (quickest)
 
 ```bash

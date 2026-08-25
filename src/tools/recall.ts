@@ -1,8 +1,8 @@
 // HM-Recall tool: retrieves memory evidence by ID — ported from pi-observational-memory
 import { Type } from "typebox";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import { Text } from "@mariozechner/pi-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import { Text } from "@earendil-works/pi-tui";
 import type { Entry, ObservationRecord, ReflectionRecord, MemoryReflection } from "../types.js";
 import { OBSERVATION_CUSTOM_TYPE, MEMORY_ID_PATTERN } from "../types.js";
 import { estimateEntryTokens } from "../om/tokens.js";
@@ -230,8 +230,11 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
         description: "A 12-character lowercase alphanumeric observation/reflection id, or an 8-character lowercase hex Pi source-entry id shown in Sources.",
       }),
     }) as any,
-    renderCall(args: Record<string, unknown>) {
-      return new Text(`recall ${(args.id as string) ?? "..."}`, 0, 0);
+    renderCall(args) {
+      const id = args && typeof args === "object" && "id" in args
+        ? String(args.id)
+        : "...";
+      return new Text(`recall ${id}`, 0, 0);
     },
     renderResult(result, options) {
       const details = result.details as MatchDetails | undefined;

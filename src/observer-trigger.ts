@@ -1,5 +1,5 @@
 // Observer trigger: runs the OM observer at turn_end — ported from pi-observational-memory
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Entry, ObservationEntryData } from "./types.js";
 import { OBSERVATION_CUSTOM_TYPE } from "./types.js";
 import {

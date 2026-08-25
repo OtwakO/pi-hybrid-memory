@@ -1,7 +1,7 @@
 // Unified config loading from pi-hybrid-memory-config.json.
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionConfig, HybridSettings, UnifiedConfig } from "./types.js";
 
 const EXTENSION_CONFIG_FILENAME = "pi-hybrid-memory-config.json";
@@ -32,17 +32,7 @@ export const DEFAULT_CONFIG_FILE: ConfigFile = {
   ...DEFAULT_HYBRID_SETTINGS,
 };
 
-const globalExtensionConfigPath = (): string => join(getAgentDirSafe(), EXTENSION_CONFIG_FILENAME);
-
-function getAgentDirSafe(): string {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getAgentDir } = require("@mariozechner/pi-coding-agent");
-    return getAgentDir();
-  } catch {
-    return join(homedir(), ".pi", "agent");
-  }
-}
+const globalExtensionConfigPath = (): string => join(getAgentDir(), EXTENSION_CONFIG_FILENAME);
 
 function readJson(path: string): Record<string, unknown> | null {
   try {

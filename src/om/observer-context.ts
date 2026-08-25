@@ -1,4 +1,4 @@
-import type { Model } from "@mariozechner/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 import type { MemoryReflection, ObservationRecord } from "../types.js";
 import { reflectionContent } from "./compaction.js";
 import { observationsToPromptLines } from "./observer.js";

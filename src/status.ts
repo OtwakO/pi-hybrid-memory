@@ -1,5 +1,5 @@
 // Status command: shows hybrid memory status — combines OM and VCC metrics
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Entry } from "./types.js";
 import {
   getMemoryState,

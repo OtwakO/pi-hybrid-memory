@@ -1,5 +1,5 @@
-import type { Model, Usage } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { Model, Usage } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ObserverEpochManager } from "./om/observer-epoch.js";
 
 export type CacheOperation = "observer" | "reflector";

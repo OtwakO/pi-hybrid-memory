@@ -27,7 +27,7 @@ https://github.com/sting8k/pi-vcc
 5. Controlled growth — the merged summary may be larger than either extension alone, but long-session compaction must materially reduce the main-model context. Durable evidence and the model-visible projection must not remain coupled: evidence may stay recallable without forcing every retired detail into the normal summary. See `docs/COMPACTION_QUALITY_ROADMAP_2026-08-25.md` for the staged design and decision gates.
 6. `vcc_recall` lossless history recall must work unchanged — it reads raw JSONL and is hook-independent
 7. All extension-owned config lives in one flat `pi-hybrid-memory-config.json` with global defaults and optional sparse project overrides
-8. TypeScript throughout, same toolchain as the source repos
+8. TypeScript throughout, compiled and tested against the active `@earendil-works` Pi 0.84.3 ecosystem rather than legacy package aliases
 
 ---
 
@@ -73,6 +73,10 @@ pi-hybrid-memory/
 ---
 
 ## Pipeline Architecture
+
+### Pi Runtime Baseline
+
+The extension targets `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, and `@earendil-works/pi-tui` 0.84.3. Source, tests, peer dependencies, and the production build use the current namespace directly. The observer and the pre-redesign reflector still use the current package's explicit `@earendil-works/pi-ai/compat` stream seam for their existing low-level agent loops; the reflector will move to the supported `ctx.modelRegistry.complete()` interface in the next isolated milestone.
 
 ### Compaction Flow (Single Hook)
 

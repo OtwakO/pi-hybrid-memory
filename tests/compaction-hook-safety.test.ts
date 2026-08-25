@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Message } from "@mariozechner/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 
 const runObserverMock = vi.hoisted(() => vi.fn());
 const foldMemoryMock = vi.hoisted(() => vi.fn());

@@ -1,7 +1,8 @@
 // OM Observer: LLM-based observation extraction using agentLoop + tool calling
 // Matches pi-observational-memory's design — no JSON parsing, structured via tool schema
-import { agentLoop, type AgentContext, type AgentLoopConfig, type AgentTool } from "@mariozechner/pi-agent-core";
-import type { Message, Model, Usage } from "@mariozechner/pi-ai";
+import { agentLoop, type AgentContext, type AgentLoopConfig, type AgentTool } from "@earendil-works/pi-agent-core";
+import type { Message, Model, Usage } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { CachePrefixMetadata, CacheTelemetry } from "../cache-telemetry.js";
 import type { CacheOptions } from "../cache-options.js";
 import { Type } from "typebox";
@@ -98,13 +99,13 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
   let provenanceFailure: string | null = null;
   const allowedSourceIds = new Set(params.allowedSourceEntryIds);
 
-  const recordObservations: AgentTool<any> = {
+  const recordObservations: AgentTool<typeof RecordObservationsSchema> = {
     name: "record_observations",
     label: "Record observations",
     description:
       "Record a batch of new observations distilled from the conversation chunk. " +
       "Call this one or more times as you work through the chunk. Stop calling when coverage is complete.",
-    parameters: RecordObservationsSchema as any,
+    parameters: RecordObservationsSchema,
     execute: async (_id, args: RecordObservationsArgs) => {
       const staged: ObservationRecord[] = [];
       for (const obs of args.observations) {
@@ -150,7 +151,7 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
   };
 
   try {
-    const stream = agentLoop(prompts, context, config, signal);
+    const stream = agentLoop(prompts, context, config, signal, streamSimple);
 
     let streamFailure: string | null = null;
     for await (const event of stream) {

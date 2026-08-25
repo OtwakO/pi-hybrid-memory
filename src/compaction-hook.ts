@@ -1,5 +1,5 @@
 // Compaction hook: unified compaction that runs OM observer, VCC summarization, and merges them
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Entry, ObservationEntryData, MemoryReflection, ObservationRecord } from "./types.js";
 import { OBSERVATION_CUSTOM_TYPE } from "./types.js";
 import {
@@ -30,7 +30,7 @@ import { mergeVccSummaries } from "./vcc/merger.js";
 import { mergePipelines } from "./merge/pipeline.js";
 import type { Runtime } from "./runtime.js";
 import { operationCacheOptions } from "./cache-options.js";
-import type { Message } from "@mariozechner/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 import {
   advanceFenceAcrossObservationAppends,
   captureSessionBranchFence,

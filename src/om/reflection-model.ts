@@ -4,8 +4,9 @@ import {
   type AgentEvent,
   type AgentLoopConfig,
   type AgentTool,
-} from "@mariozechner/pi-agent-core";
-import type { Message, Model, Usage } from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-agent-core";
+import type { Message, Model, Usage } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
 import { Type, type Static } from "typebox";
 import type { CacheTelemetry } from "../cache-telemetry.js";
 import type { CacheOptions } from "../cache-options.js";
@@ -92,7 +93,7 @@ export const createAgentLoopReflectionModel = (): ReflectionModelPort => ({
     let terminalFailure: "error" | "aborted" | null = null;
 
     const schema = reflectionProposalSchema(plan);
-    const submitReflections: AgentTool<any> & {
+    const submitReflections: AgentTool<typeof schema> & {
       constrainedSampling: { type: "json_schema"; strict: "prefer" };
     } = {
       name: "submit_reflections",
@@ -100,7 +101,7 @@ export const createAgentLoopReflectionModel = (): ReflectionModelPort => ({
       description:
         "Submit the complete set of new durable reflections for this fold. " +
         "Call once with an empty reflections array when no new reflection is justified.",
-      parameters: schema as any,
+      parameters: schema,
       constrainedSampling: { type: "json_schema", strict: "prefer" },
       execute: async (_toolCallId, args: ReflectionProposal) => {
         submissionCount++;
@@ -109,10 +110,8 @@ export const createAgentLoopReflectionModel = (): ReflectionModelPort => ({
         return {
           content: [{ type: "text" as const, text: "Reflection submission accepted." }],
           details: { proposed: args.reflections.length },
-          // Active Pi supports terminating structured-output tools; the pinned
-          // development SDK predates this additive field.
           terminate: true,
-        } as any;
+        };
       },
     };
 
@@ -133,14 +132,13 @@ export const createAgentLoopReflectionModel = (): ReflectionModelPort => ({
       convertToLlm: (messages) => messages as Message[],
       toolExecution: "sequential",
     };
-    // Pinned development typings predate this active-host lifecycle control.
-    const configWithBoundedTurns = config as AgentLoopConfig & {
-      shouldStopAfterTurn: () => boolean;
+    const configWithBoundedTurns: AgentLoopConfig = {
+      ...config,
+      shouldStopAfterTurn: () => proposal !== null || assistantTurns >= 2,
     };
-    configWithBoundedTurns.shouldStopAfterTurn = () => proposal !== null || assistantTurns >= 2;
 
     try {
-      const stream = agentLoop(prompts, context, configWithBoundedTurns, params.signal);
+      const stream = agentLoop(prompts, context, configWithBoundedTurns, params.signal, streamSimple);
       for await (const event of stream) {
         const eventFailure = terminalFailureFromEvent(event);
         if (eventFailure === "error" || eventFailure === "aborted") terminalFailure = eventFailure;

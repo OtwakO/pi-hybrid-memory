@@ -1,5 +1,5 @@
 // Normalizer: converts raw Pi messages to NormalizedBlocks — ported from pi-vcc
-import type { Message } from "@mariozechner/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 import type { NormalizedBlock } from "../types.js";
 
 function textOf(content: unknown): string {

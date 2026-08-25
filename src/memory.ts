@@ -1,8 +1,8 @@
 // /hm-memory command: browse observations, reflections, and VCC compactions
 // Flow: category picker → chronological list → detail view → back
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Runtime } from "./runtime.js";
-import { matchesKey, Key, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { matchesKey, Key, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { Entry, ObservationRecord, MemoryReflection, ReflectionRecord } from "./types.js";
 import { OBSERVATION_CUSTOM_TYPE } from "./types.js";
 import { getMemoryState } from "./om/branch.js";

@@ -1,5 +1,5 @@
 // pi-hybrid-memory: merges semantic observational memory with structural VCC compaction into a single unified summary
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Runtime } from "./runtime.js";
 import { registerCompactionHook } from "./compaction-hook.js";
 import { registerObserverTrigger } from "./observer-trigger.js";
