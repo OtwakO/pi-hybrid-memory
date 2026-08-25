@@ -1,6 +1,7 @@
 // Serialization: converts branch entries to text for the observer — ported from pi-observational-memory
 import type { Message } from "@mariozechner/pi-ai";
-import type { Entry } from "../types.js";
+import type { Entry, SourceProgress } from "../types.js";
+export type { SourceProgress } from "../types.js";
 import { estimateStringTokens } from "./tokens.js";
 
 const pad = (n: number): string => n.toString().padStart(2, "0");
@@ -43,9 +44,10 @@ const isSourceRenderable = (entry: Entry): boolean =>
 export interface SourceAddressedSerialization {
   text: string;
   sourceEntryIds: string[];
+  completedSourceEntryIds: string[];
   coversUpToId?: string;
+  sourceProgress?: SourceProgress;
   hasMore: boolean;
-  truncatedSourceEntryId?: string;
 }
 
 const renderSourceEntry = (entry: Entry): string | null => {
@@ -69,19 +71,29 @@ const renderSourceEntry = (entry: Entry): string | null => {
 const sourceBlock = (entry: Entry, rendered: string): string =>
   `[Source entry id: ${entry.id}]\n${rendered}`;
 
-const truncateBlockToTokenBudget = (block: string, maxTokens: number): string => {
-  const marker = "\n\n[source entry truncated for observer budget]\n\n";
+const sourceSegment = (
+  sourceEntryId: string,
+  rendered: string,
+  startOffset: number,
+  maxTokens: number,
+): { text: string; nextOffset: number; complete: boolean } => {
+  const safeStart = Math.max(0, Math.min(startOffset, rendered.length));
   const maxChars = Math.max(64, maxTokens * 4);
-  if (block.length <= maxChars) return block;
-  const available = Math.max(16, maxChars - marker.length);
-  const headChars = Math.ceil(available / 2);
-  const tailChars = Math.floor(available / 2);
-  return `${block.slice(0, headChars)}${marker}${block.slice(-tailChars)}`;
+  const header = `[Source segment: ${sourceEntryId} ${safeStart}-`;
+  const suffix = `/${rendered.length}]\n`;
+  const available = Math.max(1, maxChars - header.length - suffix.length - 12);
+  const nextOffset = Math.min(rendered.length, safeStart + available);
+  return {
+    text: `${header}${nextOffset}${suffix}${rendered.slice(safeStart, nextOffset)}`,
+    nextOffset,
+    complete: nextOffset >= rendered.length,
+  };
 };
 
 export const serializeSourceAddressedBranchEntries = (
   entries: Entry[],
   maxTokens = Number.POSITIVE_INFINITY,
+  progress?: SourceProgress,
 ): SourceAddressedSerialization => {
   const renderable = entries.flatMap((entry) => {
     if (!entry.id || !isSourceRenderable(entry)) return [];
@@ -90,52 +102,53 @@ export const serializeSourceAddressedBranchEntries = (
   });
   const blocks: string[] = [];
   const sourceEntryIds: string[] = [];
+  const completedSourceEntryIds: string[] = [];
   let usedTokens = 0;
-  let truncatedSourceEntryId: string | undefined;
+  let sourceProgress: SourceProgress | undefined;
+  const startIndex = progress
+    ? renderable.findIndex(item => item.entry.id === progress.sourceEntryId)
+    : 0;
+  const activeRenderable = startIndex >= 0 ? renderable.slice(startIndex) : renderable;
 
-  for (const item of renderable) {
+  for (let index = 0; index < activeRenderable.length; index++) {
+    const item = activeRenderable[index];
+    const startOffset = index === 0 && progress?.sourceEntryId === item.entry.id
+      ? progress.nextOffset
+      : 0;
+    const rendered = renderSourceEntry(item.entry);
+    if (!rendered) continue;
+    if (startOffset > 0 || estimateStringTokens(item.block) > maxTokens) {
+      if (blocks.length > 0) break;
+      const segment = sourceSegment(item.entry.id, rendered, startOffset, maxTokens);
+      blocks.push(segment.text);
+      sourceEntryIds.push(item.entry.id);
+      if (segment.complete) completedSourceEntryIds.push(item.entry.id);
+      else sourceProgress = {
+        sourceEntryId: item.entry.id,
+        nextOffset: segment.nextOffset,
+        totalLength: rendered.length,
+      };
+      break;
+    }
     const separatorTokens = blocks.length > 0 ? estimateStringTokens("\n\n") : 0;
     const blockTokens = estimateStringTokens(item.block);
     if (usedTokens + separatorTokens + blockTokens <= maxTokens) {
       blocks.push(item.block);
       sourceEntryIds.push(item.entry.id);
+      completedSourceEntryIds.push(item.entry.id);
       usedTokens += separatorTokens + blockTokens;
       continue;
     }
 
-    if (blocks.length === 0 && maxTokens > 0) {
-      const excerpt = truncateBlockToTokenBudget(item.block, maxTokens);
-      blocks.push(excerpt);
-      sourceEntryIds.push(item.entry.id);
-      truncatedSourceEntryId = item.entry.id;
-    }
     break;
   }
 
   return {
     text: blocks.join("\n\n"),
     sourceEntryIds,
-    coversUpToId: sourceEntryIds.at(-1),
-    hasMore: sourceEntryIds.length < renderable.length,
-    truncatedSourceEntryId,
+    completedSourceEntryIds,
+    coversUpToId: completedSourceEntryIds.at(-1),
+    sourceProgress,
+    hasMore: sourceProgress !== undefined || completedSourceEntryIds.length < activeRenderable.length,
   };
-};
-
-export const serializeBranchEntries = (entries: Entry[]): string => {
-  const blocks: string[] = [];
-  for (const entry of entries) {
-    let rendered: string | null = null;
-    if (entry.type === "message" && entry.message) {
-      rendered = serializeMessage(entry.message as Message);
-    } else if (entry.type === "custom_message" && typeof entry.content === "string") {
-      const time = formatTimestamp(entry.timestamp);
-      const tag = entry.customType ? `Custom (${entry.customType})` : "Custom";
-      rendered = `[${tag} @ ${time}]: ${entry.content}`;
-    } else if (entry.type === "branch_summary" && typeof entry.summary === "string") {
-      const time = formatTimestamp(entry.timestamp);
-      rendered = `[Branch summary @ ${time}]: ${entry.summary}`;
-    }
-    if (rendered?.trim()) blocks.push(rendered);
-  }
-  return blocks.join("\n\n");
 };

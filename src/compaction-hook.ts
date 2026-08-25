@@ -125,8 +125,9 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         const accumulatedRecords: ObservationRecord[] = [];
         const draftEpoch = runtime.observerEpoch.fork();
         let remainingGap = gap;
-        let expectedCoverageId = resolveObservationCoverageAnchor(entries).coveredSourceId
-          ?? firstKeptEntryId;
+        const coverageAnchor = resolveObservationCoverageAnchor(entries);
+        let sourceProgress = coverageAnchor.sourceProgress;
+        let expectedCoverageId = coverageAnchor.coveredSourceId ?? firstKeptEntryId;
         let gapFailedReason: string | null = null;
         try {
           const model = resolved.model as any;
@@ -142,8 +143,9 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
             const serialized = serializeSourceAddressedBranchEntries(
               remainingGap,
               Math.min(runtime.config.hybrid.observerChunkMaxTokens, freshDeltaBudget),
+              sourceProgress,
             );
-            if (!serialized.text.trim() || serialized.sourceEntryIds.length === 0 || !serialized.coversUpToId) {
+            if (!serialized.text.trim() || serialized.sourceEntryIds.length === 0) {
               gapFailedReason = "could not serialize the remaining source entries within the observer budget";
               break;
             }
@@ -188,15 +190,22 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
               break;
             }
             accumulatedRecords.push(...result.records);
-            draftEpoch.commit(prepared, result.transcriptSuffix, serialized.coversUpToId);
-            expectedCoverageId = serialized.coversUpToId;
+            const completedUpToId = serialized.coversUpToId ?? expectedCoverageId;
+            draftEpoch.commit(prepared, result.transcriptSuffix, completedUpToId);
+            expectedCoverageId = completedUpToId;
+            sourceProgress = serialized.sourceProgress;
 
-            const coveredIndex = remainingGap.findIndex(entry => entry.id === serialized.coversUpToId);
-            if (coveredIndex < 0) {
-              gapFailedReason = `observer coverage marker ${serialized.coversUpToId} was not found in the remaining gap`;
+            if (serialized.completedSourceEntryIds.length > 0) {
+              const coveredIndex = remainingGap.findIndex(entry => entry.id === completedUpToId);
+              if (coveredIndex < 0) {
+                gapFailedReason = `observer coverage marker ${completedUpToId} was not found in the remaining gap`;
+                break;
+              }
+              remainingGap = remainingGap.slice(coveredIndex + 1);
+            } else if (!sourceProgress) {
+              gapFailedReason = "observer source segment made no durable coverage progress";
               break;
             }
-            remainingGap = remainingGap.slice(coveredIndex + 1);
           }
 
           if (gapFailedReason) {
@@ -222,6 +231,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
               coversFromId: gap[0].id,
               coversUpToId: gap[gap.length - 1].id,
               tokenCount: observationTokens,
+              sourceProgress: undefined,
             };
             pi.appendEntry(OBSERVATION_CUSTOM_TYPE, gapObservationData);
             runtime.observerEpoch.invalidate("catch-up-persisted");

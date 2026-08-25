@@ -315,9 +315,21 @@ Extend the observer tool contract so each observation cites a validated, non-emp
 
 When one source entry exceeds the observer budget, serialization sends a marked head/tail excerpt and marks the whole entry covered. The original source remains recallable, but durable semantic observations can miss important middle content.
 
-#### Proposed direction
+#### Chosen additive design
 
-Represent within-entry coverage as bounded segments while retaining the original Pi source entry ID and an internal segment cursor/range.
+Extend `ObservationEntryData` with optional durable progress metadata while retaining all existing fields:
+
+```ts
+sourceProgress?: {
+  sourceEntryId: string;
+  nextOffset: number;
+  totalLength: number;
+}
+```
+
+`coversUpToId` continues to mean the last fully covered source entry. `sourceProgress` identifies the immediately following oversized source and the next contiguous serialized-character offset to observe. Intermediate segments do not falsely advance `coversUpToId`; the final segment clears progress and advances full coverage to that source ID. Old entries remain valid and require no migration.
+
+The serializer must emit contiguous marked segments rather than a head/tail sample. Reload reconstructs progress from the latest valid observation entry on the active branch. Compaction catch-up may keep segment progress in its isolated draft and persists only after the entire gap succeeds, preserving its existing atomic write policy.
 
 #### Design questions
 
@@ -718,7 +730,7 @@ A future cache or memory architecture change is complete only when:
 | A — Branch-authoritative coverage | Implemented locally: shared durable coverage anchor, session/leaf catch-up fence, catch-up-persisted epoch invalidation, and functional compaction override off-switch; focused verification complete, not committed |
 | B — Epoch observability | Not started |
 | C — Provenance quality | Implemented locally: optional validated per-observation source subsets with legacy all-chunk fallback and observer compatibility-version bump; focused verification complete, not committed |
-| D — Oversized-entry coverage | Design not started |
+| D — Oversized-entry coverage | Implemented locally: additive optional `sourceProgress`, contiguous resumable segments, full-coverage anchor advancement only after final segment, and serializer compatibility-version bump; focused verification complete, not committed |
 | E — Baseline pressure | Evidence gathering not started |
 | F — Compaction cache observability | Implemented locally: observer proactive/catch-up source, cold/warm/reset aggregates, provider hit/miss counts, capacity headroom, shared fixed reservation, and reflector/pruner skip/outcome/input/result counts; focused verification complete, not committed |
 | G — Quality-neutral compaction prefix experiment | Deferred pending Milestone F telemetry |

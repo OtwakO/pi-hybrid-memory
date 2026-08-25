@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { OBSERVER_FIXED_TOKEN_RESERVE } from "../src/om/observer-context.js";
+import {
+  OBSERVER_FIXED_TOKEN_RESERVE,
+  OBSERVER_SERIALIZER_VERSION,
+} from "../src/om/observer-context.js";
 
 // This is a deliberately conservative allowance for observer output, tool schemas,
 // provider framing, and continuation overhead. Changing it affects both proactive
@@ -8,5 +11,9 @@ import { OBSERVER_FIXED_TOKEN_RESERVE } from "../src/om/observer-context.js";
 describe("observer context reservation", () => {
   it("keeps one shared conservative reservation", () => {
     expect(OBSERVER_FIXED_TOKEN_RESERVE).toBe(6_144);
+  });
+
+  it("invalidates old epochs when segmented source serialization becomes active", () => {
+    expect(OBSERVER_SERIALIZER_VERSION).toBe("source-segments-v2");
   });
 });

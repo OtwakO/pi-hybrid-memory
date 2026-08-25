@@ -37,7 +37,7 @@ describe("bounded observer source serialization", () => {
     expect(result.truncatedSourceEntryId).toBeUndefined();
   });
 
-  it("uses a marked head-tail excerpt when the oldest entry alone exceeds the cap", () => {
+  it("uses a contiguous resumable segment when the oldest entry alone exceeds the cap", () => {
     const content = `HEAD ${"middle ".repeat(1_000)}TAIL`;
     const result = serializeSourceAddressedBranchEntries([
       entry("00000001", content),
@@ -45,11 +45,12 @@ describe("bounded observer source serialization", () => {
     ], 200);
 
     expect(result.sourceEntryIds).toEqual(["00000001"]);
-    expect(result.coversUpToId).toBe("00000001");
+    expect(result.coversUpToId).toBeUndefined();
+    expect(result.completedSourceEntryIds).toEqual([]);
     expect(result.hasMore).toBe(true);
-    expect(result.truncatedSourceEntryId).toBe("00000001");
+    expect(result.sourceProgress).toMatchObject({ sourceEntryId: "00000001" });
     expect(result.text).toContain("HEAD ");
-    expect(result.text).toContain("TAIL");
-    expect(result.text).toContain("[source entry truncated for observer budget]");
+    expect(result.text).not.toContain("TAIL");
+    expect(result.text).toContain("[Source segment: 00000001 0-");
   });
 });

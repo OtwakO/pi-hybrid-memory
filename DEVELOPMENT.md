@@ -105,3 +105,9 @@
 - **Change**: The observer tool now accepts an optional validated non-empty subset of current source IDs per observation; omitted subsets retain the legacy all-chunk behavior. Prompt and tool compatibility versions were advanced.
 - **Reason**: Better provenance improves recall and future reflection/pruning decisions without reducing source context or rejecting older sessions.
 - **Verified**: Focused observer, prompt-contract, recall, and TypeScript checks pass, including subset deduplication and rejection of out-of-chunk sources.
+
+### [2026-08-25] Replaced oversized head/tail coverage with durable segments
+- **Context**: A single source larger than the observer budget was represented by head/tail text and then marked fully covered, so facts in the omitted middle could be missed.
+- **Change**: Observation entries can now carry optional `sourceProgress`; oversized sources are observed as contiguous resumable segments and full `coversUpToId` advances only after the final segment.
+- **Reason**: Preserve semantic coverage without reducing observer input quality or breaking existing session entries.
+- **Verified**: Focused serializer, durable-resume, branch, observer, epoch compatibility, and compaction catch-up tests pass with clean TypeScript.

@@ -67,7 +67,8 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
     if (!boundaryId) return;
     if (runtime.shouldBackOffEmptyObserver(boundaryId, tokens, observationThreshold)) return;
 
-    const coversFromId = firstRawIdAfter(entries, lastBoundIdx);
+    const coversFromId = coverageAnchor.sourceProgress?.sourceEntryId
+      ?? firstRawIdAfter(entries, lastBoundIdx);
     if (!coversFromId) return;
 
     const leafId = ctx.sessionManager.getLeafId();
@@ -112,9 +113,11 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
       const serialized = serializeSourceAddressedBranchEntries(
         chunkEntries,
         Math.min(runtime.config.hybrid.observerChunkMaxTokens, freshDeltaBudget),
+        coverageAnchor.sourceProgress,
       );
-      const { text: chunk, sourceEntryIds, coversUpToId: observedUpToId } = serialized;
-      if (!chunk.trim() || sourceEntryIds.length === 0 || !observedUpToId) return;
+      const { text: chunk, sourceEntryIds } = serialized;
+      const observedUpToId = serialized.coversUpToId ?? boundaryId;
+      if (!chunk.trim() || sourceEntryIds.length === 0) return;
 
       const prepared = runtime.observerEpoch.prepare({
         compatibilityKey: observerCompatibilityKey(model),
@@ -168,6 +171,7 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
             coversFromId,
             coversUpToId: observedUpToId,
             tokenCount: 0,
+            sourceProgress: serialized.sourceProgress,
           } satisfies ObservationEntryData);
           runtime.observerEpoch.commitValidated(prepared, result.transcriptSuffix, observedUpToId);
           runtime.clearEmptyObserverBackoff();
@@ -186,6 +190,7 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
         coversFromId,
         coversUpToId: observedUpToId,
         tokenCount: observationTokens,
+        sourceProgress: serialized.sourceProgress,
       };
       runtime.observerEpoch.validateCommit(prepared, result.transcriptSuffix);
       pi.appendEntry(OBSERVATION_CUSTOM_TYPE, data);

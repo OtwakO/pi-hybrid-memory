@@ -81,7 +81,7 @@ The global file is created automatically. Project files override individual fiel
 | `overrideDefaultCompaction` | `true` | Set to `false` to let Pi's default compaction run instead |
 | `debug` | `false` | Enable debug logging |
 | `observationThresholdTokens` | 1000 | New tokens of raw conversation before the observer runs |
-| `observerChunkMaxTokens` | 60000 | Maximum serialized source tokens per observer call; large backlogs are processed oldest-first and oversized single entries use marked head/tail excerpts |
+| `observerChunkMaxTokens` | 60000 | Maximum serialized source tokens per observer call; large backlogs are processed oldest-first and oversized single entries resume through contiguous durable segments without marking omitted content covered |
 | `observerEpochMaxTokens` | 96000 | Maximum estimated size of the observer's temporary reusable context before it is safely rebuilt from durable memory; the effective cap is the lower of this value and 40% of the observer model's context window |
 | `compactionThresholdTokens` | 50000 | Auto-compact after a completed agent run when current context exceeds this many tokens |
 | `compactionThresholdPercentage` | `80` | Whole percentage from 1–99; auto-compacts after a completed agent run when context exceeds this share of the active model's window. Set to `null` to use `compactionThresholdTokens` instead |

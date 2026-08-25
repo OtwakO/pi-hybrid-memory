@@ -5,7 +5,7 @@ import { observationsToPromptLines } from "./observer.js";
 
 export const OBSERVER_PROMPT_VERSION = "observer-v3-provenance";
 export const OBSERVER_TOOL_VERSION = "record-observations-v2";
-export const OBSERVER_SERIALIZER_VERSION = "source-addressed-v1";
+export const OBSERVER_SERIALIZER_VERSION = "source-segments-v2";
 
 // Conservative allowance for observer output, tool schemas, provider framing,
 // and the final tool-continuation turn. Both observer paths must use one value.

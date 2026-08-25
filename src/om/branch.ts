@@ -4,6 +4,7 @@ import type {
   MemoryReflection,
   ObservationEntryData,
   ObservationRecord,
+  SourceProgress,
   SupportedMemoryDetails,
 } from "../types.js";
 import { OBSERVATION_CUSTOM_TYPE, isObservationEntryData, isSupportedMemoryDetails } from "../types.js";
@@ -26,6 +27,7 @@ export const findLastCompactionIndex = (entries: Entry[]): number => {
 export interface ObservationCoverageAnchor {
   coveredSourceId?: string;
   coveredSourceIndex: number;
+  sourceProgress?: SourceProgress;
 }
 
 export const resolveObservationCoverageAnchor = (entries: Entry[]): ObservationCoverageAnchor => {
@@ -34,16 +36,25 @@ export const resolveObservationCoverageAnchor = (entries: Entry[]): ObservationC
 
   let coveredSourceIndex = -1;
   let coveredSourceId: string | undefined;
+  let sourceProgress: SourceProgress | undefined;
   for (const entry of entries) {
     if (!isObservationEntry(entry) || !isObservationEntryData(entry.data)) continue;
     const candidateIndex = idToIdx.get(entry.data.coversUpToId);
-    if (candidateIndex !== undefined && candidateIndex > coveredSourceIndex) {
+    if (candidateIndex !== undefined && candidateIndex >= coveredSourceIndex) {
       coveredSourceIndex = candidateIndex;
       coveredSourceId = entry.data.coversUpToId;
+      const progress = entry.data.sourceProgress;
+      const nextSource = entries.slice(candidateIndex + 1).find(isSourceEntry);
+      sourceProgress = progress
+        && nextSource?.id === progress.sourceEntryId
+        && progress.nextOffset > 0
+        && progress.nextOffset < progress.totalLength
+        ? progress
+        : undefined;
     }
   }
 
-  return { coveredSourceId, coveredSourceIndex };
+  return { coveredSourceId, coveredSourceIndex, sourceProgress };
 };
 
 export const lastObservationCoverEndIdx = (entries: Entry[]): number =>
