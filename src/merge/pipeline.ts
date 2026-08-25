@@ -47,7 +47,7 @@ export const mergePipelines = (input: MergeInput): MergeOutput => {
     details: {
       type: "observational-memory",
       version: 4,
-      observations: budgeted.observations,
+      observations: [...input.observations],
       reflections: input.reflections,
     },
     trimmed: budgeted.trimmed,

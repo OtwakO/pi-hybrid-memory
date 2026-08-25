@@ -21,7 +21,7 @@ import {
   observerDeltaText,
   observerEpochTokenLimit,
 } from "./om/observer-context.js";
-import { runPruner, runReflector, deriveCoverageTags } from "./om/compaction.js";
+import { foldMemory } from "./om/memory-fold.js";
 import { normalize } from "./vcc/normalizer.js";
 import { extractGoals, extractFiles, extractCommits, extractPreferences, extractOutstandingContext, formatCommits } from "./vcc/extractor.js";
 import { buildBriefSections, stringifyBrief, capBrief } from "./vcc/transcript.js";
@@ -31,7 +31,11 @@ import { mergePipelines } from "./merge/pipeline.js";
 import type { Runtime } from "./runtime.js";
 import { operationCacheOptions } from "./cache-options.js";
 import type { Message } from "@mariozechner/pi-ai";
-import { captureSessionBranchFence, isSessionBranchFenceCurrent } from "./compaction-safety.js";
+import {
+  advanceFenceAcrossObservationAppends,
+  captureSessionBranchFence,
+  isSessionBranchFenceCurrent,
+} from "./compaction-safety.js";
 
 export const vccMessagesFromEntries = (entries: Entry[]): Message[] => {
   const messages: Message[] = [];
@@ -93,7 +97,20 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       if (runtime.observerPromise) {
         try { await runtime.observerPromise; } catch { /* already notified */ }
         entries = ctx.sessionManager.getBranch() as Entry[];
-        compactionFence = captureSessionBranchFence(ctx.sessionManager);
+        const advancedFence = advanceFenceAcrossObservationAppends(
+          compactionFence,
+          ctx.sessionManager,
+          entries,
+          OBSERVATION_CUSTOM_TYPE,
+        );
+        if (!advancedFence) {
+          if (ctx.hasUI) ctx.ui.notify(
+            "Hybrid memory: active session or branch changed while waiting for the observer; cancelling stale compaction.",
+            "warning",
+          );
+          return { cancel: true };
+        }
+        compactionFence = advancedFence;
       }
 
       const memoryState = getMemoryState(entries, (firstKept) => {
@@ -245,6 +262,10 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
               sourceProgress: undefined,
             };
             pi.appendEntry(OBSERVATION_CUSTOM_TYPE, gapObservationData);
+            // The extension-owned durable write advances Pi's active leaf. Treat
+            // that new leaf as the expected branch state for final assembly;
+            // later user/session navigation must still fail the final fence.
+            compactionFence = captureSessionBranchFence(ctx.sessionManager);
             runtime.observerEpoch.invalidate("catch-up-persisted");
             if (ctx.hasUI) ctx.ui.notify(
               `Hybrid memory: sync catch-up recorded ${accumulatedRecords.length} observation(s) (~${observationTokens.toLocaleString()} tokens)`,
@@ -294,58 +315,35 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         ...deltaObservationData.flatMap((d) => d.records),
       ];
 
-      // ── Step 3: Run reflector/pruner if needed ──
+      // ── Step 3: Fold semantic memory if eligible ──
+      // Q0 is deliberately retention-only: reflection may enrich memory, but
+      // observation retirement remains disabled until an auditable contract exists.
       const observationTokens = workingObservations.reduce((sum, o) => sum + estimateStringTokens(o.content), 0);
-      let finalReflections = workingReflections;
-      let finalObservations = workingObservations;
-
-      if (observationTokens >= runtime.config.hybrid.reflectionThresholdTokens) {
-        if (ctx.hasUI) ctx.ui.notify("Hybrid memory: running reflector + pruner...", "info");
-        try {
-          finalReflections = await runReflector(
-            {
-              model: resolved.model as any,
-              apiKey: resolved.apiKey,
-              headers: resolved.headers,
-              signal,
-              telemetry: runtime.cacheTelemetry,
-              cacheOptions: runtime.piSessionId
-                ? operationCacheOptions(runtime.piSessionId, "reflector")
-                : undefined,
-            },
-            workingReflections,
-            workingObservations,
-          );
-          const coverageTags = deriveCoverageTags(finalReflections, workingObservations);
-          const prunerResult = await runPruner(
-            {
-              model: resolved.model as any,
-              apiKey: resolved.apiKey,
-              headers: resolved.headers,
-              signal,
-              telemetry: runtime.cacheTelemetry,
-              cacheOptions: runtime.piSessionId
-                ? operationCacheOptions(runtime.piSessionId, "pruner")
-                : undefined,
-            },
-            finalReflections,
-            workingObservations,
-            runtime.config.hybrid.reflectionThresholdTokens,
-            coverageTags,
-          );
-          finalObservations = prunerResult.observations;
-          if (prunerResult.fellBack && ctx.hasUI) {
-            ctx.ui.notify("Hybrid memory: pruner run failed; kept observation set unchanged", "warning");
-          }
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          if (ctx.hasUI) ctx.ui.notify(`Hybrid memory: reflect/prune failed: ${msg}`, "warning");
-        }
-      } else {
-        runtime.cacheTelemetry.recordMemoryLifecycle("reflector", "below-threshold", {
-          inputItems: workingObservations.length,
-          inputTokens: observationTokens,
-        });
+      if (observationTokens >= runtime.config.hybrid.reflectionThresholdTokens && ctx.hasUI) {
+        ctx.ui.notify("Hybrid memory: running reflector (observation retirement disabled for safety)...", "info");
+      }
+      const fold = await foldMemory({
+        params: {
+          model: resolved.model as any,
+          apiKey: resolved.apiKey,
+          headers: resolved.headers,
+          signal,
+          telemetry: runtime.cacheTelemetry,
+          cacheOptions: runtime.piSessionId
+            ? operationCacheOptions(runtime.piSessionId, "reflector")
+            : undefined,
+        },
+        reflections: workingReflections,
+        observations: workingObservations,
+        reflectionThresholdTokens: runtime.config.hybrid.reflectionThresholdTokens,
+      });
+      const finalReflections = fold.reflections;
+      const finalObservations = fold.observations;
+      if (!fold.ok && ctx.hasUI) {
+        ctx.ui.notify(
+          `Hybrid memory: reflection failed (${fold.reason}); retained the complete pre-fold memory set`,
+          "warning",
+        );
       }
 
       // ── Step 4: Build VCC summary ──
@@ -412,6 +410,14 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         `Hybrid memory: compaction assembled — ${finalObservations.length} observations, ${finalReflections.length} reflections, ~${merged.tokenCount.toLocaleString()} token summary${merged.protectedOverflow ? " (protected memory exceeds configured ceiling)" : merged.trimmed ? " (trimmed to fit budget)" : ""}`,
         merged.protectedOverflow ? "warning" : "info",
       );
+
+      if (!isSessionBranchFenceCurrent(compactionFence, ctx.sessionManager)) {
+        if (ctx.hasUI) ctx.ui.notify(
+          "Hybrid memory: active session or branch changed during compaction assembly; cancelling stale compaction.",
+          "warning",
+        );
+        return { cancel: true };
+      }
 
       runtime.observerEpoch.invalidate("compaction");
       return {

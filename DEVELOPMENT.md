@@ -135,3 +135,10 @@
 - **Change**: Added a verdict table separating confirmed defects/gaps from unproven hypotheses and ordered Q0 by immediate memory-loss risk. Corrected the recall claim: the inspected 659 observations remain recoverable from custom entries, while compaction-only evidence and reflection-support traversal remain compatibility gaps.
 - **Reason**: Ensure implementation work addresses reproduced or source-proven problems without turning hypotheses into mandatory architecture.
 - **Verified**: Source traces confirm destructive keep-list/fallback behavior, unsupported reflection IDs, missing final fold fence, summary-budget state coupling, and split Pi/custom-entry persistence boundaries; active host docs confirm compaction acknowledgment and constrained-tool capabilities.
+
+### [2026-08-26] Established a retention-first memory-fold seam
+- **Context**: Q0 had to remove destructive omission-sensitive pruning without leaving scattered fallback guards in the compaction hook.
+- **Change**: Added `foldMemory()` as the semantic fold interface, made reflector outcomes explicit, rejected truncation and unsupported provenance, removed the production pruner contract, added final branch/session fencing (including observer-wait transition validation), and separated visible summary trimming from durable `MemoryDetailsV4` observations.
+- **Reason**: Reflection may enrich memory, but observation retirement must be owned by one future auditable contract. Until then, uncertainty or model failure retains the complete active observation set.
+- **Verified**: Focused fold, reflector, cache telemetry, prompt, merge-budget, and compaction-safety tests plus TypeScript passed before the full checkpoint.
+- **Watch out**: This safety milestone intentionally improves memory integrity before compaction effectiveness; protected durable observation pools can still remain large until Q1-Q4 introduce validated folding and retirement.

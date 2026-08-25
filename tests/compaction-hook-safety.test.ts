@@ -2,11 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "@mariozechner/pi-ai";
 
 const runObserverMock = vi.hoisted(() => vi.fn());
+const foldMemoryMock = vi.hoisted(() => vi.fn());
 const mergePipelinesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/om/observer.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/om/observer.js")>();
   return { ...actual, runObserver: runObserverMock };
+});
+
+vi.mock("../src/om/memory-fold.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/om/memory-fold.js")>();
+  foldMemoryMock.mockImplementation(actual.foldMemory);
+  return { ...actual, foldMemory: foldMemoryMock };
 });
 
 vi.mock("../src/merge/pipeline.js", async (importOriginal) => {
@@ -102,7 +109,8 @@ const warmEpoch = (runtime: Runtime, coverageEndId: string) => {
 
 const setup = (entries: Entry[]) => {
   let handler: ((event: any, ctx: any) => Promise<unknown>) | undefined;
-  const appendEntry = vi.fn();
+  let leafId = "new-kept";
+  const appendEntry = vi.fn(() => { leafId = "appended-observation"; });
   const pi = {
     on: vi.fn((event: string, registered: typeof handler) => {
       if (event === "session_before_compact") handler = registered;
@@ -120,7 +128,6 @@ const setup = (entries: Entry[]) => {
   registerCompactionHook(pi as never, runtime);
 
   let sessionId = "session-a";
-  let leafId = "new-kept";
   const ctx = {
     cwd: "/project",
     hasUI: false,
@@ -158,6 +165,7 @@ const setup = (entries: Entry[]) => {
 describe("compaction catch-up safety integration", () => {
   beforeEach(() => {
     runObserverMock.mockReset();
+    foldMemoryMock.mockClear();
     mergePipelinesMock.mockClear();
   });
 
@@ -182,6 +190,30 @@ describe("compaction catch-up safety integration", () => {
     });
   });
 
+  it("cancels if the session changes while awaiting an in-flight observer", async () => {
+    const fixture = setup(branch());
+    fixture.runtime.observerPromise = Promise.resolve().then(() => {
+      fixture.setSessionId("session-b");
+    });
+
+    const result = await fixture.getHandler()(fixture.event, fixture.ctx);
+
+    expect(result).toEqual({ cancel: true });
+    expect(foldMemoryMock).not.toHaveBeenCalled();
+  });
+
+  it("cancels if unrelated branch navigation occurs while awaiting an in-flight observer", async () => {
+    const fixture = setup(branch());
+    fixture.runtime.observerPromise = Promise.resolve().then(() => {
+      fixture.setLeafId("other-branch-leaf");
+    });
+
+    const result = await fixture.getHandler()(fixture.event, fixture.ctx);
+
+    expect(result).toEqual({ cancel: true });
+    expect(foldMemoryMock).not.toHaveBeenCalled();
+  });
+
   it("cancels without persisting if the active branch changes during catch-up", async () => {
     const fixture = setup(branch());
     runObserverMock.mockImplementation(async (params: any) => {
@@ -197,6 +229,41 @@ describe("compaction catch-up safety integration", () => {
 
     expect(result).toEqual({ cancel: true });
     expect(fixture.appendEntry).not.toHaveBeenCalled();
+  });
+
+  it("accepts its own catch-up persistence as the new final-fence leaf", async () => {
+    const fixture = setup(branch());
+    runObserverMock.mockImplementation(async (params: any) => ({
+      ok: true,
+      records: [observation("bbbbbbbbbbbb")],
+      transcriptSuffix: [...params.prompts, assistant("recorded")],
+    }));
+
+    const result = await fixture.getHandler()(fixture.event, fixture.ctx);
+
+    expect(result).toHaveProperty("compaction");
+    expect(fixture.appendEntry).toHaveBeenCalledOnce();
+  });
+
+  it("cancels if the active branch changes while memory folding is in progress", async () => {
+    const entries = branch();
+    const fixture = setup(entries);
+    fixture.runtime.config.hybrid.reflectionThresholdTokens = 0;
+    foldMemoryMock.mockImplementationOnce(async (input: any) => {
+      fixture.setLeafId("other-branch-leaf");
+      return {
+        ok: true,
+        outcome: "reflected",
+        reflections: input.reflections,
+        observations: input.observations,
+        retiredObservationIds: [],
+      };
+    });
+
+    const result = await fixture.getHandler()(fixture.event, fixture.ctx);
+
+    expect(result).toEqual({ cancel: true });
+    expect(mergePipelinesMock).not.toHaveBeenCalled();
   });
 
   it("keeps the live epoch invalidated if final assembly fails after catch-up persistence", async () => {

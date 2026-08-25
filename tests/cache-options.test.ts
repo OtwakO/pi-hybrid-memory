@@ -8,8 +8,9 @@ describe("operationCacheOptions", () => {
       sessionId: "pi-hybrid-memory:session-123:observer",
       cacheRetention: "long",
     });
-    expect(operationCacheOptions("session-123", "reflector").sessionId).not.toBe(
-      operationCacheOptions("session-123", "pruner").sessionId,
-    );
+    expect(operationCacheOptions("session-123", "reflector")).toEqual({
+      sessionId: "pi-hybrid-memory:session-123:reflector",
+      cacheRetention: "long",
+    });
   });
 });

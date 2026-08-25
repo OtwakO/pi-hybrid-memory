@@ -92,9 +92,10 @@ session_before_compact fires
         │
         ▼
 [3] Check OM gate: is observation pool ≥ reflectionThresholdTokens?
-    YES → run the validated fold module (reflection, then explicit safe retirement)
+    YES → run the validated fold module (reflection only in Q0)
     NO  → skip, use existing reflections as-is (zero LLM cost)
-    Any failed/aborted/truncated/unsafe stage → retain the pre-fold memory set
+    Any failed/aborted/truncated/invalid-provenance stage → retain the pre-fold memory set
+    Observation retirement remains disabled until an auditable retirement contract is approved
         │
         ▼
 [4] Assemble OM block
@@ -213,7 +214,7 @@ The budget system exists for one reason only: **to prevent unbounded growth acro
 9. `[User Preferences]` lines (oldest first)
 10. **Never trim:** `critical` observations, `## Reflections` lines, original `[Session Goal]` first line
 
-**Implementation:** `merge/budget.ts` parses observations and VCC sections into trimmable units, re-renders after each priority removal, and stops under the ceiling whenever trimmable content is sufficient. If protected content alone exceeds the ceiling, compaction preserves it and reports a protected-overflow warning rather than silently dropping critical observations, reflections, the original session goal, or unfamiliar future structural sections. Section-size reporting in `/hm-status` remains future work.
+**Implementation:** `merge/budget.ts` parses observations and VCC sections into trimmable projection units, re-renders after each priority removal, and stops under the ceiling whenever trimmable content is sufficient. Projection trimming does not mutate `MemoryDetailsV4.observations`; durable observation retirement is owned exclusively by the fold policy. If protected visible content alone exceeds the ceiling, compaction preserves it and reports a protected-overflow warning rather than silently dropping critical observations, reflections, the original session goal, or unfamiliar future structural sections. Section-size reporting in `/hm-status` remains future work.
 
 ---
 

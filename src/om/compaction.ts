@@ -1,4 +1,4 @@
-// Reflector and pruner: LLM-based reflection synthesis and observation pruning
+// Reflection synthesis and memory rendering.
 import { completeSimple, type Context, type Message, type Model } from "@mariozechner/pi-ai";
 import type {
   CacheOperation,
@@ -6,30 +6,24 @@ import type {
   MemoryLifecycleOutcome,
 } from "../cache-telemetry.js";
 import type { CacheOptions } from "../cache-options.js";
-import type { MemoryReflection, ObservationRecord, Relevance } from "../types.js";
+import type { MemoryReflection, ObservationRecord } from "../types.js";
 import { estimateStringTokens } from "./tokens.js";
-import {
-  PRUNER_PROMPT,
-  PRUNER_SYSTEM,
-  REFLECTOR_PROMPT,
-  REFLECTOR_SYSTEM,
-} from "./prompts.js";
+import { REFLECTOR_PROMPT, REFLECTOR_SYSTEM } from "./prompts.js";
 import { observationsToPromptLines } from "./observer.js";
 
-
-export const reflectionContent = (r: MemoryReflection): string =>
-  typeof r === "string" ? r : r.content;
+export const reflectionContent = (reflection: MemoryReflection): string =>
+  typeof reflection === "string" ? reflection : reflection.content;
 
 export type ObservationCoverageTag = "uncited" | "cited" | "reinforced";
 
-/** Count how many provenance-backed reflections cite each observation */
+/** Count how many provenance-backed reflections cite each observation. */
 export function deriveCoverageTags(
   reflections: MemoryReflection[],
   observations: ObservationRecord[],
 ): Map<string, ObservationCoverageTag> {
-  const activeIds = new Set(observations.map((o) => o.id));
+  const activeIds = new Set(observations.map((observation) => observation.id));
   const counts = new Map<string, number>();
-  for (const o of observations) counts.set(o.id, 0);
+  for (const observation of observations) counts.set(observation.id, 0);
 
   for (const reflection of reflections) {
     if (typeof reflection === "string" || reflection.legacy) continue;
@@ -38,22 +32,11 @@ export function deriveCoverageTags(
   }
 
   const tags = new Map<string, ObservationCoverageTag>();
-  for (const o of observations) {
-    const c = counts.get(o.id) ?? 0;
-    tags.set(o.id, c === 0 ? "uncited" : c >= 4 ? "reinforced" : "cited");
+  for (const observation of observations) {
+    const count = counts.get(observation.id) ?? 0;
+    tags.set(observation.id, count === 0 ? "uncited" : count >= 4 ? "reinforced" : "cited");
   }
   return tags;
-}
-
-/** Render observations for pruner prompt with coverage tags */
-export function renderObservationsWithCoverage(
-  observations: ObservationRecord[],
-  tags: ReadonlyMap<string, ObservationCoverageTag>,
-): string {
-  if (observations.length === 0) return "(none yet)";
-  return observations
-    .map((o) => `[${o.id}] ${o.timestamp} [${o.relevance}] [coverage: ${tags.get(o.id) ?? "uncited"}] ${o.content}`)
-    .join("\n");
 }
 
 let idCounter = 0;
@@ -63,48 +46,80 @@ const makeId = (): string => {
   return `${Date.now().toString(36).slice(-8)}${idCounter.toString(36).padStart(4, "0")}`;
 };
 
-type ModelParams = {
+export interface ReflectorParams {
   model: unknown;
   apiKey: string;
   headers?: Record<string, string>;
   signal?: AbortSignal;
   telemetry?: CacheTelemetry;
   cacheOptions?: CacheOptions;
-};
+}
 
-const extractTextFromAssistantMessage = (msg: unknown): string => {
-  if (!msg || typeof msg !== "object") return "";
-  const m = msg as Record<string, unknown>;
-  if (typeof m.content === "string") return m.content;
-  if (Array.isArray(m.content)) {
-    return m.content
-      .filter((p): p is Record<string, unknown> => p && typeof p === "object" && p.type === "text")
-      .map((p) => (p as Record<string, string>).text ?? "")
-      .join("\n");
-  }
-  return "";
+const extractTextFromAssistantMessage = (message: unknown): string => {
+  if (!message || typeof message !== "object") return "";
+  const candidate = message as Record<string, unknown>;
+  if (typeof candidate.content === "string") return candidate.content;
+  if (!Array.isArray(candidate.content)) return "";
+  return candidate.content
+    .filter((part): part is Record<string, unknown> =>
+      Boolean(part) && typeof part === "object" && part.type === "text")
+    .map((part) => (part as Record<string, string>).text ?? "")
+    .join("\n");
 };
 
 const extractJsonFromText = (text: string): string | null => {
-  try { JSON.parse(text); return text; } catch { /* not valid JSON */ }
+  try {
+    JSON.parse(text);
+    return text;
+  } catch {
+    // Try compatibility formats used by older prompts/providers.
+  }
   const codeBlock = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
   if (codeBlock) {
-    try { JSON.parse(codeBlock[1].trim()); return codeBlock[1].trim(); } catch { /* not valid JSON */ }
+    try {
+      JSON.parse(codeBlock[1].trim());
+      return codeBlock[1].trim();
+    } catch {
+      // Continue to object extraction.
+    }
   }
-  const objMatch = text.match(/\{[\s\S]*\}/);
-  if (objMatch) {
-    try { JSON.parse(objMatch[0]); return objMatch[0]; } catch { /* not valid JSON */ }
+  const objectMatch = text.match(/\{[\s\S]*\}/);
+  if (!objectMatch) return null;
+  try {
+    JSON.parse(objectMatch[0]);
+    return objectMatch[0];
+  } catch {
+    return null;
   }
-  return null;
 };
+
+export type ReflectorFailureReason =
+  | "truncated-output"
+  | "invalid-output"
+  | "invalid-provenance"
+  | "error"
+  | "aborted";
+
+export type ReflectorResult =
+  | {
+      ok: true;
+      outcome: "success" | "deliberate-empty";
+      reflections: MemoryReflection[];
+      proposedItems: number;
+      acceptedItems: number;
+    }
+  | {
+      ok: false;
+      reason: ReflectorFailureReason;
+    };
 
 type ModelCallResult =
   | { ok: true; json: string }
-  | { ok: false; outcome: Exclude<MemoryLifecycleOutcome, "below-threshold" | "success" | "deliberate-empty"> };
+  | { ok: false; reason: Exclude<ReflectorFailureReason, "invalid-provenance"> };
 
 const callModel = async (
-  params: ModelParams,
-  operation: Extract<CacheOperation, "reflector" | "pruner">,
+  params: ReflectorParams,
+  operation: Extract<CacheOperation, "reflector">,
   systemPrompt: string,
   userPrompt: string,
 ): Promise<ModelCallResult> => {
@@ -124,189 +139,169 @@ const callModel = async (
         cacheRetention: params.cacheOptions?.cacheRetention,
       },
     );
-    const outcome = response.stopReason === "error" ? "error"
+    const callOutcome = response.stopReason === "error" ? "error"
       : response.stopReason === "aborted" ? "aborted"
-        : "success";
-    params.telemetry?.record(operation, params.model as Model<any>, outcome, response.usage);
+        : response.stopReason === "length" ? "truncated"
+          : "success";
+    params.telemetry?.record(operation, params.model as Model<any>, callOutcome, response.usage);
+
+    if (callOutcome === "error" || callOutcome === "aborted") {
+      return { ok: false, reason: callOutcome };
+    }
+    if (callOutcome === "truncated") return { ok: false, reason: "truncated-output" };
+
     const text = extractTextFromAssistantMessage(response);
-    if (outcome !== "success") return { ok: false, outcome };
-    if (!text) return { ok: false, outcome: "invalid-output" };
+    if (!text) return { ok: false, reason: "invalid-output" };
     const json = extractJsonFromText(text);
-    return json ? { ok: true, json } : { ok: false, outcome: "invalid-output" };
+    return json ? { ok: true, json } : { ok: false, reason: "invalid-output" };
   } catch {
-    return { ok: false, outcome: "error" };
+    return { ok: false, reason: "error" };
   }
 };
+
+const recordReflectorFailure = (
+  params: ReflectorParams,
+  reason: ReflectorFailureReason,
+  inputItems: number,
+  inputTokens: number,
+  proposedItems = 0,
+): ReflectorResult => {
+  params.telemetry?.recordMemoryLifecycle(
+    "reflector",
+    reason as MemoryLifecycleOutcome,
+    { inputItems, inputTokens, proposedItems, acceptedItems: 0 },
+  );
+  return { ok: false, reason };
+};
+
+const normalizedReflectionKey = (content: string): string => content.trim().replace(/\s+/g, " ");
 
 export const runReflector = async (
-  params: ModelParams,
+  params: ReflectorParams,
   reflections: MemoryReflection[],
   observations: ObservationRecord[],
-): Promise<MemoryReflection[]> => {
-  const inputTokens = observations.reduce((sum, observation) => sum + estimateStringTokens(observation.content), 0);
-  const modelResult = await callModel(params, "reflector", REFLECTOR_SYSTEM, REFLECTOR_PROMPT(reflections, observations));
+): Promise<ReflectorResult> => {
+  const inputTokens = observations.reduce(
+    (sum, observation) => sum + estimateStringTokens(observation.content),
+    0,
+  );
+  const modelResult = await callModel(
+    params,
+    "reflector",
+    REFLECTOR_SYSTEM,
+    REFLECTOR_PROMPT(reflections, observations),
+  );
   if (!modelResult.ok) {
-    params.telemetry?.recordMemoryLifecycle("reflector", modelResult.outcome, {
-      inputItems: observations.length,
-      inputTokens,
-    });
-    return reflections;
+    return recordReflectorFailure(params, modelResult.reason, observations.length, inputTokens);
   }
 
+  let parsed: Record<string, unknown>;
   try {
-    const parsed = JSON.parse(modelResult.json) as Record<string, unknown>;
-    const newReflections = parsed.reflections;
-    if (!Array.isArray(newReflections)) {
-      params.telemetry?.recordMemoryLifecycle("reflector", "invalid-output", {
-        inputItems: observations.length,
-        inputTokens,
-      });
-      return reflections;
-    }
-
-    // Build content-to-index map for dedup/strengthening
-    const contentIndex = new Map<string, number>();
-    for (let i = 0; i < reflections.length; i++) {
-      contentIndex.set(reflectionContent(reflections[i]).trim().replace(/\s+/g, " "), i);
-    }
-
-    const merged: MemoryReflection[] = [...reflections];
-    for (const ref of newReflections) {
-      if (!ref || typeof ref !== "object") continue;
-      const r = ref as Record<string, unknown>;
-      if (typeof r.content !== "string" || !r.content.trim()) continue;
-      const content = r.content.trim();
-      const supportingIds = Array.isArray(r.supportingObservationIds)
-        ? (r.supportingObservationIds as unknown[]).filter((id): id is string => typeof id === "string")
-        : [];
-
-      if (supportingIds.length === 0) continue; // reflection without provenance — skip
-
-      // Strengthen: if content matches existing, merge supporting ids
-      const key = content.replace(/\s+/g, " ");
-      const existingIdx = contentIndex.get(key);
-      if (existingIdx !== undefined) {
-        const existing = merged[existingIdx];
-        if (typeof existing !== "string") {
-          const newIds = new Set([...existing.supportingObservationIds, ...supportingIds]);
-          merged[existingIdx] = { ...existing, supportingObservationIds: [...newIds] };
-        } else {
-          // Promote legacy string reflection to structured
-          merged[existingIdx] = { id: makeId(), content, supportingObservationIds: supportingIds, legacy: true };
-        }
-      } else {
-        merged.push({ id: makeId(), content, supportingObservationIds: supportingIds });
-        contentIndex.set(key, merged.length - 1);
-      }
-    }
-    const acceptedItems = Math.max(0, merged.length - reflections.length);
-    params.telemetry?.recordMemoryLifecycle(
-      "reflector",
-      newReflections.length === 0 ? "deliberate-empty" : "success",
-      {
-        inputItems: observations.length,
-        inputTokens,
-        proposedItems: newReflections.length,
-        acceptedItems,
-      },
-    );
-    return merged;
+    parsed = JSON.parse(modelResult.json) as Record<string, unknown>;
   } catch {
-    params.telemetry?.recordMemoryLifecycle("reflector", "invalid-output", {
-      inputItems: observations.length,
-      inputTokens,
-    });
-    return reflections;
-  }
-};
-
-export const runPruner = async (
-  params: ModelParams,
-  reflections: MemoryReflection[],
-  observations: ObservationRecord[],
-  _threshold: number,
-  coverageTags?: ReadonlyMap<string, ObservationCoverageTag>,
-): Promise<{ observations: ObservationRecord[]; fellBack: boolean }> => {
-  const obsText = coverageTags
-    ? renderObservationsWithCoverage(observations, coverageTags)
-    : observationsToPromptLines(observations).join("\n");
-
-  const inputTokens = observations.reduce((sum, observation) => sum + estimateStringTokens(observation.content), 0);
-  const modelResult = await callModel(params, "pruner", PRUNER_SYSTEM, PRUNER_PROMPT(reflections, observations, obsText));
-  if (!modelResult.ok) {
-    params.telemetry?.recordMemoryLifecycle("pruner", modelResult.outcome, {
-      inputItems: observations.length,
-      inputTokens,
-      acceptedItems: observations.length,
-    });
-    return { observations, fellBack: true };
+    return recordReflectorFailure(params, "invalid-output", observations.length, inputTokens);
   }
 
-  const completePruning = (kept: ObservationRecord[]) => {
-    params.telemetry?.recordMemoryLifecycle("pruner", "success", {
-      inputItems: observations.length,
-      inputTokens,
-      proposedItems: kept.length,
-      acceptedItems: kept.length,
+  const proposed = parsed.reflections;
+  if (!Array.isArray(proposed)) {
+    return recordReflectorFailure(params, "invalid-output", observations.length, inputTokens);
+  }
+
+  const activeObservationIds = new Set(observations.map((observation) => observation.id));
+  const validated: Array<{ content: string; supportingObservationIds: string[] }> = [];
+  for (const candidate of proposed) {
+    if (!candidate || typeof candidate !== "object") {
+      return recordReflectorFailure(params, "invalid-output", observations.length, inputTokens, proposed.length);
+    }
+    const record = candidate as Record<string, unknown>;
+    if (typeof record.content !== "string" || !record.content.trim()) {
+      return recordReflectorFailure(params, "invalid-output", observations.length, inputTokens, proposed.length);
+    }
+    if (!Array.isArray(record.supportingObservationIds)) {
+      return recordReflectorFailure(params, "invalid-provenance", observations.length, inputTokens, proposed.length);
+    }
+    const supportingIds = record.supportingObservationIds;
+    if (
+      supportingIds.length === 0
+      || supportingIds.some((id) => typeof id !== "string" || !activeObservationIds.has(id))
+      || new Set(supportingIds).size !== supportingIds.length
+    ) {
+      return recordReflectorFailure(params, "invalid-provenance", observations.length, inputTokens, proposed.length);
+    }
+    validated.push({
+      content: record.content.trim(),
+      supportingObservationIds: [...supportingIds] as string[],
     });
-    return { observations: kept, fellBack: false };
+  }
+
+  const merged: MemoryReflection[] = [...reflections];
+  const contentIndex = new Map<string, number>();
+  for (let index = 0; index < reflections.length; index++) {
+    contentIndex.set(normalizedReflectionKey(reflectionContent(reflections[index])), index);
+  }
+
+  let acceptedItems = 0;
+  for (const candidate of validated) {
+    const key = normalizedReflectionKey(candidate.content);
+    const existingIndex = contentIndex.get(key);
+    if (existingIndex === undefined) {
+      merged.push({
+        id: makeId(),
+        content: candidate.content,
+        supportingObservationIds: candidate.supportingObservationIds,
+      });
+      contentIndex.set(key, merged.length - 1);
+      acceptedItems++;
+      continue;
+    }
+
+    const existing = merged[existingIndex];
+    if (typeof existing === "string") {
+      merged[existingIndex] = {
+        id: makeId(),
+        content: candidate.content,
+        supportingObservationIds: candidate.supportingObservationIds,
+        legacy: true,
+      };
+      acceptedItems++;
+      continue;
+    }
+
+    const supportingObservationIds = [
+      ...new Set([...existing.supportingObservationIds, ...candidate.supportingObservationIds]),
+    ];
+    if (supportingObservationIds.length !== existing.supportingObservationIds.length) {
+      merged[existingIndex] = { ...existing, supportingObservationIds };
+      acceptedItems++;
+    }
+  }
+
+  const outcome = proposed.length === 0 ? "deliberate-empty" : "success";
+  params.telemetry?.recordMemoryLifecycle("reflector", outcome, {
+    inputItems: observations.length,
+    inputTokens,
+    proposedItems: proposed.length,
+    acceptedItems,
+  });
+  return {
+    ok: true,
+    outcome,
+    reflections: merged,
+    proposedItems: proposed.length,
+    acceptedItems,
   };
-
-  try {
-    const parsed = JSON.parse(modelResult.json) as Record<string, unknown>;
-    const keepIds = parsed.observationsToKeep;
-    if (!Array.isArray(keepIds)) {
-      params.telemetry?.recordMemoryLifecycle("pruner", "invalid-output", {
-        inputItems: observations.length,
-        inputTokens,
-        acceptedItems: observations.length,
-      });
-      return { observations, fellBack: true };
-    }
-
-    const keepSet = new Set(keepIds.filter((id): id is string => typeof id === "string"));
-    const kept = observations.filter((o) => keepSet.has(o.id));
-
-    // Fallback: if LLM pruning didn't work, use coverage-aware fallback
-    if (kept.length >= observations.length) {
-      if (coverageTags) {
-        // Keep uncited observations, drop cited first
-        const uncited = observations.filter((o) => (coverageTags.get(o.id) ?? "uncited") === "uncited");
-        const cited = observations.filter((o) => (coverageTags.get(o.id) ?? "uncited") !== "uncited");
-        // Drop low-priority cited observations first
-        const toDrop = cited.filter((o) => o.relevance === "low" || o.relevance === "medium");
-        if (toDrop.length > 0) {
-          const dropIds = new Set(toDrop.map((o) => o.id));
-          return completePruning([...uncited, ...cited.filter((o) => !dropIds.has(o.id))]);
-        }
-      }
-      // Last resort: drop low relevance
-      const relevanceOrder: Relevance[] = ["low", "medium", "high", "critical"];
-      const sorted = [...observations].sort((a, b) =>
-        relevanceOrder.indexOf(a.relevance) - relevanceOrder.indexOf(b.relevance)
-      );
-      const filtered = sorted.filter((o) => o.relevance === "high" || o.relevance === "critical");
-      if (filtered.length < sorted.length) return completePruning(filtered);
-    }
-
-    return completePruning(kept);
-  } catch {
-    params.telemetry?.recordMemoryLifecycle("pruner", "invalid-output", {
-      inputItems: observations.length,
-      inputTokens,
-      acceptedItems: observations.length,
-    });
-    return { observations, fellBack: true };
-  }
 };
 
-export const renderSummary = (reflections: MemoryReflection[], observations: ObservationRecord[]): string => {
+export const renderSummary = (
+  reflections: MemoryReflection[],
+  observations: ObservationRecord[],
+): string => {
   const parts: string[] = [];
   if (reflections.length > 0) {
     parts.push("Reflections:");
-    for (const r of reflections) {
-      if (typeof r === "string") parts.push(`- ${r}`);
-      else parts.push(`- [${r.id}] ${r.content}`);
+    for (const reflection of reflections) {
+      if (typeof reflection === "string") parts.push(`- ${reflection}`);
+      else parts.push(`- [${reflection.id}] ${reflection.content}`);
     }
   }
   if (observations.length > 0) {

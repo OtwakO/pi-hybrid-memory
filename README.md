@@ -108,7 +108,7 @@ Shows current memory state:
 
 ### `/hm-cache-info`
 
-Shows session-local telemetry for LLM calls owned by hybrid memory: observer, reflector, and pruner. It does not include the main Pi conversation.
+Shows session-local telemetry for LLM calls owned by hybrid memory: observer and reflector. It does not include the main Pi conversation.
 
 The command displays:
 
@@ -117,7 +117,7 @@ The command displays:
 - Observer epoch state: committed run count, estimated retained tokens, coverage anchor, and last reset reason
 - Whole-session observer continuity aggregates: proactive versus compaction catch-up calls, cold/warm counts, reset-reason histogram, warm provider hits/misses, minimum estimated capacity headroom, and baseline-pressure events/minimum fresh-delta capacity
 - Per-observer-call source, cold/warm status, epoch run number, locally predicted reusable-prefix tokens, projected request tokens, and effective epoch limit
-- Reflector/pruner lifecycle outcomes and aggregate input/result counts, including below-threshold skips, deliberate-empty reflection results, malformed output, errors, and aborts
+- Reflector lifecycle outcomes and aggregate input/result counts, including below-threshold skips, deliberate-empty results, malformed output, invalid provenance, truncation, errors, and aborts
 - Input, output, cache-read, and cache-write tokens
 - Cache-read ratio as `cacheRead / (input + cacheRead)` when usage is available
 - Provider-reported cost from the response
@@ -126,7 +126,7 @@ The command displays:
 
 Telemetry contains only model/operation metadata, usage, outcome, timestamp, and costs. It is held in memory, resets on `session_start`, and does not persist prompts, observations, source text, API keys, or headers.
 
-Hybrid-memory model calls use stable per-session, per-operation cache identities (`observer`, `reflector`, and `pruner`) and request long cache retention. Providers that support these options map them to their own prompt-cache or affinity mechanisms; unsupported providers ignore them.
+Hybrid-memory model calls use stable per-session, per-operation cache identities (`observer` and `reflector`) and request long cache retention. Providers that support these options map them to their own prompt-cache or affinity mechanisms; unsupported providers ignore them.
 
 Observer calls additionally use a bounded runtime-only append-only epoch. See [Observer epoch and cache reuse](#observer-epoch-and-cache-reuse) for its transaction, reset, compaction, and compatibility behavior.
 
@@ -182,9 +182,9 @@ Raw conversation → (Observer → Observations) → (Reflector → Reflections)
 ```
 
 1. **Observer** (LLM): At each turn end, extracts durable observations from new conversation when enough tokens have accumulated.
-2. **Reflector/Pruner** (LLM): At compaction time, synthesizes observations into reflections and removes redundant observations.
+2. **Memory fold**: At compaction time, the reflector may synthesize validated orientation anchors. Observation retirement is currently disabled: failed, truncated, malformed, or unsupported reflection output retains the complete pre-fold observation set.
 3. **VCC Pipeline** (algorithmic): Extracts goals, files, commits, preferences, blockers, and builds a compressed transcript.
-4. **Merge Pipeline**: Combines both layers into one summary, trimming low-relevance observations if over the token budget.
+4. **Merge Pipeline**: Combines both layers into one summary. When over budget it may omit low-relevance observations from the visible summary projection only; durable compaction details remain unchanged.
 
 ## Observer epoch and cache reuse
 
@@ -252,17 +252,18 @@ src/
 │   └── merger.ts         # VCC summary merge policy
 ├── om/
 │   ├── tokens.ts         # Token estimation
-│   ├── prompts.ts        # LLM prompts (observer, reflector, pruner)
+│   ├── prompts.ts        # LLM prompts (observer and reflector)
 │   ├── observer.ts       # LLM/tool observation extraction
 │   ├── observer-context.ts # Stable baseline/delta and compatibility identity
 │   ├── observer-epoch.ts # Bounded append-only transactional request context
-│   ├── compaction.ts     # Reflector + pruner + summary render
+│   ├── compaction.ts     # Validated reflection synthesis + summary render
+│   ├── memory-fold.ts    # Retention-first semantic fold interface
 │   ├── branch.ts         # Branch entry indexing & memory state
 │   ├── serialize.ts      # Entry → text serialization
 │   └── relevance.ts      # Relevance histogram
 └── merge/
     ├── budget.ts         # Structured priority-based summary budgeting
-    └── pipeline.ts       # Merge OM + VCC and synchronize retained details
+    └── pipeline.ts       # Merge visible OM + VCC projection; preserve durable details
 ```
 
 ## Running Tests

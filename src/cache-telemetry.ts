@@ -2,14 +2,16 @@ import type { Model, Usage } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { ObserverEpochManager } from "./om/observer-epoch.js";
 
-export type CacheOperation = "observer" | "reflector" | "pruner";
-export type CacheCallOutcome = "success" | "error" | "aborted";
-export type MemoryLifecycleOperation = "reflector" | "pruner";
+export type CacheOperation = "observer" | "reflector";
+export type CacheCallOutcome = "success" | "error" | "aborted" | "truncated";
+export type MemoryLifecycleOperation = "reflector";
 export type MemoryLifecycleOutcome =
   | "below-threshold"
   | "success"
   | "deliberate-empty"
   | "invalid-output"
+  | "invalid-provenance"
+  | "truncated-output"
   | "error"
   | "aborted";
 
@@ -180,12 +182,10 @@ export class CacheTelemetry {
   private observerEpochTotals = newObserverEpochAggregate();
   private readonly memoryLifecycleTotals = new Map<MemoryLifecycleOperation, MemoryLifecycleAggregate>([
     ["reflector", newMemoryLifecycleAggregate("reflector")],
-    ["pruner", newMemoryLifecycleAggregate("pruner")],
   ]);
   private readonly totals = new Map<CacheOperation, CacheTelemetryAggregate>([
     ["observer", newAggregate("observer")],
     ["reflector", newAggregate("reflector")],
-    ["pruner", newAggregate("pruner")],
   ]);
 
   constructor(private readonly recentLimit = 10) {}
@@ -288,10 +288,8 @@ export class CacheTelemetry {
     this.recent.length = 0;
     this.totals.set("observer", newAggregate("observer"));
     this.totals.set("reflector", newAggregate("reflector"));
-    this.totals.set("pruner", newAggregate("pruner"));
     this.observerEpochTotals = newObserverEpochAggregate();
     this.memoryLifecycleTotals.set("reflector", newMemoryLifecycleAggregate("reflector"));
-    this.memoryLifecycleTotals.set("pruner", newMemoryLifecycleAggregate("pruner"));
   }
 
   calls(): readonly CacheTelemetryCall[] {
@@ -345,12 +343,12 @@ export const formatCacheInfo = (
       `last reset: ${stats.lastResetReason ?? "none"}`,
     );
   }
-  const lifecycleAggregates = (["reflector", "pruner"] as const)
+  const lifecycleAggregates = (["reflector"] as const)
     .map(operation => telemetry.memoryLifecycleAggregate(operation))
     .filter(aggregate => aggregate.attempts > 0);
   const observerEpochAggregate = telemetry.observerEpochAggregate();
   if (calls.length === 0 && lifecycleAggregates.length === 0 && observerEpochAggregate.baselinePressureEvents === 0) {
-    lines.push("", "No observer, reflector, or pruner activity recorded in this session.");
+    lines.push("", "No observer or reflector activity recorded in this session.");
     return lines.join("\n");
   }
 

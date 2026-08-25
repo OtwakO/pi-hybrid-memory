@@ -49,7 +49,7 @@ describe("CacheTelemetry", () => {
 
   it("shows unknown instead of zero when usage or pricing is unavailable", () => {
     const telemetry = new CacheTelemetry();
-    telemetry.record("pruner", { ...model, cost: undefined } as any, "aborted", undefined, 1);
+    telemetry.record("reflector", { ...model, cost: undefined } as any, "aborted", undefined, 1);
 
     const output = formatCacheInfo(telemetry);
     expect(output).toContain("usage: unknown");
@@ -163,6 +163,6 @@ describe("CacheTelemetry", () => {
   });
 
   it("starts with a clear empty-session message", () => {
-    expect(formatCacheInfo(new CacheTelemetry())).toContain("No observer, reflector, or pruner activity recorded");
+    expect(formatCacheInfo(new CacheTelemetry())).toContain("No observer or reflector activity recorded");
   });
 });

@@ -4,7 +4,6 @@ import {
   OBSERVER_PROMPT,
   OBSERVER_RESPONSE_SCHEMA,
   OBSERVER_SYSTEM,
-  PRUNER_RESPONSE_SCHEMA,
   REFLECTOR_PROMPT,
   REFLECTOR_RESPONSE_SCHEMA,
   REFLECTOR_SYSTEM,
@@ -60,6 +59,5 @@ describe("memory prompt hardening", () => {
       "content",
       "supportingObservationIds",
     ]);
-    expect(PRUNER_RESPONSE_SCHEMA.required).toEqual(["observationsToKeep"]);
   });
 });

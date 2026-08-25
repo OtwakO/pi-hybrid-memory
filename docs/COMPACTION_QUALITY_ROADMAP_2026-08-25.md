@@ -428,9 +428,11 @@ This telemetry remains content-free and session-local unless persistence is sepa
 
 ## 12. Progressive implementation milestones
 
-### Q0 — Immediate safety patch
+### Q0 — Immediate safety patch — implemented locally
 
-Implement confirmed critical defects in this order:
+Implemented as a retention-first foundation rather than isolated guards. Production compaction now crosses one `foldMemory()` seam: below-threshold work is skipped, valid reflections may enrich memory, every failure retains the pre-fold state, and no observation-retirement interface exists in the active path.
+
+Implemented confirmed critical defects in this order:
 
 1. Disable all observation deletion from the current omission-sensitive keep-list pruner, including its local low/medium fallback. Until the approved retirement contract exists, every qualifying compaction retains the complete pre-prune observation set.
 2. Add final session/branch fence validation immediately before returning compaction content so navigation during reflector/pruner work cannot apply stale results.
@@ -443,6 +445,8 @@ Implement confirmed critical defects in this order:
 
 **Risk:** high correctness, small code surface
 **Rollback:** revert to retaining all observations
+**Verification:** 163 tests across 18 files pass, TypeScript and the production build pass, AFT reports no changed-scope diagnostics/dead code/unused exports, and the installed bundle matches the build byte-for-byte. An independent review found one observer-wait fence-transition defect; it was corrected with a shared append-only transition validator and session/navigation regressions before this checkpoint.
+
 **Done when:** no valid-looking model output, summary-budget trim, or stale branch result can silently delete or misapply observations.
 
 ### Q1 — Deep fold module and constrained reflection tool

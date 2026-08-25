@@ -432,12 +432,10 @@ describe("mergePipelines", () => {
 
     expect(result.trimmed).toBe(true);
     expect(result.protectedOverflow).toBe(true);
-    // Critical observations are protected even when they alone exceed the ceiling.
-    const detailsObsIds = result.details.observations.map(o => o.id);
-    const criticalObsIds = observations.filter(o => o.relevance === "critical").map(o => o.id);
-    expect(criticalObsIds.every(id => detailsObsIds.includes(id))).toBe(true);
+    // Projection trimming never retires durable observations.
+    expect(result.details.observations).toEqual(observations);
     const lowObsIds = observations.filter(o => o.relevance === "low").map(o => o.id);
-    expect(lowObsIds.some(id => detailsObsIds.includes(id))).toBe(false);
+    expect(lowObsIds.some(id => result.summary.includes(id))).toBe(false);
   });
 
   it("trims stale VCC transcript before low-relevance observations", () => {
@@ -484,7 +482,10 @@ describe("mergePipelines", () => {
     });
 
     expect(result.tokenCount).toBeLessThanOrEqual(90);
-    expect(result.details.observations.map(o => o.id)).toEqual(["high-new"]);
+    expect(result.details.observations).toEqual(observations);
+    expect(result.summary).not.toContain("low-old");
+    expect(result.summary).not.toContain("medium-old");
+    expect(result.summary).toContain("high-new");
   });
 
   it("does not trim when under budget", () => {

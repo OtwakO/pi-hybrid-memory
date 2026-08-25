@@ -8,7 +8,7 @@ vi.mock("@mariozechner/pi-ai", async (importOriginal) => {
 });
 
 import { CacheTelemetry } from "../src/cache-telemetry.js";
-import { runPruner, runReflector } from "../src/om/compaction.js";
+import { runReflector } from "../src/om/compaction.js";
 
 const model = {
   provider: "test-provider",
@@ -40,7 +40,7 @@ const observation = {
   sourceEntryIds: ["1234abcd"],
 };
 
-describe("reflector and pruner cache telemetry", () => {
+describe("reflector cache telemetry and validation", () => {
   beforeEach(() => completeSimpleMock.mockReset());
 
   it("records reflector response usage and accepted-result counts", async () => {
@@ -49,7 +49,7 @@ describe("reflector and pruner cache telemetry", () => {
     })));
     const telemetry = new CacheTelemetry();
 
-    await runReflector({
+    const result = await runReflector({
       model,
       apiKey: "key",
       telemetry,
@@ -59,6 +59,7 @@ describe("reflector and pruner cache telemetry", () => {
       },
     }, [], [observation]);
 
+    expect(result).toMatchObject({ ok: true, outcome: "success" });
     expect(completeSimpleMock.mock.calls[0][2]).toMatchObject({
       sessionId: "pi-hybrid-memory:session-123:reflector",
       cacheRetention: "long",
@@ -77,19 +78,18 @@ describe("reflector and pruner cache telemetry", () => {
     });
   });
 
-  it("records failed pruner response usage without treating it as valid output", async () => {
-    completeSimpleMock.mockResolvedValue(response("provider failed", "error"));
+  it("classifies length-limited output as truncation", async () => {
+    completeSimpleMock.mockResolvedValue(response("{\"reflections\":[", "length"));
     const telemetry = new CacheTelemetry();
 
-    const result = await runPruner({ model, apiKey: "key", telemetry }, [], [observation], 1_000);
+    const result = await runReflector({ model, apiKey: "key", telemetry }, [], [observation]);
 
-    expect(result).toEqual({ observations: [observation], fellBack: true });
-    expect(telemetry.calls()[0]).toMatchObject({ operation: "pruner", outcome: "error" });
-    expect(telemetry.memoryLifecycleAggregate("pruner")).toMatchObject({
+    expect(result).toEqual({ ok: false, reason: "truncated-output" });
+    expect(telemetry.calls()[0]).toMatchObject({ operation: "reflector", outcome: "truncated" });
+    expect(telemetry.memoryLifecycleAggregate("reflector")).toMatchObject({
       attempts: 1,
-      outcomes: { error: 1 },
+      outcomes: { "truncated-output": 1 },
       inputItems: 1,
-      acceptedItems: 1,
     });
   });
 
@@ -99,8 +99,11 @@ describe("reflector and pruner cache telemetry", () => {
       .mockResolvedValueOnce(response(JSON.stringify({ reflections: [] })))
       .mockResolvedValueOnce(response("not json"));
 
-    await runReflector({ model, apiKey: "key", telemetry }, [], [observation]);
-    await runReflector({ model, apiKey: "key", telemetry }, [], [observation]);
+    const empty = await runReflector({ model, apiKey: "key", telemetry }, [], [observation]);
+    const malformed = await runReflector({ model, apiKey: "key", telemetry }, [], [observation]);
+
+    expect(empty).toMatchObject({ ok: true, outcome: "deliberate-empty" });
+    expect(malformed).toEqual({ ok: false, reason: "invalid-output" });
 
     expect(telemetry.memoryLifecycleAggregate("reflector")).toMatchObject({
       attempts: 2,
@@ -111,26 +114,33 @@ describe("reflector and pruner cache telemetry", () => {
     });
   });
 
-  it("records pruner before and after counts", async () => {
-    const second = { ...observation, id: "bbbbbbbbbbbb", content: "second fact" };
+  it("fails closed when a proposed reflection cites an observation outside the active pool", async () => {
     completeSimpleMock.mockResolvedValue(response(JSON.stringify({
-      observationsToKeep: [observation.id],
+      reflections: [{ content: "unsupported", supportingObservationIds: ["bbbbbbbbbbbb"] }],
     })));
     const telemetry = new CacheTelemetry();
 
-    const result = await runPruner(
-      { model, apiKey: "key", telemetry },
-      [],
-      [observation, second],
-      1_000,
-    );
+    const result = await runReflector({ model, apiKey: "key", telemetry }, [], [observation]);
 
-    expect(result.observations).toEqual([observation]);
-    expect(telemetry.memoryLifecycleAggregate("pruner")).toMatchObject({
+    expect(result).toEqual({ ok: false, reason: "invalid-provenance" });
+    expect(telemetry.memoryLifecycleAggregate("reflector")).toMatchObject({
       attempts: 1,
-      outcomes: { success: 1 },
-      inputItems: 2,
-      acceptedItems: 1,
+      outcomes: { "invalid-provenance": 1 },
+      proposedItems: 1,
+      acceptedItems: 0,
     });
+  });
+
+  it("fails closed when supporting ids are duplicated", async () => {
+    completeSimpleMock.mockResolvedValue(response(JSON.stringify({
+      reflections: [{
+        content: "duplicate support",
+        supportingObservationIds: [observation.id, observation.id],
+      }],
+    })));
+
+    const result = await runReflector({ model, apiKey: "key" }, [], [observation]);
+
+    expect(result).toEqual({ ok: false, reason: "invalid-provenance" });
   });
 });
