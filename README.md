@@ -140,9 +140,9 @@ A call marked `warm` means the extension supplied the retained structured-messag
 
 ### `/hm-memory`
 
-Opens an interactive TUI overlay to browse all memory content:
-- **Tab 1 — Observations:** Color-coded by relevance (🔴 critical, 🟠 high, 🟡 medium, ⚪ low), with validated source-entry provenance for new observations and a scrollable list
-- **Tab 2 — Reflections:** Synthesized insights with supporting observation IDs; when empty, the picker explains whether the observation pool is still below the reflection gate
+Opens an interactive TUI overlay for the canonical current branch-memory projection:
+- **Tab 1 — Observations:** Current committed observations from the latest valid compaction plus pending post-boundary observations, color-coded by relevance (🔴 critical, 🟠 high, 🟡 medium, ⚪ low), with source provenance and a scrollable list
+- **Tab 2 — Reflections:** Current reflections from the latest valid compaction, with supporting observation IDs; when empty, the picker explains whether the observation pool is still below the reflection gate
 - **Tab 3 — Compactions:** VCC compaction summaries with full detail view
 - **Current Context Summary:** The latest merged context with its actual estimated in-context token count
 
@@ -177,7 +177,7 @@ Memory lookup previews are chronological and allocated fairly so later sources a
 
 Use an 8-character source ID from the Sources section when exact wording, paths, errors, commands, or decisions matter. Direct source lookup uses a separate 20,000-character safety cap and returns `source_unavailable` if the entry has been pruned from the current branch.
 
-Reflection lookup follows supporting observation IDs to their available source entries, preserving the provenance chain.
+Historical memory lookup spans valid compaction details and observation entries on the active branch, deduplicated by memory ID. Reflection lookup follows supporting observation IDs through their observation records to available source entries, preserving the provenance chain and reporting missing observations separately from missing source entries.
 
 ## How It Works
 

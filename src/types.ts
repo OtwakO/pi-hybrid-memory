@@ -87,8 +87,6 @@ export interface Entry {
   firstKeptEntryId?: string;
 }
 
-export type SupportedMemoryDetails = MemoryDetailsV4;
-
 const RELEVANCE_VALUES = new Set<Relevance>(["low", "medium", "high", "critical"]);
 
 const isObservationRecord = (value: unknown): value is ObservationRecord => {

@@ -39,25 +39,28 @@ const observationEntry = (record: ObservationRecord): Entry => {
   };
 };
 
-const reflectionCompactionEntry = (reflectionId: string): Entry => {
-  const details: MemoryDetailsV4 = {
+const memoryCompactionEntry = (
+  reflections: MemoryDetailsV4["reflections"],
+  observations: ObservationRecord[] = [],
+): Entry => ({
+  type: "compaction",
+  id: "compaction-entry",
+  timestamp: "2026-06-27T00:00:02.000Z",
+  summary: "summary",
+  details: {
     type: "observational-memory",
     version: 4,
-    observations: [],
-    reflections: [{
-      id: reflectionId,
-      content: `reflection ${reflectionId}`,
-      supportingObservationIds: [],
-    }],
-  };
-  return {
-    type: "compaction",
-    id: "compaction-entry",
-    timestamp: "2026-06-27T00:00:02.000Z",
-    summary: "summary",
-    details,
-  };
-};
+    observations,
+    reflections,
+  },
+});
+
+const reflectionCompactionEntry = (reflectionId: string): Entry =>
+  memoryCompactionEntry([{
+    id: reflectionId,
+    content: `reflection ${reflectionId}`,
+    supportingObservationIds: [],
+  }]);
 
 const registeredTool = () => {
   const registerTool = vi.fn();
@@ -110,6 +113,36 @@ describe("hm_recall memory ID compatibility", () => {
     expect(resultText(result)).toContain("Sources (bounded chronological previews):");
     expect(resultText(result)).toContain("source text");
     expect(resultText(result)).toContain("Use an 8-character source id with hm_recall to retrieve that exact entry.");
+  });
+
+  it("recalls observations that exist only in compaction details", async () => {
+    const record = observation(CURRENT_BASE36_MEMORY_ID);
+    const result = await execute(CURRENT_BASE36_MEMORY_ID, [
+      rawEntry(),
+      memoryCompactionEntry([], [record]),
+    ]);
+
+    expect(result.details.status).toBe("ok");
+    expect(result.details.observations[0].id).toBe(CURRENT_BASE36_MEMORY_ID);
+    expect(result.details.sourceEntries[0].content).toBe("source text");
+  });
+
+  it("recalls reflection evidence through supporting observations and sources", async () => {
+    const reflectionId = "mr6pp8nr000b";
+    const record = observation(CURRENT_BASE36_MEMORY_ID);
+    const result = await execute(reflectionId, [
+      rawEntry(),
+      memoryCompactionEntry([{
+        id: reflectionId,
+        content: `reflection ${reflectionId}`,
+        supportingObservationIds: [record.id],
+      }], [record]),
+    ]);
+
+    expect(result.details.reflections[0].id).toBe(reflectionId);
+    expect(result.details.observations[0].id).toBe(record.id);
+    expect(result.details.sourceEntries[0].content).toBe("source text");
+    expect(resultText(result)).toContain("Supporting observations:");
   });
 
   it("recalls current 12-character base36 reflection IDs", async () => {

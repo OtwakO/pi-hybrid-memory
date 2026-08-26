@@ -2,9 +2,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Entry } from "./types.js";
 import {
-  getMemoryState,
   rawTokensSinceLastBound,
 } from "./om/branch.js";
+import { buildBranchMemoryIndex } from "./om/branch-memory-index.js";
 import { countByRelevance, formatRelevanceHistogram } from "./om/relevance.js";
 import { buildMemoryMetrics, describeReflectionGate } from "./memory-metrics.js";
 import type { Runtime } from "./runtime.js";
@@ -17,7 +17,7 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
       const entries = ctx.sessionManager.getBranch() as Entry[];
       const sinceBound = rawTokensSinceLastBound(entries);
 
-      const memoryState = getMemoryState(entries);
+      const memoryState = buildBranchMemoryIndex(entries).current;
       const { committedObs, pendingObs } = memoryState;
       const memoryMetrics = buildMemoryMetrics(memoryState);
       const relevanceHistogram = countByRelevance([...committedObs, ...pendingObs]);

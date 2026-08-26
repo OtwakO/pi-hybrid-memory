@@ -1,12 +1,8 @@
 import type { Entry, MemoryReflection, ObservationRecord } from "./types.js";
+import type { CurrentBranchMemory } from "./om/branch-memory-index.js";
 import { reflectionContent } from "./om/compaction.js";
 import { estimateStringTokens } from "./om/tokens.js";
 
-export interface MemoryStateLike {
-  reflections: MemoryReflection[];
-  committedObs: ObservationRecord[];
-  pendingObs: ObservationRecord[];
-}
 
 export interface MemoryMetrics {
   reflectionCount: number;
@@ -45,7 +41,7 @@ export interface MemoryPickerInput {
 const contentTokens = (items: readonly { content: string }[]): number =>
   items.reduce((sum, item) => sum + estimateStringTokens(item.content), 0);
 
-export const buildMemoryMetrics = (state: MemoryStateLike): MemoryMetrics => {
+export const buildMemoryMetrics = (state: CurrentBranchMemory): MemoryMetrics => {
   const reflectionTokens = contentTokens(
     state.reflections.map(reflection => ({ content: reflectionContent(reflection) })),
   );

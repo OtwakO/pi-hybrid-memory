@@ -2,15 +2,10 @@
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import type { Entry, ObservationRecord, ReflectionRecord, MemoryReflection } from "../types.js";
-import { OBSERVATION_CUSTOM_TYPE, MEMORY_ID_PATTERN } from "../types.js";
+import type { Entry } from "../types.js";
+import { MEMORY_ID_PATTERN } from "../types.js";
+import { buildBranchMemoryIndex } from "../om/branch-memory-index.js";
 import { estimateEntryTokens } from "../om/tokens.js";
-
-const isObservationEntry = (entry: Entry): boolean =>
-  entry.type === "custom" && entry.customType === OBSERVATION_CUSTOM_TYPE;
-
-const isObservationEntryData = (v: unknown): v is { records: ObservationRecord[] } =>
-  !!v && typeof v === "object" && "records" in v && Array.isArray((v as Record<string, unknown>).records);
 
 interface MatchDetails {
   status: "ok" | "no_source" | "source_unavailable" | "not_found" | "invalid_id";
@@ -27,6 +22,7 @@ interface MatchDetails {
     contentOmitted?: boolean;
   }>;
   missingSourceIds: string[];
+  missingObservationIds: string[];
   message?: string;
 }
 
@@ -174,37 +170,6 @@ const renderSourceDetails = (
     return `${header}\n[no textual session log available]`;
   }).join("\n\n");
 
-const collectAllObservations = (entries: Entry[]): Map<string, ObservationRecord> => {
-  const map = new Map<string, ObservationRecord>();
-  for (const entry of entries) {
-    if (!isObservationEntry(entry)) continue;
-    if (!isObservationEntryData(entry.data)) continue;
-    for (const record of entry.data.records) {
-      map.set(record.id, record);
-    }
-  }
-  return map;
-};
-
-const collectAllReflections = (entries: Entry[]): MemoryReflection[] => {
-  const reflections: MemoryReflection[] = [];
-  for (const entry of entries) {
-    if (entry.type === "compaction" && entry.details) {
-      const details = entry.details as Record<string, unknown>;
-      if (details.type === "observational-memory" && Array.isArray(details.reflections)) {
-        reflections.push(...(details.reflections as MemoryReflection[]));
-      }
-    }
-  }
-  return reflections;
-};
-
-const findReflectionById = (reflections: MemoryReflection[], id: string): ReflectionRecord | undefined => {
-  for (const r of reflections) {
-    if (typeof r === "object" && "id" in r && r.id === id) return r as ReflectionRecord;
-  }
-  return undefined;
-};
 
 const textResult = (text: string, details: MatchDetails) => ({
   content: [{ type: "text" as const, text }],
@@ -212,7 +177,14 @@ const textResult = (text: string, details: MatchDetails) => ({
 });
 
 const emptyDetails = (status: MatchDetails["status"], memoryId: string, message: string): MatchDetails => ({
-  status, memoryId, observations: [], reflections: [], sourceEntries: [], missingSourceIds: [], message,
+  status,
+  memoryId,
+  observations: [],
+  reflections: [],
+  sourceEntries: [],
+  missingSourceIds: [],
+  missingObservationIds: [],
+  message,
 });
 
 export const registerRecallTool = (pi: ExtensionAPI): void => {
@@ -278,6 +250,9 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
         );
       }
 
+      if (details.missingObservationIds.length > 0) {
+        lines.push("", `Missing supporting observations: ${details.missingObservationIds.join(", ")}`);
+      }
       if (details.missingSourceIds.length > 0) {
         lines.push("", `Missing source entries: ${details.missingSourceIds.join(", ")}`);
       }
@@ -296,8 +271,9 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
       }
 
       const entries = ctx.sessionManager.getBranch() as Entry[];
+      const memoryIndex = buildBranchMemoryIndex(entries);
       if (SOURCE_ENTRY_ID_PATTERN.test(memoryId)) {
-        const sourceEntry = entries.find((entry) => entry.id === memoryId);
+        const sourceEntry = memoryIndex.sourceEntryById(memoryId);
         if (!sourceEntry) {
           const message = `Source entry ${memoryId} is not available on the current branch.`;
           return textResult(message, emptyDetails("source_unavailable", memoryId, message));
@@ -314,6 +290,7 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
           reflections: [],
           sourceEntries: sourceDetails,
           missingSourceIds: [],
+          missingObservationIds: [],
         };
         return textResult(
           `Source entry ${memoryId}:\n\n${renderSourceDetails(sourceDetails)}`,
@@ -326,23 +303,10 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
         return textResult(message, emptyDetails("invalid_id", memoryId, message));
       }
 
-      const allObs = collectAllObservations(entries);
-      const allReflections = collectAllReflections(entries);
-
-      // Check if it's an observation id
-      const observation = allObs.get(memoryId);
+      const observation = memoryIndex.observationById(memoryId);
       if (observation) {
-        const sourceEntries: Entry[] = [];
-        const missingSourceIds: string[] = [];
-        if (observation.sourceEntryIds && observation.sourceEntryIds.length > 0) {
-          const entryMap = new Map(entries.map((e) => [e.id, e]));
-          for (const sid of observation.sourceEntryIds) {
-            const entry = entryMap.get(sid);
-            if (entry) sourceEntries.push(entry);
-            else missingSourceIds.push(sid);
-          }
-        }
-
+        const { entries: sourceEntries, missingIds: missingSourceIds } =
+          memoryIndex.sourcesForObservation(memoryId);
         const sourceDetails = sourceEntryDetails(sourceEntries);
 
         const status: MatchDetails["status"] = missingSourceIds.length > 0 ? "source_unavailable" : sourceEntries.length > 0 ? "ok" : "no_source";
@@ -359,6 +323,7 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
           reflections: [],
           sourceEntries: sourceDetails,
           missingSourceIds,
+          missingObservationIds: [],
         };
 
         const text = sourceEntries.length > 0
@@ -368,23 +333,44 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
         return textResult(text, details);
       }
 
-      // Check if it's a reflection id
-      const reflection = findReflectionById(allReflections, memoryId);
+      const reflection = memoryIndex.reflectionById(memoryId);
       if (reflection) {
+        const evidence = memoryIndex.evidenceForReflection(memoryId);
+        const sourceDetails = sourceEntryDetails(evidence.entries);
+        const missingSourceIds = evidence.missingIds;
         const details: MatchDetails = {
-          status: "ok",
+          status: evidence.missingObservationIds.length > 0 || missingSourceIds.length > 0
+            ? "source_unavailable"
+            : "ok",
           memoryId,
-          observations: [],
-          reflections: [{
-            id: reflection.id,
-            content: reflection.content,
-          }],
-          sourceEntries: [],
-          missingSourceIds: [],
+          observations: evidence.observations.map(observation => ({
+            id: observation.id,
+            content: observation.content,
+            timestamp: observation.timestamp,
+            relevance: observation.relevance,
+          })),
+          reflections: [{ id: reflection.id, content: reflection.content }],
+          sourceEntries: sourceDetails,
+          missingSourceIds,
+          missingObservationIds: evidence.missingObservationIds,
         };
 
-        const text = `Reflection ${memoryId}:\n${reflection.content}`;
-        return textResult(text, details);
+        const sections = [`Reflection ${memoryId}:\n${reflection.content}`];
+        if (evidence.observations.length > 0) {
+          sections.push(
+            "Supporting observations:\n" + evidence.observations
+              .map(observation => `[${observation.id}] [${observation.relevance}] ${observation.content}`)
+              .join("\n"),
+          );
+        }
+        if (sourceDetails.length > 0) {
+          sections.push(
+            "Sources (bounded chronological previews):\n" +
+            "Use an 8-character source id with hm_recall to retrieve that exact entry.\n\n" +
+            renderSourceDetails(sourceDetails),
+          );
+        }
+        return textResult(sections.join("\n\n"), details);
       }
 
       const message = `No observation or reflection with id ${memoryId} was found on the current branch.`;

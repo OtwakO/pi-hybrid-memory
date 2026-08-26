@@ -4,11 +4,11 @@ import type { Entry, ObservationEntryData } from "./types.js";
 import { OBSERVATION_CUSTOM_TYPE } from "./types.js";
 import {
   firstRawIdAfter,
-  getMemoryState,
   resolveObservationCoverageAnchor,
   rawTokensSinceLastBound,
   rawTailEntriesBetween,
 } from "./om/branch.js";
+import { buildBranchMemoryIndex } from "./om/branch-memory-index.js";
 import { runObserver } from "./om/observer.js";
 import { serializeSourceAddressedBranchEntries } from "./om/serialize.js";
 import { operationCacheOptions } from "./cache-options.js";
@@ -76,12 +76,12 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
     if (!leafId) return;
     const coversUpToId = leafId;
 
-    const { reflections, committedObs, pendingObs } = getMemoryState(entries, (firstKept) => {
+    const { reflections, committedObs, pendingObs } = buildBranchMemoryIndex(entries, { onBoundaryRecovery: (firstKept) => {
       if (!runtime.boundaryRecoveryNotified && ctx.hasUI && ctx.ui) {
         ctx.ui.notify(`/hm-memory: prior compaction boundary "${firstKept}" not found in this branch — using fallback. Memory preserved; this commonly happens on sessions predating the extension. You can ignore this.`, "info");
         runtime.boundaryRecoveryNotified = true;
       }
-    });
+    } }).current;
     const baselineObservations = [...committedObs, ...pendingObs];
 
     const chunkEntries = rawTailEntriesBetween(entries, coversFromId, coversUpToId);

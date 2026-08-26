@@ -6,9 +6,9 @@ import {
   collectObservationsByCoverage,
   findLastCompactionIndex,
   gapRawEntries,
-  getMemoryState,
   resolveObservationCoverageAnchor,
 } from "./om/branch.js";
+import { buildBranchMemoryIndex } from "./om/branch-memory-index.js";
 import { estimateEntryTokens, estimateStringTokens } from "./om/tokens.js";
 import { serializeSourceAddressedBranchEntries } from "./om/serialize.js";
 import { runObserver } from "./om/observer.js";
@@ -89,12 +89,12 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         compactionFence = advancedFence;
       }
 
-      const memoryState = getMemoryState(entries, (firstKept) => {
+      const memoryState = buildBranchMemoryIndex(entries, { onBoundaryRecovery: (firstKept) => {
         if (!runtime.boundaryRecoveryNotified && ctx.hasUI && ctx.ui) {
           ctx.ui.notify(`/hm-memory: prior compaction boundary "${firstKept}" not found — using fallback. Old session? Existing memory preserved.`, "info");
           runtime.boundaryRecoveryNotified = true;
         }
-      });
+      } }).current;
       let gapObservationData: ObservationEntryData | null = null;
       const gap = gapRawEntries(entries, firstKeptEntryId);
 

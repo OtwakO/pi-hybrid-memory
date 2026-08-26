@@ -4,11 +4,11 @@
 import { describe, it, expect } from "vitest";
 import {
   collectObservationsByCoverage,
-  getMemoryState,
   rawTokensSinceLastCompaction,
   findLastCompactionIndex,
   resolveObservationCoverageAnchor,
 } from "../src/om/branch.js";
+import { buildBranchMemoryIndex } from "../src/om/branch-memory-index.js";
 import { readMemoryDetails } from "../src/types.js";
 import { OBSERVATION_CUSTOM_TYPE } from "../src/types.js";
 import type {
@@ -120,7 +120,7 @@ describe("kept-boundary recovery (retrofit edge case)", () => {
         userEntry("after-comp-b"),
       ];
 
-      const state = getMemoryState(entries);
+      const state = buildBranchMemoryIndex(entries).current;
 
       // No throw — regression fixed.
       expect(state.reflections).toEqual([]);
@@ -137,7 +137,7 @@ describe("kept-boundary recovery (retrofit edge case)", () => {
         userEntry("after-comp"),
       ];
       const recovered: string[] = [];
-      getMemoryState(entries, (firstKept) => recovered.push(firstKept));
+      buildBranchMemoryIndex(entries, { onBoundaryRecovery: (firstKept) => recovered.push(firstKept) });
       expect(recovered).toEqual(["missing-id"]);
     });
 
@@ -147,7 +147,7 @@ describe("kept-boundary recovery (retrofit edge case)", () => {
         userEntry("kept-entry"),
       ];
       const recovered: string[] = [];
-      getMemoryState(entries, (firstKept) => recovered.push(firstKept));
+      buildBranchMemoryIndex(entries, { onBoundaryRecovery: (firstKept) => recovered.push(firstKept) });
       expect(recovered).toEqual([]);
     });
 
@@ -157,7 +157,7 @@ describe("kept-boundary recovery (retrofit edge case)", () => {
       comp.firstKeptEntryId = undefined;
       const entries: Entry[] = [comp, userEntry("kept-entry")];
       const recovered: string[] = [];
-      expect(() => getMemoryState(entries, (firstKept) => recovered.push(firstKept))).not.toThrow();
+      expect(() => buildBranchMemoryIndex(entries, { onBoundaryRecovery: (firstKept) => recovered.push(firstKept) })).not.toThrow();
       expect(recovered).toEqual([]);
     });
 
@@ -173,7 +173,7 @@ describe("kept-boundary recovery (retrofit edge case)", () => {
         observationCustomEntry("obs-b", obsData("raw-b", "raw-b", [obsRecord("cccccccccccc", "second chunk fact")])),
       ];
 
-      const state = getMemoryState(entries);
+      const state = buildBranchMemoryIndex(entries).current;
 
       expect(state.pendingObs.map((o) => o.content)).toEqual([
         "first chunk fact",
@@ -189,7 +189,7 @@ describe("kept-boundary recovery (retrofit edge case)", () => {
         compactionEntry("comp1", "missing", omDetails(prior)),
         userEntry("after-comp"),
       ];
-      const state = getMemoryState(entries);
+      const state = buildBranchMemoryIndex(entries).current;
       expect(state.committedObs).toHaveLength(1);
       expect(state.committedObs[0].content).toBe("preserved-committed-fact");
     });
@@ -204,7 +204,7 @@ describe("kept-boundary recovery (retrofit edge case)", () => {
         observationCustomEntry("obs-a", obsData("raw-after", "raw-after", [obsRecord("dddddddddddd", "later fact")])),
       ];
 
-      const state = getMemoryState(entries);
+      const state = buildBranchMemoryIndex(entries).current;
       expect(state.pendingObs.map((o) => o.content)).toEqual(["later fact"]);
     });
   });
@@ -345,8 +345,8 @@ describe("idempotency of recovery", () => {
       userEntry("after-comp"),
       observationCustomEntry("obs-a", obsData("after-comp", "after-comp", [obsRecord("bbbbbbbbbbbb", "pending fact")])),
     ];
-    const a = getMemoryState(entries);
-    const b = getMemoryState(entries);
+    const a = buildBranchMemoryIndex(entries).current;
+    const b = buildBranchMemoryIndex(entries).current;
     expect(b).toEqual(a);
   });
 
@@ -355,9 +355,9 @@ describe("idempotency of recovery", () => {
     // trigger / compaction hook) own the one-shot notice via Runtime.boundaryRecoveryNotified.
     const entries: Entry[] = [compactionEntry("comp1", "missing", omDetails()), userEntry("x")];
     const recovered: string[] = [];
-    getMemoryState(entries, (firstKept) => recovered.push(firstKept));
-    getMemoryState(entries, (firstKept) => recovered.push(firstKept));
-    getMemoryState(entries, (firstKept) => recovered.push(firstKept));
+    buildBranchMemoryIndex(entries, { onBoundaryRecovery: (firstKept) => recovered.push(firstKept) });
+    buildBranchMemoryIndex(entries, { onBoundaryRecovery: (firstKept) => recovered.push(firstKept) });
+    buildBranchMemoryIndex(entries, { onBoundaryRecovery: (firstKept) => recovered.push(firstKept) });
     expect(recovered).toEqual(["missing", "missing", "missing"]);
   });
 });

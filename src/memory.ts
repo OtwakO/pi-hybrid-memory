@@ -4,8 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Runtime } from "./runtime.js";
 import { matchesKey, Key, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { Entry, ObservationRecord, MemoryReflection, ReflectionRecord } from "./types.js";
-import { OBSERVATION_CUSTOM_TYPE } from "./types.js";
-import { getMemoryState } from "./om/branch.js";
+import { buildBranchMemoryIndex } from "./om/branch-memory-index.js";
 import { reflectionContent, renderSummary, deriveCoverageTags, type ObservationCoverageTag } from "./om/compaction.js";
 import { estimateStringTokens } from "./om/tokens.js";
 import {
@@ -60,21 +59,6 @@ function parseMouse(data: string): { button: number; type: "press" | "release" }
   return out;
 }
 
-
-const isObservationEntry = (e: Entry): boolean => e.type === "custom" && e.customType === OBSERVATION_CUSTOM_TYPE;
-const isObsData = (v: unknown): v is { records: ObservationRecord[] } =>
-  !!v && typeof v === "object" && "records" in v && Array.isArray((v as Record<string, unknown>).records);
-
-function collectObservations(entries: Entry[]): ObservationRecord[] {
-  const all: ObservationRecord[] = [];
-  for (const e of entries) if (isObservationEntry(e) && isObsData(e.data)) all.push(...e.data.records);
-  all.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  return all;
-}
-
-function collectCompactions(entries: Entry[]): Entry[] {
-  return entries.filter(e => e.type === "compaction");
-}
 
 // ═══════════════════════════════════════════════════════════════════════
 // MemoryOverlay
@@ -576,10 +560,12 @@ export function registerMemoryCommand(pi: ExtensionAPI, runtime: Runtime): void 
 
       runtime.ensureConfig(ctx);
       const entries = ctx.sessionManager.getBranch() as Entry[];
-      const memoryState = getMemoryState(entries);
-      const obs = collectObservations(entries);
+      const memoryIndex = buildBranchMemoryIndex(entries);
+      const memoryState = memoryIndex.current;
+      const obs = [...memoryState.committedObs, ...memoryState.pendingObs]
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
       const refs = memoryState.reflections;
-      const comp = collectCompactions(entries);
+      const comp = memoryIndex.compactions;
 
       // Build OM context summary using the exact renderSummary that compaction uses
       const allObservations = [...memoryState.committedObs, ...memoryState.pendingObs];

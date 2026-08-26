@@ -5,7 +5,6 @@ import type {
   ObservationEntryData,
   ObservationRecord,
   SourceProgress,
-  SupportedMemoryDetails,
 } from "../types.js";
 import { OBSERVATION_CUSTOM_TYPE, isObservationEntryData, readMemoryDetails } from "../types.js";
 import { estimateEntryTokens } from "./tokens.js";
@@ -97,7 +96,7 @@ export const rawTokensSinceLastCompaction = (entries: Entry[]): number => {
  * calling layer (trigger / hook) debounces display via a Runtime flag so the
  * user sees exactly one notice per session. The data layer itself stays pure.
  */
-const resolveKeptBoundaryIndex = (
+export const resolveKeptBoundaryIndex = (
   entries: Entry[],
   compactionIdx: number,
   onRecover?: (firstKept: string) => void,
@@ -147,66 +146,6 @@ export const rawTailEntriesBetween = (entries: Entry[], fromId: string, untilId:
   return result;
 };
 
-const getPriorMemoryDetails = (entries: Entry[]): SupportedMemoryDetails | undefined => {
-  const idx = findLastCompactionIndex(entries);
-  if (idx === -1) return undefined;
-  return readMemoryDetails(entries[idx].details);
-};
-
-const collectObservationsPendingNextCompaction = (
-  entries: Entry[],
-  onRecover?: (firstKept: string) => void,
-): ObservationEntryData[] => {
-  const idToIdx = new Map<string, number>();
-  for (let i = 0; i < entries.length; i++) idToIdx.set(entries[i].id, i);
-
-  const priorCompactionIdx = findLastCompactionIndex(entries);
-  const thresholdIdx = priorCompactionIdx === -1
-    ? -1
-    : resolveKeptBoundaryIndex(entries, priorCompactionIdx, onRecover);
-
-  const result: ObservationEntryData[] = [];
-  for (const entry of entries) {
-    if (!isObservationEntry(entry)) continue;
-    if (!isObservationEntryData(entry.data)) continue;
-    const fromIdx = idToIdx.get(entry.data.coversFromId);
-    if (fromIdx === undefined) continue;
-    if (fromIdx >= thresholdIdx) result.push(entry.data);
-  }
-  return result;
-};
-
-export interface MemoryState {
-  reflections: MemoryReflection[];
-  committedObs: ObservationRecord[];
-  pendingObs: ObservationRecord[];
-}
-
-/**
- * Returns the live OM state for the current branch.
- *
- * `committedObs`/`reflections` come from the last compaction's `details` (if
- * any) and are not invalidated by boundary recovery. `pendingObs` collects
- * observation entries written after the kept boundary of the last
- * compaction; on boundary recovery these expand to "everything written after
- * the compaction entry itself" — a safe over-inclusion since the reflector's
- * `contentIndex` dedup absorbs any re-evaluation.
- *
- * `onRecover` (optional) fires if boundary recovery was exercised; callers
- * in interactive contexts should debounce it through Runtime.
- */
-export const getMemoryState = (
-  entries: Entry[],
-  onRecover?: (firstKept: string) => void,
-): MemoryState => {
-  const priorDetails = getPriorMemoryDetails(entries);
-  const pendingData = collectObservationsPendingNextCompaction(entries, onRecover);
-  return {
-    reflections: priorDetails?.reflections ?? [],
-    committedObs: priorDetails?.observations ?? [],
-    pendingObs: pendingData.flatMap((d) => d.records),
-  };
-};
 
 /**
  * Collect observation-carrying entries whose `coversFromId` falls in the
