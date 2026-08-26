@@ -1,7 +1,7 @@
 # Compaction Quality, Main-Context Efficiency, and Fold Reliability Roadmap
 
 **Date:** 2026-08-25
-**Status:** Design approved for tracking; implementation not started
+**Status:** Q0/Q1 and branch-read foundations implemented; Q2–Q4 deep design revised on 2026-08-26, awaiting lifecycle-journal approval
 **Supersedes for ordering:** cache-prefix milestones G/H in `THIRD_PARTY_REVIEW_VERIFICATION_2026-08-25.md` until fold correctness and compaction effectiveness are established
 
 ## 1. Purpose
@@ -333,37 +333,28 @@ Tool output should be sized from the maximum valid serialized result, not from a
 
 ## 9. Durable evidence and projection decision gate
 
-A high-quality solution likely needs an additive distinction:
+The 2026-08-26 deep audit rejected repeated full retired-evidence snapshots and refined the target into three separate planes:
 
 ```text
-active observations        included in normal memory projection
-retired evidence           omitted from normal projection but recallable
-reflections                durable synthesized orientation
+observation custom entries       immutable evidence written once
+V5 compaction lifecycle records  immutable reflection/retirement/supersession events written once
+compaction summary               bounded deterministic main-model projection
 ```
 
-Potential additive schema:
+The recommended target is a **branch-local memory journal with a materialized in-memory projection**, specified in `docs/MEMORY_LIFECYCLE_DESIGN_2026-08-26.md`.
 
-```ts
-interface RetiredObservationEvidence {
-  observation: ObservationRecord;
-  retiredAt: string;
-  reason: "fully-absorbed" | "exact-duplicate" | "superseded";
-  preservedByReflectionIds: string[];
-}
-```
+V5 details should contain only the reflection revisions and lifecycle events created by that successful fold. They should not repeat full active or retired observation arrays. The canonical branch-memory index replays observation entries and V5 lifecycle records to derive active observations, retired observations, current reflections, superseded reflections, and preservation links.
 
-Open decisions requiring discussion before implementation:
+Verified Pi behavior supports this model: custom entries remain outside LLM context, compaction details persist atomically with the summary, `getBranch()` follows the active parent path, branch navigation naturally excludes later events, and session forks copy the selected path.
 
-1. Store retired evidence inside a new compaction-details version or append a separate custom entry. A separate entry additionally requires partial-write recovery because it cannot be atomic with Pi's compaction write.
-2. Whether `hm_recall(reflectionId)` should recursively show supporting observations and bounded source previews.
-3. Carry-forward policy across every later compaction so evidence does not disappear when older compaction entries leave the current branch view.
-4. Lookup scope and branch/fork behavior: current branch only, ancestor path, or another explicitly indexed scope.
-5. ID uniqueness and duplicate handling across carried-forward evidence.
-6. Whether "recallable" guarantees full observation text, bounded source evidence, or paginated/chunked retrieval. Current exact-source lookup is itself bounded.
-7. Retention policy for retired evidence and whether it may ever expire.
-8. Migration behavior for existing V4 compactions.
+Implementation remains gated because retirement changes automatic context. The approved safe sequence is:
 
-Until this decision is approved, no new observation-deletion policy should ship.
+1. V5 journal reader/writer and immutable reflection revisions with retirement disabled.
+2. Deterministic exact-duplicate retirement only.
+3. Reflection supersession with mandatory preservation-obligation transfer.
+4. Semantic `fully-absorbed` or superseded retirement only after the 300/600/900 quality harness demonstrates acceptable false-retirement behavior.
+
+Until the lifecycle-journal decision is approved, no new observation-retirement policy should ship.
 
 ## 10. Main-context projection and summary budgeting
 
@@ -469,19 +460,20 @@ Current implementation:
 
 **Done when:** representative large pools reliably produce valid reflection outcomes without free-form JSON parsing or unbounded nested-agent execution.
 
-### Q2 — Retired-evidence persistence decision
+### Q2 — Branch-local lifecycle journal decision
 
-- Decide and document the additive data shape and migration policy.
-- Add direct and reflection-linked recall behavior.
-- Prove old sessions remain readable.
-- Do not implement retirement before this decision is approved.
+- Approve the V5 journal shape in `docs/MEMORY_LIFECYCLE_DESIGN_2026-08-26.md`.
+- Persist one-time reflection revisions and lifecycle events in successful compaction details.
+- Derive current state by replaying the active branch instead of copying full active/retired snapshots forward.
+- Keep V3/V4 readable, but do not let legacy-only evidence constrain the target design or become retireable without a matching custom observation record.
+- Implement the V5 reader/writer first with observation retirement disabled.
 
 **Risk:** high/persisted schema
 **Decision gate:** user approval required.
 
-### Q3 — Retirement architecture decision and local safety policy
+### Q3 — Retirement architecture and local safety policy
 
-Before choosing orchestration, compare three designs against the Q6 fixtures:
+The first enabled retirement class should be deterministic exact duplicates only. Before enabling broader semantic retirement, compare three designs against the Q6 fixtures:
 
 1. Deterministic-only retirement for locally provable exact duplicates and explicit supersession.
 2. Preservation/retirement claims emitted in the reflection call.
