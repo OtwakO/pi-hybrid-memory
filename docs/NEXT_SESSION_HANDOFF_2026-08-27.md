@@ -35,7 +35,7 @@ Phase A intentionally did not reduce the active observation baseline. It fixed p
 
 ## Ultimate goal
 
-Build the most token-efficient long-session memory system we can achieve **by design**, while simultaneously preserving the highest practical memory quality and provider-independent cache reuse.
+Build the most token- and disk-efficient long-session memory system we can achieve **by design**, while simultaneously preserving the highest practical memory quality and provider-independent cache reuse.
 
 These goals reinforce rather than replace one another:
 
@@ -44,8 +44,9 @@ These goals reinforce rather than replace one another:
 - Stable deterministic prefixes improve cache reuse without hiding evidence from the model.
 - Durable recall permits safely retired evidence to leave normal context without becoming lost.
 - Correct lifecycle convergence prevents observation and reflection baselines from growing forever.
+- One-time durable records and bounded projections prevent extension-owned session storage from accumulating repeated full memory snapshots.
 
-Do not optimize one metric in isolation. A smaller prompt is not an improvement if it loses required facts. A higher cache-hit ratio is not an improvement if it depends on stale, incomplete, or branch-invalid memory. Retaining every historical detail in active context is not higher quality if context rot and attention dilution make the useful facts harder to use.
+Do not optimize one metric in isolation. A smaller prompt is not an improvement if it loses required facts. A higher cache-hit ratio is not an improvement if it depends on stale, incomplete, or branch-invalid memory. A smaller session file is not an improvement if unique evidence or rollback history is silently destroyed. Retaining every historical detail in active context or repeatedly copying it into persisted snapshots is not higher quality if context rot, attention dilution, and cumulative disk growth make long sessions impractical.
 
 The target balance is:
 
@@ -53,6 +54,7 @@ The target balance is:
 maximum practical memory fidelity
 + minimum necessary active context
 + maximum quality-neutral prefix stability
++ approximately linear extension-owned durable storage
 + durable exact recall outside normal context
 ```
 
@@ -64,9 +66,10 @@ Use this order when trade-offs appear:
 2. Validated provenance and retention safety.
 3. Correct branch/session lifecycle behavior.
 4. Effective context and attention reduction.
-5. Operational reliability.
-6. Provider-independent cache efficiency.
-7. Raw extension-model monetary cost.
+5. Bounded, approximately linear extension-owned disk growth.
+6. Operational reliability.
+7. Provider-independent cache efficiency.
+8. Raw extension-model monetary cost.
 
 Do not remove chronology, corrections, identifiers, paths, versions, errors, decisions, rationale, constraints, unresolved work, or provenance merely to relieve token pressure.
 
@@ -75,6 +78,18 @@ Do not accelerate semantic retirement because one session reached the capacity c
 ## Architectural and coding standards
 
 Every milestone must preserve these engineering constraints:
+
+### Treat disk as a first-class resource
+
+- Full observation evidence, reflection revisions, and lifecycle events should each be persisted once whenever Pi's branch journal can reconstruct current state from them.
+- Do not copy complete active or retired memory archives into every compaction detail record.
+- Keep the model-visible compaction summary bounded and deterministic; under Pi's append-only contract each summary is necessarily persisted again, so compaction frequency and actual summary bytes must be measured.
+- Measure durable bytes by category: observation entries, reflection/lifecycle details, compaction summaries, telemetry/diagnostics, and compatibility records.
+- Prefer reconstructible projections and indexes in memory rather than persisted duplicate snapshots.
+- Do not add checkpoints, caches, or denormalized indexes on disk until replay performance is measured and requires them; any future checkpoint must be disposable and rebuildable.
+- Automatic lifecycle retirement removes evidence from active context but does not physically reclaim existing JSONL bytes. Do not misreport retirement as disk reclamation.
+- Physical session compaction or vacuuming must remain a later, explicit, branch-aware, backup-preserving, dry-run-first maintenance operation. It must not be hidden inside normal `/compact` behavior.
+- Never delete unique information-bearing evidence automatically merely because it is old, low relevance, or consumes disk.
 
 ### Prefer Pi-native capabilities
 
@@ -234,11 +249,14 @@ Requirements:
 
 This is the milestone expected to provide major long-term relief from observer baseline growth.
 
-### Milestone 6 — Effectiveness and cache refinement
+### Milestone 6 — Effectiveness, disk, and cache refinement
 
 Only after lifecycle correctness and convergence are proven:
 
 - add active/retired token accounting;
+- add session growth accounting by durable record category and bytes per compaction;
+- verify V5 details remain incremental rather than accumulating snapshots;
+- measure repeated compaction-summary bytes separately from one-time evidence bytes;
 - report observer baseline size and minimum fresh-delta headroom;
 - report summary section contributions and projected post-compaction context;
 - confirm protected overflow becomes exceptional;
@@ -249,14 +267,14 @@ Do not improve cache metrics by withholding active evidence or weakening chronol
 
 ## Expected relief by milestone
 
-| Milestone | Near-boundary warning | Long-term baseline growth |
-|---|---:|---:|
-| Capacity-aware segmentation | Strong mitigation for small overruns | None |
-| Exact-duplicate retirement | Possible modest relief | Modest, workload-dependent |
-| Reflection supersession | Limited direct relief | Bounds reflection revisions |
-| Quality harness | No runtime relief | Establishes safe decision evidence |
-| Validated semantic retirement | Major expected relief | Primary convergence mechanism |
-| Cache/effectiveness tuning | Operational refinement | No replacement for lifecycle convergence |
+| Milestone | Near-boundary warning | Long-term baseline growth | Disk effect |
+|---|---:|---:|---:|
+| Capacity-aware segmentation | Strong mitigation for small overruns | None | Neutral |
+| Exact-duplicate retirement | Possible modest relief | Modest, workload-dependent | Small future-summary reduction; no existing-byte reclamation |
+| Reflection supersession | Limited direct relief | Bounds reflection revisions | Bounds future current-reflection projection; old revisions remain one-time records |
+| Quality harness | No runtime relief | Establishes safe decision evidence | Test-only |
+| Validated semantic retirement | Major expected relief | Primary convergence mechanism | Reduces future summary repetition; preserves one-time evidence |
+| Effectiveness/disk/cache tuning | Operational refinement | No replacement for lifecycle convergence | Measures and bounds remaining repeated storage |
 
 ## First actions in the fresh session
 
