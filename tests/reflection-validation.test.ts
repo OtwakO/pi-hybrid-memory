@@ -22,7 +22,7 @@ describe("validateAndMergeReflections", () => {
     }])).toEqual({ ok: false, reason: "invalid-provenance" });
   });
 
-  it("strengthens an existing reflection without mutating the input", () => {
+  it("keeps an existing reflection revision immutable when extra support is proposed", () => {
     const existing: MemoryReflection[] = [{
       id: "bbbbbbbbbbbb",
       content: "durable reflection",
@@ -37,13 +37,13 @@ describe("validateAndMergeReflections", () => {
     expect(result).toMatchObject({
       ok: true,
       proposedItems: 1,
-      acceptedItems: 1,
+      acceptedItems: 0,
       addedItems: 0,
-      strengthenedItems: 1,
+      strengthenedItems: 0,
       supportedObservationIds: [observation.id],
       reflections: [{
         id: "bbbbbbbbbbbb",
-        supportingObservationIds: [observation.id],
+        supportingObservationIds: [],
       }],
     });
     expect(existing[0]).toEqual({

@@ -83,12 +83,42 @@ describe("memory details compatibility reader", () => {
     });
   });
 
-  it("rejects unknown future versions and malformed nested records", () => {
+  it("reads strict V5 lifecycle details and rejects malformed or unknown versions", () => {
     expect(readMemoryDetails({
       type: "observational-memory",
       version: 5,
-      observations: [],
-      reflections: [],
+      generation: { inputFingerprint: "fingerprint" },
+      reflectionsAdded: [{
+        id: "bbbbbbbbbbbb",
+        content: "new reflection",
+        supportingObservationIds: ["aaaaaaaaaaaa"],
+      }],
+      observationsRetired: [],
+      reflectionsSuperseded: [],
+    })).toEqual({
+      type: "observational-memory",
+      version: 5,
+      generation: { inputFingerprint: "fingerprint" },
+      reflectionsAdded: [{
+        id: "bbbbbbbbbbbb",
+        content: "new reflection",
+        supportingObservationIds: ["aaaaaaaaaaaa"],
+      }],
+      observationsRetired: [],
+      reflectionsSuperseded: [],
+    });
+    expect(readMemoryDetails({
+      type: "observational-memory",
+      version: 6,
+      generation: { inputFingerprint: "future" },
+    })).toBeUndefined();
+    expect(readMemoryDetails({
+      type: "observational-memory",
+      version: 5,
+      generation: { inputFingerprint: "fingerprint" },
+      reflectionsAdded: [],
+      observationsRetired: ["not-yet-supported"],
+      reflectionsSuperseded: [],
     })).toBeUndefined();
     expect(readMemoryDetails({
       type: "observational-memory",

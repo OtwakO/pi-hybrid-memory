@@ -562,6 +562,13 @@ export function registerMemoryCommand(pi: ExtensionAPI, runtime: Runtime): void 
       const entries = ctx.sessionManager.getBranch() as Entry[];
       const memoryIndex = buildBranchMemoryIndex(entries);
       const memoryState = memoryIndex.current;
+      if (memoryIndex.issues.length > 0) {
+        const latestIssue = memoryIndex.issues.at(-1);
+        ctx.ui.notify(
+          `Hybrid memory: ${memoryIndex.issues.length} persisted memory batch(es) were rejected; prior valid memory is shown.${latestIssue ? ` Latest: ${latestIssue.entryId} — ${latestIssue.detail}` : ""}`,
+          "warning",
+        );
+      }
       const obs = [...memoryState.committedObs, ...memoryState.pendingObs]
         .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
       const refs = memoryState.reflections;

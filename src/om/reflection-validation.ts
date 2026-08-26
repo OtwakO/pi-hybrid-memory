@@ -63,7 +63,7 @@ export const validateAndMergeReflections = (
   }
 
   let addedItems = 0;
-  let strengthenedItems = 0;
+  const strengthenedItems = 0;
   const supportedObservationIds = new Set<string>();
   for (const candidate of proposal) {
     const content = candidate.content.trim();
@@ -80,24 +80,11 @@ export const validateAndMergeReflections = (
     }
 
     const existing = merged[existingIndex];
-    if (typeof existing === "string") {
-      merged[existingIndex] = {
-        id: makeId(),
-        content,
-        supportingObservationIds,
-        legacy: true,
-      };
-      strengthenedItems++;
-      continue;
-    }
-
-    const mergedSupportingIds = [
-      ...new Set([...existing.supportingObservationIds, ...supportingObservationIds]),
-    ];
-    if (mergedSupportingIds.length !== existing.supportingObservationIds.length) {
-      merged[existingIndex] = { ...existing, supportingObservationIds: mergedSupportingIds };
-      strengthenedItems++;
-    }
+    // Existing reflection revisions are immutable. Support strengthening will
+    // create and supersede a new revision only after the lifecycle contract can
+    // transfer preservation obligations safely. Phase A therefore keeps the
+    // existing revision unchanged.
+    void existing;
   }
 
   return {

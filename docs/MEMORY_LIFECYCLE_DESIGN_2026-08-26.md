@@ -1,7 +1,7 @@
 # Branch-Local Memory Lifecycle Design
 
 **Date:** 2026-08-26  
-**Status:** Deep audit complete; decision required before implementation  
+**Status:** Phase A implemented and verified; Phase B remains gated
 **Scope:** Q2–Q4 / G3 persisted memory lifecycle, disk growth, recall, reflection revision, and safe convergence
 
 ## 1. Executive decision
@@ -494,15 +494,16 @@ Recommended policy:
 
 ## 15. Phased implementation recommendation
 
-### Phase A — V5 journal reader/writer, retirement disabled
+### Phase A — V5 journal reader/writer, retirement disabled — Complete
 
-- Add strict V5 lifecycle schemas and projector support.
+- Strict V5 lifecycle schemas and projector support are implemented.
 - New compactions write reflection revisions once and no full observation arrays.
-- Preserve V3/V4 reading.
-- Keep all observations active.
-- Add branch, fork, replay, corruption, and idempotency tests.
+- V3/V4 reading remains supported as a compatibility baseline.
+- All observations remain active; retirement arrays are structurally required to be empty.
+- Branch, fork, root-V5, replay, corruption, immutable-ID, and idempotency tests are implemented.
+- Rejected persisted batches retain the prior valid projection and are surfaced through `/hm-status` and `/hm-memory`.
 
-This phase alone reduces repeated compaction-details storage.
+This phase reduces repeated compaction-details storage without introducing semantic deletion.
 
 ### Phase B — Deterministic exact-duplicate retirement
 
@@ -575,14 +576,13 @@ Run focused projector/command tests during implementation. Run the full suite an
 
 ## 17. Remaining decision gates
 
-Before implementation, approve:
+The branch-local journal, one-time V5 records, immutable reflection revisions, and current-branch recall scope are implemented in Phase A.
 
-1. Branch-local memory journal as the authoritative lifecycle model.
-2. V5 details contain only one-time reflection revisions and lifecycle events, not full current snapshots.
-3. Reflection content/support changes always create immutable revisions.
-4. Phase B enables deterministic exact-duplicate retirement only.
-5. Semantic `fully-absorbed` and `superseded` retirement remain disabled until the quality harness supports them.
-6. Current-branch-only permanent recall with no automatic expiry.
+Before Phase B, approve:
+
+1. Deterministic exact-duplicate retirement under the narrow equality rule.
+2. The retirement event and recall presentation for duplicate representatives.
+3. Semantic `fully-absorbed` and `superseded` retirement remain disabled until the quality harness supports them.
 
 ## 18. Final recommendation
 

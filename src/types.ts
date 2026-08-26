@@ -57,6 +57,20 @@ export interface MemoryDetailsV4 {
   reflections: MemoryReflection[];
 }
 
+export interface MemoryLifecycleDetailsV5 {
+  type: "observational-memory";
+  version: 5;
+  generation: {
+    inputFingerprint: string;
+    parentMemoryCompactionId?: string;
+  };
+  reflectionsAdded: ReflectionRecord[];
+  observationsRetired: [];
+  reflectionsSuperseded: [];
+}
+
+export type PersistedMemoryDetails = MemoryDetailsV4 | MemoryLifecycleDetailsV5;
+
 export interface SourceProgress {
   sourceEntryId: string;
   nextOffset: number;
@@ -116,24 +130,67 @@ const isMemoryReflection = (value: unknown): value is MemoryReflection => {
     && (reflection.legacy === undefined || typeof reflection.legacy === "boolean");
 };
 
-/** Read known persisted memory detail versions into the current in-memory shape. */
-export const readMemoryDetails = (value: unknown): MemoryDetailsV4 | undefined => {
+const isReflectionRecord = (value: unknown): value is ReflectionRecord =>
+  typeof value !== "string" && isMemoryReflection(value);
+
+export const claimsMemoryDetailsVersion = (value: unknown, version: number): boolean => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const details = value as Record<string, unknown>;
+  return details.type === "observational-memory" && details.version === version;
+};
+
+/** Read and isolate one known persisted memory-details record. */
+export const readMemoryDetails = (value: unknown): PersistedMemoryDetails | undefined => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const details = value as Record<string, unknown>;
-  if (details.type !== "observational-memory" || (details.version !== 3 && details.version !== 4)) {
-    return undefined;
+  if (details.type !== "observational-memory") return undefined;
+
+  if (details.version === 3 || details.version === 4) {
+    if (!Array.isArray(details.observations) || !details.observations.every(isObservationRecord)) {
+      return undefined;
+    }
+    if (!Array.isArray(details.reflections) || !details.reflections.every(isMemoryReflection)) {
+      return undefined;
+    }
+    return {
+      type: "observational-memory",
+      version: 4,
+      observations: structuredClone(details.observations),
+      reflections: structuredClone(details.reflections),
+    };
   }
-  if (!Array.isArray(details.observations) || !details.observations.every(isObservationRecord)) {
-    return undefined;
-  }
-  if (!Array.isArray(details.reflections) || !details.reflections.every(isMemoryReflection)) {
+
+  if (details.version !== 5) return undefined;
+  const generation = details.generation;
+  if (!generation || typeof generation !== "object" || Array.isArray(generation)) return undefined;
+  const generationRecord = generation as Record<string, unknown>;
+  if (
+    typeof generationRecord.inputFingerprint !== "string"
+    || generationRecord.inputFingerprint.length === 0
+    || (generationRecord.parentMemoryCompactionId !== undefined
+      && (typeof generationRecord.parentMemoryCompactionId !== "string"
+        || generationRecord.parentMemoryCompactionId.length === 0))
+    || !Array.isArray(details.reflectionsAdded)
+    || !details.reflectionsAdded.every(isReflectionRecord)
+    || !Array.isArray(details.observationsRetired)
+    || details.observationsRetired.length !== 0
+    || !Array.isArray(details.reflectionsSuperseded)
+    || details.reflectionsSuperseded.length !== 0
+  ) {
     return undefined;
   }
   return {
     type: "observational-memory",
-    version: 4,
-    observations: structuredClone(details.observations),
-    reflections: structuredClone(details.reflections),
+    version: 5,
+    generation: {
+      inputFingerprint: generationRecord.inputFingerprint,
+      ...(generationRecord.parentMemoryCompactionId
+        ? { parentMemoryCompactionId: generationRecord.parentMemoryCompactionId as string }
+        : {}),
+    },
+    reflectionsAdded: structuredClone(details.reflectionsAdded),
+    observationsRetired: [],
+    reflectionsSuperseded: [],
   };
 };
 

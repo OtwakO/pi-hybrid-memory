@@ -1,6 +1,5 @@
 // Merge pipeline: combines OM semantic memory and VCC structural state under a priority-based growth ceiling.
 import type {
-  MemoryDetailsV4,
   MemoryReflection,
   ObservationRecord,
 } from "../types.js";
@@ -18,7 +17,6 @@ export interface MergeInput {
 
 export interface MergeOutput {
   summary: string;
-  details: MemoryDetailsV4;
   trimmed: boolean;
   protectedOverflow: boolean;
   tokenCount: number;
@@ -42,12 +40,6 @@ export const mergePipelines = (input: MergeInput): MergeOutput => {
 
   return {
     summary: budgeted.summary,
-    details: {
-      type: "observational-memory",
-      version: 4,
-      observations: [...input.observations],
-      reflections: input.reflections,
-    },
     trimmed: budgeted.trimmed,
     protectedOverflow: budgeted.protectedOverflow,
     tokenCount: budgeted.tokenCount,

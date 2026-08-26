@@ -22,6 +22,7 @@ import {
   observerEpochTokenLimit,
 } from "./om/observer-context.js";
 import { foldMemory } from "./om/memory-fold.js";
+import { createMemoryLifecycleDetails } from "./om/memory-lifecycle.js";
 import { createCompletionReflectionModel } from "./om/reflection-model.js";
 import { normalize } from "./vcc/normalizer.js";
 import { extractGoals, extractFiles, extractCommits, extractPreferences, extractOutstandingContext, formatCommits } from "./vcc/extractor.js";
@@ -89,12 +90,13 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         compactionFence = advancedFence;
       }
 
-      const memoryState = buildBranchMemoryIndex(entries, { onBoundaryRecovery: (firstKept) => {
+      const memoryIndex = buildBranchMemoryIndex(entries, { onBoundaryRecovery: (firstKept) => {
         if (!runtime.boundaryRecoveryNotified && ctx.hasUI && ctx.ui) {
           ctx.ui.notify(`/hm-memory: prior compaction boundary "${firstKept}" not found — using fallback. Old session? Existing memory preserved.`, "info");
           runtime.boundaryRecoveryNotified = true;
         }
-      } }).current;
+      } });
+      const memoryState = memoryIndex.current;
       let gapObservationData: ObservationEntryData | null = null;
       const gap = gapRawEntries(entries, firstKeptEntryId);
 
@@ -283,10 +285,17 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       }
 
       const workingReflections: MemoryReflection[] = [...memoryState.reflections];
-      const workingObservations: ObservationRecord[] = [
+      const workingObservationMap = new Map<string, ObservationRecord>();
+      for (const observation of [
         ...memoryState.committedObs,
-        ...deltaObservationData.flatMap((d) => d.records),
-      ];
+        ...memoryState.pendingObs,
+        ...deltaObservationData.flatMap((data) => data.records),
+      ]) {
+        if (!workingObservationMap.has(observation.id)) {
+          workingObservationMap.set(observation.id, observation);
+        }
+      }
+      const workingObservations = [...workingObservationMap.values()];
 
       // ── Step 3: Fold semantic memory if eligible ──
       // Q0 is deliberately retention-only: reflection may enrich memory, but
@@ -380,13 +389,20 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         return { cancel: true };
       }
 
+      const lifecycleDetails = createMemoryLifecycleDetails({
+        parentMemoryCompactionId: memoryIndex.latestMemoryCompactionId,
+        observations: finalObservations,
+        previousReflections: workingReflections,
+        currentReflections: finalReflections,
+      });
+
       runtime.observerEpoch.invalidate("compaction");
       return {
         compaction: {
           summary: merged.summary,
           firstKeptEntryId,
           tokensBefore,
-          details: merged.details,
+          details: lifecycleDetails,
         },
       };
     } finally {

@@ -219,6 +219,38 @@ describe("compaction catch-up safety integration", () => {
     expect(fixture.appendEntry).not.toHaveBeenCalled();
   });
 
+  it("keeps pending observations that precede a newer non-memory compaction", async () => {
+    const beforeNative = observation("bbbbbbbbbbbb", "pending before native compaction");
+    const entries: Entry[] = [
+      compaction("comp-1", "raw-0"),
+      source("raw-0"),
+      source("before-native"),
+      observationEntry("obs-before-native", "before-native", "before-native", [beforeNative]),
+      {
+        type: "compaction",
+        id: "native-1",
+        firstKeptEntryId: "new-kept",
+        summary: "native summary",
+      },
+      source("new-kept"),
+    ];
+    const fixture = setup(entries);
+    fixture.event.preparation.firstKeptEntryId = "new-kept";
+    foldMemoryMock.mockImplementationOnce(async (input: any) => ({
+      ok: true,
+      outcome: "below-threshold",
+      reflections: input.reflections,
+      observations: input.observations,
+      retiredObservationIds: [],
+    }));
+
+    await fixture.getHandler()(fixture.event, fixture.ctx);
+
+    expect(foldMemoryMock).toHaveBeenCalledWith(expect.objectContaining({
+      observations: expect.arrayContaining([expect.objectContaining({ id: beforeNative.id })]),
+    }));
+  });
+
   it("builds VCC from Pi's removed delta without duplicating the retained tail", async () => {
     const entries = branch();
     const retained = entries.find((entry) => entry.id === "new-kept");
@@ -255,6 +287,19 @@ describe("compaction catch-up safety integration", () => {
     const result = await fixture.getHandler()(fixture.event, fixture.ctx);
 
     expect(result).toHaveProperty("compaction");
+    expect((result as any).compaction.details).toMatchObject({
+      type: "observational-memory",
+      version: 5,
+      generation: {
+        parentMemoryCompactionId: "comp-1",
+        inputFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
+      reflectionsAdded: [],
+      observationsRetired: [],
+      reflectionsSuperseded: [],
+    });
+    expect((result as any).compaction.details).not.toHaveProperty("observations");
+    expect((result as any).compaction.details).not.toHaveProperty("reflections");
     expect(fixture.appendEntry).toHaveBeenCalledWith(
       OBSERVATION_CUSTOM_TYPE,
       expect.objectContaining({

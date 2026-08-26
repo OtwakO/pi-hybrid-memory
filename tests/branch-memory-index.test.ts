@@ -86,7 +86,7 @@ describe("branch memory index", () => {
     expect(index.current.reflections).toEqual([currentReflection]);
   });
 
-  it("indexes historical observations once, including compaction-only evidence", () => {
+  it("rejects a conflicting legacy snapshot atomically while preserving canonical custom evidence", () => {
     const carried = observation("aaaaaaaaaaaa", "carried copy", "2026-08-26T00:00:01.000Z");
     const original = observation("aaaaaaaaaaaa", "original copy", "2026-08-26T00:00:01.000Z");
     const compactOnly = observation("bbbbbbbbbbbb", "compaction only", "2026-08-26T00:00:02.000Z");
@@ -99,8 +99,12 @@ describe("branch memory index", () => {
 
     const index = buildBranchMemoryIndex(entries);
 
-    expect(index.observationById(carried.id)?.content).toBe("carried copy");
-    expect(index.observationById(compactOnly.id)?.content).toBe("compaction only");
+    expect(index.observationById(carried.id)?.content).toBe("original copy");
+    expect(index.observationById(compactOnly.id)).toBeUndefined();
+    expect(index.issues).toEqual([expect.objectContaining({
+      entryId: "compact1",
+      reason: "conflicting-observation",
+    })]);
   });
 
   it("uses the latest valid memory details even when a newer compaction has none", () => {
@@ -197,11 +201,126 @@ describe("branch memory index", () => {
     expect(index.sourceEntryById("source01")).toEqual(entries[0]);
   });
 
+  it("replays V5 reflection additions over a V4 baseline without copying observations", () => {
+    const committed = observation("aaaaaaaaaaaa", "committed", "2026-08-26T00:00:01.000Z");
+    const firstReflection = reflection("bbbbbbbbbbbb", "first reflection", [committed.id]);
+    const secondReflection = reflection("cccccccccccc", "second reflection", [committed.id]);
+    const entries: Entry[] = [
+      observationEntry("obsentry1", "source01", [committed]),
+      compaction("compact1", "kept0001", details([committed])),
+      source("kept0001"),
+      compaction("compact2", "kept0002", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "first", parentMemoryCompactionId: "compact1" },
+        reflectionsAdded: [firstReflection],
+        observationsRetired: [],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0002"),
+      compaction("compact3", "kept0003", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "second", parentMemoryCompactionId: "compact2" },
+        reflectionsAdded: [secondReflection],
+        observationsRetired: [],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0003"),
+    ];
+
+    const index = buildBranchMemoryIndex(entries);
+
+    expect(index.latestMemoryCompactionId).toBe("compact3");
+    expect(index.current.committedObs).toEqual([committed]);
+    expect(index.current.pendingObs).toEqual([]);
+    expect(index.current.reflections).toEqual([firstReflection, secondReflection]);
+  });
+
+  it("rejects a malformed or wrong-parent V5 batch atomically", () => {
+    const committed = observation("aaaaaaaaaaaa", "committed", "2026-08-26T00:00:01.000Z");
+    const validReflection = reflection("bbbbbbbbbbbb", "valid", [committed.id]);
+    const invalidReflection = reflection("cccccccccccc", "invalid", ["dddddddddddd"]);
+    const entries: Entry[] = [
+      compaction("compact1", "kept0001", details([committed])),
+      source("kept0001"),
+      compaction("compact2", "kept0002", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "valid", parentMemoryCompactionId: "compact1" },
+        reflectionsAdded: [validReflection],
+        observationsRetired: [],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0002"),
+      compaction("compact3", "kept0003", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "wrong-parent", parentMemoryCompactionId: "compact1" },
+        reflectionsAdded: [invalidReflection],
+        observationsRetired: [],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0003"),
+    ];
+
+    const index = buildBranchMemoryIndex(entries);
+
+    expect(index.latestMemoryCompactionId).toBe("compact2");
+    expect(index.current.reflections).toEqual([validReflection]);
+    expect(index.reflectionById(invalidReflection.id)).toBeUndefined();
+    expect(index.issues).toEqual([expect.objectContaining({
+      entryId: "compact3",
+      reason: "invalid-lifecycle-parent",
+    })]);
+  });
+
+  it("rejects conflicting duplicate ids inside the first V4 baseline atomically", () => {
+    const first = observation("aaaaaaaaaaaa", "first", "2026-08-26T00:00:01.000Z");
+    const conflict = observation("aaaaaaaaaaaa", "conflict", "2026-08-26T00:00:01.000Z");
+    const index = buildBranchMemoryIndex([
+      compaction("compact1", "kept0001", details([first, conflict])),
+      source("kept0001"),
+    ]);
+
+    expect(index.latestMemoryCompactionId).toBeUndefined();
+    expect(index.current.committedObs).toEqual([]);
+    expect(index.observationById(first.id)).toBeUndefined();
+    expect(index.issues).toEqual([expect.objectContaining({
+      entryId: "compact1",
+      reason: "conflicting-observation",
+    })]);
+  });
+
+  it("reports malformed claimed V5 details while retaining prior state", () => {
+    const committed = observation("aaaaaaaaaaaa", "committed", "2026-08-26T00:00:01.000Z");
+    const index = buildBranchMemoryIndex([
+      compaction("compact1", "kept0001", details([committed])),
+      source("kept0001"),
+      compaction("compact2", "kept0002", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "fingerprint", parentMemoryCompactionId: "compact1" },
+        reflectionsAdded: [],
+        observationsRetired: ["unsupported"],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0002"),
+    ]);
+
+    expect(index.latestMemoryCompactionId).toBe("compact1");
+    expect(index.current.committedObs).toEqual([committed]);
+    expect(index.issues).toEqual([expect.objectContaining({
+      entryId: "compact2",
+      reason: "invalid-lifecycle-batch",
+    })]);
+  });
+
   it("rejects malformed and unknown future compaction details from every view", () => {
     const entries: Entry[] = [
       compaction("compact1", "kept0001", {
         type: "observational-memory",
-        version: 5,
+        version: 6,
         observations: [observation("aaaaaaaaaaaa", "future", "2026-08-26T00:00:01.000Z")],
         reflections: [],
       }),
@@ -213,6 +332,73 @@ describe("branch memory index", () => {
     expect(index.current).toEqual({ reflections: [], committedObs: [], pendingObs: [] });
     expect(index.observationById("aaaaaaaaaaaa")).toBeUndefined();
     expect(index.reflectionById("aaaaaaaaaaaa")).toBeUndefined();
+  });
+
+  it("rejects a conflicting custom observation batch atomically", () => {
+    const original = observation("aaaaaaaaaaaa", "original", "2026-08-26T00:00:01.000Z");
+    const conflict = observation("aaaaaaaaaaaa", "conflict", "2026-08-26T00:00:01.000Z");
+    const innocent = observation("bbbbbbbbbbbb", "same rejected batch", "2026-08-26T00:00:02.000Z");
+    const index = buildBranchMemoryIndex([
+      observationEntry("obsentry1", "source01", [original]),
+      observationEntry("obsentry2", "source02", [conflict, innocent]),
+    ]);
+
+    expect(index.observationById(original.id)).toEqual(original);
+    expect(index.observationById(innocent.id)).toBeUndefined();
+    expect(index.issues).toEqual([expect.objectContaining({
+      entryId: "obsentry2",
+      reason: "conflicting-observation",
+    })]);
+  });
+
+  it("derives branch and fork state solely from the selected path", () => {
+    const committed = observation("aaaaaaaaaaaa", "committed", "2026-08-26T00:00:01.000Z");
+    const added = reflection("bbbbbbbbbbbb", "added later", [committed.id]);
+    const beforeLifecycle: Entry[] = [
+      observationEntry("obsentry1", "source01", [committed]),
+      compaction("compact1", "kept0001", details([committed])),
+      source("kept0001"),
+    ];
+    const afterLifecycle: Entry[] = [
+      ...beforeLifecycle,
+      compaction("compact2", "kept0002", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "fingerprint", parentMemoryCompactionId: "compact1" },
+        reflectionsAdded: [added],
+        observationsRetired: [],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0002"),
+    ];
+
+    expect(buildBranchMemoryIndex(beforeLifecycle).current.reflections).toEqual([]);
+    expect(buildBranchMemoryIndex(afterLifecycle).current.reflections).toEqual([added]);
+    expect(buildBranchMemoryIndex(structuredClone(afterLifecycle)).current).toEqual(
+      buildBranchMemoryIndex(afterLifecycle).current,
+    );
+  });
+
+  it("supports a root V5 journal when canonical observation evidence precedes it", () => {
+    const committed = observation("aaaaaaaaaaaa", "committed", "2026-08-26T00:00:01.000Z");
+    const added = reflection("bbbbbbbbbbbb", "root reflection", [committed.id]);
+    const index = buildBranchMemoryIndex([
+      observationEntry("obsentry1", "source01", [committed]),
+      compaction("compact1", "kept0001", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "fingerprint" },
+        reflectionsAdded: [added],
+        observationsRetired: [],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0001"),
+    ]);
+
+    expect(index.latestMemoryCompactionId).toBe("compact1");
+    expect(index.current.committedObs).toEqual([committed]);
+    expect(index.current.reflections).toEqual([added]);
+    expect(index.issues).toEqual([]);
   });
 
   it("returns isolated memory records from lookup methods", () => {

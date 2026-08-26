@@ -391,8 +391,7 @@ describe("mergePipelines", () => {
     expect(result.summary).toContain("Session State");
     expect(result.summary).toContain("User wants auth flow");
     expect(result.summary).toContain("Build auth");
-    expect(result.details.type).toBe("observational-memory");
-    expect(result.details.version).toBe(4);
+    expect(result).not.toHaveProperty("details");
   });
 
   it("trims low-relevance observations when over budget", () => {
@@ -412,8 +411,7 @@ describe("mergePipelines", () => {
 
     expect(result.trimmed).toBe(true);
     expect(result.protectedOverflow).toBe(true);
-    // Projection trimming never retires durable observations.
-    expect(result.details.observations).toEqual(observations);
+    // Projection trimming does not own persisted memory lifecycle.
     const lowObsIds = observations.filter(o => o.relevance === "low").map(o => o.id);
     expect(lowObsIds.some(id => result.summary.includes(id))).toBe(false);
   });
@@ -431,7 +429,6 @@ describe("mergePipelines", () => {
     expect(result.trimmed).toBe(true);
     expect(result.protectedOverflow).toBe(false);
     expect(result.tokenCount).toBeLessThanOrEqual(120);
-    expect(result.details.observations.map(o => o.id)).toContain("low-observation");
     expect(result.summary).not.toContain("old transcript detail");
     expect(result.summary).toContain("Original durable goal");
   });
@@ -462,7 +459,6 @@ describe("mergePipelines", () => {
     });
 
     expect(result.tokenCount).toBeLessThanOrEqual(100);
-    expect(result.details.observations).toEqual(observations);
     expect(result.summary).not.toContain("low-old");
     expect(result.summary).not.toContain("medium-old");
     expect(result.summary).toContain("high-new");
@@ -479,6 +475,6 @@ describe("mergePipelines", () => {
     });
     expect(result.trimmed).toBe(false);
     expect(result.protectedOverflow).toBe(false);
-    expect(result.details.observations.length).toBe(1);
+    expect(result.summary).toContain("Important fact");
   });
 });

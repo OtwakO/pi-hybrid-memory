@@ -17,7 +17,8 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
       const entries = ctx.sessionManager.getBranch() as Entry[];
       const sinceBound = rawTokensSinceLastBound(entries);
 
-      const memoryState = buildBranchMemoryIndex(entries).current;
+      const memoryIndex = buildBranchMemoryIndex(entries);
+      const memoryState = memoryIndex.current;
       const { committedObs, pendingObs } = memoryState;
       const memoryMetrics = buildMemoryMetrics(memoryState);
       const relevanceHistogram = countByRelevance([...committedObs, ...pendingObs]);
@@ -67,6 +68,15 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
         `Max commits: ${runtime.config.hybrid.maxCommits}`,
         `Max summary: ${runtime.config.hybrid.maxSummaryTokens.toLocaleString()} tokens`,
       ];
+
+      if (memoryIndex.issues.length > 0) {
+        lines.push("");
+        lines.push("── Memory journal warnings ──");
+        lines.push(`${memoryIndex.issues.length} rejected persisted batch(es); prior valid memory retained.`);
+        for (const issue of memoryIndex.issues.slice(-3)) {
+          lines.push(`  ${issue.entryId}: ${issue.detail}`);
+        }
+      }
 
       if (runtime.config.hybrid.compactionModel) {
         lines.push(`Compaction model: ${runtime.config.hybrid.compactionModel.provider}/${runtime.config.hybrid.compactionModel.id}`);
