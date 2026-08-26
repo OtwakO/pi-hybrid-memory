@@ -33,21 +33,97 @@ For the current 272,000-token observer model window, 40% is 108,800. Raising `ob
 
 Phase A intentionally did not reduce the active observation baseline. It fixed persistence architecture and cumulative detail-record duplication without risking semantic deletion.
 
-## Non-negotiable priorities
+## Ultimate goal
+
+Build the most token-efficient long-session memory system we can achieve **by design**, while simultaneously preserving the highest practical memory quality and provider-independent cache reuse.
+
+These goals reinforce rather than replace one another:
+
+- High-quality memory reduces corrective work, repeated investigation, and wasted main-model tokens.
+- A compact, information-dense current projection improves attention and lowers uncached input cost.
+- Stable deterministic prefixes improve cache reuse without hiding evidence from the model.
+- Durable recall permits safely retired evidence to leave normal context without becoming lost.
+- Correct lifecycle convergence prevents observation and reflection baselines from growing forever.
+
+Do not optimize one metric in isolation. A smaller prompt is not an improvement if it loses required facts. A higher cache-hit ratio is not an improvement if it depends on stale, incomplete, or branch-invalid memory. Retaining every historical detail in active context is not higher quality if context rot and attention dilution make the useful facts harder to use.
+
+The target balance is:
+
+```text
+maximum practical memory fidelity
++ minimum necessary active context
++ maximum quality-neutral prefix stability
++ durable exact recall outside normal context
+```
+
+## Non-negotiable product priorities
 
 Use this order when trade-offs appear:
 
 1. Memory fidelity.
 2. Validated provenance and retention safety.
 3. Correct branch/session lifecycle behavior.
-4. Effective context reduction.
+4. Effective context and attention reduction.
 5. Operational reliability.
-6. Cache efficiency.
+6. Provider-independent cache efficiency.
 7. Raw extension-model monetary cost.
 
 Do not remove chronology, corrections, identifiers, paths, versions, errors, decisions, rationale, constraints, unresolved work, or provenance merely to relieve token pressure.
 
 Do not accelerate semantic retirement because one session reached the capacity ceiling.
+
+## Architectural and coding standards
+
+Every milestone must preserve these engineering constraints:
+
+### Prefer Pi-native capabilities
+
+- Target the active `@earendil-works` Pi SDK and public extension interfaces.
+- Prefer Pi-owned model routing, authentication, provider translation, lifecycle events, context preparation, compaction inputs, token accounting, cancellation, and session/branch APIs whenever they satisfy the requirement.
+- Do not recreate host functionality inside the extension merely for control or theoretical portability.
+- Add an extension-owned abstraction only when Pi does not expose the required memory semantic or when at least two real implementations justify a seam.
+- Keep compatibility adapters narrow and explicit; do not let legacy package behavior define new architecture.
+
+### Keep modules deep and cohesive
+
+- Each module owns one complete responsibility behind a small interface.
+- Keep lifecycle replay, persistence codecs, fold policy, provider adaptation, context projection, and UI reporting separate where their reasons to change differ.
+- Keep invariants in the module that owns the state transition instead of duplicating checks across callers.
+- Dependencies flow in one direction; avoid circular imports and callers reaching into another module's internals.
+- Reuse a shared abstraction only for an existing repeated pattern, not hypothetical future reuse.
+
+### Prefer the simplest complete design
+
+- Use the smallest reversible change that fully solves the observed problem.
+- Prefer a function, explicit data shape, or local condition over a framework or named pattern when either is sufficient.
+- Do not add factories, adapters, repositories, event systems, configuration switches, generic layers, or dependencies without a concrete second case or host seam that requires them.
+- Do not stack a workaround on another workaround; trace and fix the producing cause when possible.
+- If a simpler approach is easier to reason about, test, and reverse, prefer it over a more flexible but bug-prone design.
+- Do not reinvent well-tested SDK, platform, language, or standard-library behavior.
+
+### Optimize for maintainability
+
+- Code must remain readable without reconstructing the entire repository context.
+- Use names that describe domain meaning and preserve the vocabulary in `CONTEXT.md`.
+- Use version suffixes only at persisted compatibility boundaries such as `MemoryLifecycleDetailsV5`; keep ordinary behavior interfaces version-neutral.
+- Keep files focused and split them only when responsibilities genuinely differ, not to satisfy arbitrary line counts.
+- Avoid dead code, compatibility remnants, duplicated constants, speculative TODOs, debug output, and silent fallbacks.
+- Make inputs, outputs, side effects, failure modes, transaction ordering, and idempotency explicit.
+
+### Test according to risk
+
+- Reproduce each defect or capacity boundary with a focused failing test before changing behavior.
+- Test pure lifecycle/projector logic through its public interface with compact deterministic fixtures.
+- Use integration tests only for real Pi boundaries: persistence, branch/session fencing, compaction success/failure, reload, fork, and provider completion.
+- Run focused tests during implementation; run the full suite, typecheck, production build, diagnostics, and byte-for-byte installation verification once per completed milestone.
+- Do not weaken an assertion or change a fixture merely to make a new implementation pass; first determine whether the test or implementation violates the documented invariant.
+
+### Keep milestones isolated
+
+- One persisted-schema, lifecycle-policy, capacity, or cache concern per milestone and commit.
+- Do not mix semantic retirement, reflection supersession, capacity handling, cache restructuring, and UI cleanup.
+- Write the rollback point and compatibility impact before high-risk changes.
+- Stop for review before enabling any new path that removes information from normal context or changes persisted lifecycle meaning.
 
 ## Carefully staged implementation order
 
