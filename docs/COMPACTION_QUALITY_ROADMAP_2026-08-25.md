@@ -471,6 +471,14 @@ Current implementation:
 **Risk:** high/persisted schema
 **Decision gate:** user approval required.
 
+### Q2.5 — Capacity-aware observer segmentation
+
+Before enabling retirement, correct fresh-epoch near-boundary failures without omitting memory. Compute remaining capacity from the complete serialized baseline and all protocol/output reservations, then select the largest safe contiguous source segment while preserving exact `sourceProgress` and durable coverage ordering. Fail closed only when the baseline leaves no minimum useful source delta. This is an isolated operational mitigation; it does not authorize memory removal or alter persisted lifecycle semantics.
+
+**Risk:** standard/localized coverage behavior
+**Rollback:** restore the prior serializer capacity rule
+**Done when:** small overruns fit through a reduced segment, proactive and catch-up paths agree, reload resumes exact offsets, and baseline-only exhaustion advances no coverage.
+
 ### Q3 — Retirement architecture and local safety policy
 
 The first enabled retirement class should be deterministic exact duplicates only. Before enabling broader semantic retirement, compare three designs against the Q6 fixtures:

@@ -505,6 +505,12 @@ Recommended policy:
 
 This phase reduces repeated compaction-details storage without introducing semantic deletion.
 
+### Immediate reliability milestone — capacity-aware source segmentation
+
+Before Phase B, correct near-boundary observer requests without changing memory semantics. The serializer/callers must derive the largest safe contiguous source segment from the complete fresh baseline and effective epoch capacity, preserve `sourceProgress`, and advance coverage only after successful observation and durable persistence. A baseline that cannot leave a minimum useful source delta still fails closed.
+
+This mitigates small overruns such as 108,898 estimated tokens against a 108,800-token effective cap. It does not replace lifecycle convergence.
+
 ### Phase B — Deterministic exact-duplicate retirement
 
 - Add narrow local duplicate equality.
