@@ -1,6 +1,6 @@
 # Semantic Retirement Protocol Experiment Roadmap
 
-**Status:** Approved experiment design; implementation not started  
+**Status:** Experiment infrastructure implemented; first 300-observation comparison completed
 **Evaluation model:** `opencode-go/deepseek-v4-flash`
 
 ## Objective
@@ -145,14 +145,25 @@ If neither protocol passes, semantic retirement remains disabled.
 
 ## Completion criteria
 
-- [ ] Shared proposal types and local validator implemented.
-- [ ] Combined protocol adapter implemented.
-- [ ] Separate protocol adapter implemented.
-- [ ] Pi-native model runtime adapter implemented.
-- [ ] Dry-run and explicit execute guard implemented.
-- [ ] Compact report writer implemented with gitignored output.
-- [ ] Minimal deterministic protocol tests pass.
-- [ ] TypeScript, full suite, and production build pass.
-- [ ] 300-observation provider evaluation run manually and reviewed.
-- [ ] No runtime semantic retirement enabled.
+- [x] Shared proposal types and local validator implemented.
+- [x] Combined protocol adapter implemented.
+- [x] Separate protocol adapter implemented.
+- [x] Pi-native model runtime adapter implemented.
+- [x] Dry-run and explicit execute guard implemented.
+- [x] Compact report writer implemented with gitignored output.
+- [x] Minimal deterministic protocol tests pass.
+- [x] TypeScript, full suite, and production build pass.
+- [x] First 300-observation provider evaluation run manually and reviewed.
+- [x] No runtime semantic retirement enabled.
 - [ ] Experiment committed separately from any runtime decision.
+
+## First 300-observation result
+
+Using `opencode-go/deepseek-v4-flash`:
+
+| Protocol | Required failures | False retirements | False retentions | Reduction | Total usage | Reported cost |
+|---|---:|---:|---:|---:|---:|---:|
+| Combined | 0 | 0 | 3 | 84.61% | 40,405 tokens | 0.021320 |
+| Separate | 12 | 12 | 0 | 0.00% | 30,802 tokens | 0.009650 |
+
+The combined protocol is promising but generated 288 explicit retirement proposals and requires repeat-run stability before larger fixtures. The separate protocol fails the deterministic safety gate in its current form because all 12 required facts were retired without exact preservation. Do not run 600/900 or enable runtime retirement based on this single comparison.
