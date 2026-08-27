@@ -1,6 +1,6 @@
 # Deterministic Reflection Strengthening Roadmap
 
-**Status:** Approved Phase C scope; implementation not started
+**Status:** Deterministic Phase C strengthening implemented and verified; pending review before the quality harness
 
 ## Objective
 
@@ -108,14 +108,14 @@ Run focused validation, projector, fold/writer, and recall tests during implemen
 
 ## Completion criteria
 
-- [ ] Strict strengthening supersession type and reader implemented.
-- [ ] Same-content strict-support-superset validation implemented.
-- [ ] At most one successor is created per existing reflection per fold.
-- [ ] V5 replay applies supersession atomically.
-- [ ] Current projection excludes superseded predecessors.
-- [ ] Old and new revisions remain exactly recallable.
-- [ ] Changed-content reflections never supersede in Phase C.
-- [ ] Focused tests pass.
-- [ ] TypeScript, full suite, and production build pass.
+- [x] Strict strengthening supersession type and reader implemented.
+- [x] Same-content strict-support-superset validation implemented.
+- [x] At most one successor is created per existing reflection per fold.
+- [x] V5 replay applies supersession atomically.
+- [x] Current projection excludes superseded predecessors.
+- [x] Old and new revisions remain exactly recallable.
+- [x] Changed-content reflections never supersede in Phase C.
+- [x] Focused tests pass.
+- [x] TypeScript, full suite, and production build pass.
 - [ ] Phase C committed separately from the quality harness.
 - [ ] Review completed before the 300/600/900 harness begins.

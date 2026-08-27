@@ -2,7 +2,7 @@
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import type { Entry, ObservationRetirement } from "../types.js";
+import type { Entry, ObservationRetirement, ReflectionSupersession } from "../types.js";
 import { MEMORY_ID_PATTERN } from "../types.js";
 import { buildBranchMemoryIndex } from "../om/branch-memory-index.js";
 import { estimateEntryTokens } from "../om/tokens.js";
@@ -23,7 +23,11 @@ interface MatchDetails {
   }>;
   missingSourceIds: string[];
   missingObservationIds: string[];
-  lifecycle?: { state: "active" } | { state: "retired"; retirement: ObservationRetirement };
+  lifecycle?:
+    | { state: "active" }
+    | { state: "retired"; retirement: ObservationRetirement }
+    | { state: "current" }
+    | { state: "superseded"; supersession: ReflectionSupersession };
   message?: string;
 }
 
@@ -246,6 +250,13 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
         );
       }
 
+      if (details.lifecycle?.state === "superseded") {
+        lines.push(
+          "",
+          `Lifecycle: superseded (${details.lifecycle.supersession.reason}) by ${details.lifecycle.supersession.supersededByReflectionId}`,
+        );
+      }
+
       if (details.sourceEntries.length > 0) {
         lines.push(
           "",
@@ -366,9 +377,14 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
           sourceEntries: sourceDetails,
           missingSourceIds,
           missingObservationIds: evidence.missingObservationIds,
+          lifecycle: memoryIndex.reflectionLifecycle(memoryId),
         };
 
-        const sections = [`Reflection ${memoryId}:\n${reflection.content}`];
+        const lifecycle = memoryIndex.reflectionLifecycle(memoryId);
+        const lifecycleText = lifecycle?.state === "superseded"
+          ? `\n\nLifecycle: superseded (${lifecycle.supersession.reason}) by ${lifecycle.supersession.supersededByReflectionId}.`
+          : "";
+        const sections = [`Reflection ${memoryId}:\n${reflection.content}${lifecycleText}`];
         if (evidence.observations.length > 0) {
           sections.push(
             "Supporting observations:\n" + evidence.observations

@@ -1,5 +1,5 @@
 import type { CacheTelemetry, MemoryLifecycleOutcome } from "../cache-telemetry.js";
-import type { MemoryReflection, ObservationRecord, ObservationRetirement } from "../types.js";
+import type { MemoryReflection, ObservationRecord, ObservationRetirement, ReflectionSupersession } from "../types.js";
 import { REFLECTOR_PROMPT, REFLECTOR_SYSTEM } from "./prompts.js";
 import {
   planReflectionRequest,
@@ -26,6 +26,7 @@ export type MemoryFoldResult =
       reflections: MemoryReflection[];
       observations: ObservationRecord[];
       retirements: ObservationRetirement[];
+      supersessions: ReflectionSupersession[];
     }
   | {
       ok: false;
@@ -34,6 +35,7 @@ export type MemoryFoldResult =
       reflections: MemoryReflection[];
       observations: ObservationRecord[];
       retirements: ObservationRetirement[];
+      supersessions: ReflectionSupersession[];
     };
 
 interface MemoryFoldInput {
@@ -75,10 +77,11 @@ const failedFold = (
   reflections,
   observations,
   retirements: [],
+  supersessions: [],
 });
 
 /**
- * Produce a validated memory fold while keeping retirement disabled.
+ * Produce a validated memory fold with deterministic duplicate retirement and reflection strengthening.
  *
  * The fold owns feasibility, semantic validation, retention policy, and telemetry.
  * Provider execution arrives through the required model port. Callers receive either a complete validated result or the exact
@@ -104,6 +107,7 @@ export const foldMemory = async (input: MemoryFoldInput): Promise<MemoryFoldResu
       reflections,
       observations: retirement.activeObservations,
       retirements: retirement.retirements,
+      supersessions: [],
     };
   }
 
@@ -170,5 +174,6 @@ export const foldMemory = async (input: MemoryFoldInput): Promise<MemoryFoldResu
     reflections: validated.reflections,
     observations: retirement.activeObservations,
     retirements: retirement.retirements,
+    supersessions: validated.supersessions,
   };
 };

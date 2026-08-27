@@ -27,6 +27,7 @@ describe("memory lifecycle details", () => {
       previousReflections: [existing],
       currentReflections: [existing, added],
       retirements: [],
+      supersessions: [],
     });
 
     expect(result).toMatchObject({
@@ -55,10 +56,32 @@ describe("memory lifecycle details", () => {
       previousReflections: [],
       currentReflections: [],
       retirements: [retirement],
+      supersessions: [],
     });
 
     expect(result.observationsRetired).toEqual([retirement]);
     expect(result).not.toHaveProperty("observations");
+  });
+
+  it("persists explicit reflection supersession edges", () => {
+    const existing = reflection("bbbbbbbbbbbb", "durable reflection", [observation.id]);
+    const successor = reflection("cccccccccccc", "durable reflection", [observation.id, "dddddddddddd"]);
+    const supersession = {
+      reflectionId: existing.id,
+      supersededByReflectionId: successor.id,
+      reason: "strengthened" as const,
+    };
+
+    const result = createMemoryLifecycleDetails({
+      observations: [observation],
+      previousReflections: [existing],
+      currentReflections: [successor],
+      retirements: [],
+      supersessions: [supersession],
+    });
+
+    expect(result.reflectionsAdded).toEqual([successor]);
+    expect(result.reflectionsSuperseded).toEqual([supersession]);
   });
 
   it("fingerprints the complete immutable input rather than ids alone", () => {
@@ -67,6 +90,7 @@ describe("memory lifecycle details", () => {
       previousReflections: [],
       currentReflections: [],
       retirements: [],
+      supersessions: [],
     };
     const changed = {
       ...input,
@@ -83,6 +107,7 @@ describe("memory lifecycle details", () => {
       observations: [observation],
       currentReflections: [],
       retirements: [],
+      supersessions: [],
     };
     const legacyString = createMemoryLifecycleDetails({
       ...base,
@@ -113,6 +138,7 @@ describe("memory lifecycle details", () => {
       previousReflections: [],
       currentReflections: [added],
       retirements: [],
+      supersessions: [],
     };
 
     expect(createMemoryLifecycleDetails(input)).toEqual(createMemoryLifecycleDetails(input));

@@ -277,3 +277,10 @@
 - **Reason**: Explicit events make retirement auditable, branch-local, idempotent, and independent of omission-sensitive model output while reducing repeated active context.
 - **Verified**: Focused policy, projector, fold, writer, and recall tests pass; TypeScript, the full Vitest suite, and the production build pass.
 - **Watch out**: Equality is intentionally narrow and does not merge provenance or infer semantic equivalence. Reflection supersession and broader semantic retirement remain disabled pending their separate milestones.
+
+### [2026-08-27] Reflection supersession is limited to deterministic strengthening
+- **Context**: Changed-content correction requires semantic judgment, while same-content support strengthening is locally provable. Granting broad replacement authority before the quality harness would risk silently discarding contradictory or corrected history.
+- **Change**: Same normalized reflection content with new valid support creates one immutable successor whose support is the union of predecessor and proposed support, plus an explicit V5 `strengthened` supersession edge. Replay requires the successor to be added in the same atomic batch, preserve every predecessor support ID, and add at least one new support ID. Superseded revisions remain exactly recallable; changed-content reflections remain concurrently current.
+- **Reason**: This bounds duplicate same-content reflection revisions and establishes safe support-transfer mechanics without delegating semantic replacement to the model.
+- **Verified**: Focused validation, projector, fold, writer, and recall tests pass; TypeScript, the full Vitest suite, and the production build pass.
+- **Watch out**: Legacy string reflections have no ID and cannot be superseded. Model-proposed corrections and broader semantic supersession remain deferred to the quality-evaluation decision.

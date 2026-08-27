@@ -5,6 +5,7 @@ import type {
   ObservationRecord,
   ObservationRetirement,
   ReflectionRecord,
+  ReflectionSupersession,
 } from "../types.js";
 import {
   OBSERVATION_CUSTOM_TYPE,
@@ -19,6 +20,10 @@ export interface CurrentBranchMemory {
   committedObs: ObservationRecord[];
   pendingObs: ObservationRecord[];
 }
+
+export type ReflectionLifecycle =
+  | { state: "current" }
+  | { state: "superseded"; supersession: ReflectionSupersession };
 
 export type ObservationLifecycle =
   | { state: "active" }
@@ -49,6 +54,7 @@ export interface BranchMemoryIndex {
   observationLifecycle(id: string): ObservationLifecycle | undefined;
   activeObservationIds(): Set<string>;
   reflectionById(id: string): ReflectionRecord | undefined;
+  reflectionLifecycle(id: string): ReflectionLifecycle | undefined;
   sourceEntryById(id: string): Entry | undefined;
   sourcesForObservation(id: string): ObservationSources;
   evidenceForReflection(id: string): ReflectionEvidence;
@@ -92,6 +98,7 @@ export const buildBranchMemoryIndex = (
   const compactions: Entry[] = [];
   const observationHistory = new Map<string, ObservationRecord>();
   const reflectionHistory = new Map<string, ReflectionRecord>();
+  const reflectionSupersessions = new Map<string, ReflectionSupersession>();
   const canonicalObservationIds = new Set<string>();
   const activeObservationOrder: string[] = [];
   const activeObservationIds = new Set<string>();
@@ -180,6 +187,7 @@ export const buildBranchMemoryIndex = (
         cloneObservation(observationHistory.get(observation.id) ?? observation));
       currentReflections = details.reflections.map(cloneReflection);
       observationRetirements.clear();
+      reflectionSupersessions.clear();
       activeObservationIds.clear();
       activeObservationOrder.length = 0;
       for (const observation of baselineObservations) {
@@ -211,6 +219,7 @@ export const buildBranchMemoryIndex = (
       reflection => cloneReflection(reflection) as ReflectionRecord,
     );
     const retirements = details.observationsRetired.map(retirement => structuredClone(retirement));
+    const supersessions = details.reflectionsSuperseded.map(supersession => structuredClone(supersession));
     const batchIds = new Set<string>();
     const retirementTargetIds = new Set(retirements.map(retirement => retirement.observationId));
     const validAdditions = additions.every(reflection => {
@@ -237,7 +246,28 @@ export const buildBranchMemoryIndex = (
       if (activeObservationOrder.indexOf(preservingId) >= activeObservationOrder.indexOf(retirement.observationId)) return false;
       return true;
     });
-    const validBatch = validAdditions && validRetirements;
+    const supersededIds = new Set<string>();
+    const successorIds = new Set<string>();
+    const additionsById = new Map(additions.map(reflection => [reflection.id, reflection]));
+    const validSupersessions = supersessions.every(supersession => {
+      const predecessor = reflectionHistory.get(supersession.reflectionId);
+      const successor = additionsById.get(supersession.supersededByReflectionId);
+      if (
+        !predecessor
+        || !successor
+        || supersession.reflectionId === supersession.supersededByReflectionId
+        || reflectionSupersessions.has(supersession.reflectionId)
+        || supersededIds.has(supersession.reflectionId)
+        || successorIds.has(supersession.supersededByReflectionId)
+        || predecessor.content.trim().replace(/\s+/g, " ") !== successor.content.trim().replace(/\s+/g, " ")
+        || predecessor.supportingObservationIds.some(id => !successor.supportingObservationIds.includes(id))
+        || successor.supportingObservationIds.length <= predecessor.supportingObservationIds.length
+      ) return false;
+      supersededIds.add(supersession.reflectionId);
+      successorIds.add(supersession.supersededByReflectionId);
+      return true;
+    });
+    const validBatch = validAdditions && validRetirements && validSupersessions;
     if (!validBatch) {
       issues.push({
         entryId: entry.id,
@@ -258,6 +288,11 @@ export const buildBranchMemoryIndex = (
       activeObservationIds.delete(retirement.observationId);
       const activeIndex = activeObservationOrder.indexOf(retirement.observationId);
       if (activeIndex >= 0) activeObservationOrder.splice(activeIndex, 1);
+    }
+    for (const supersession of supersessions) {
+      reflectionSupersessions.set(supersession.reflectionId, supersession);
+      currentReflections = currentReflections.filter(reflection =>
+        typeof reflection === "string" || reflection.id !== supersession.reflectionId);
     }
   }
 
@@ -327,6 +362,13 @@ export const buildBranchMemoryIndex = (
     },
     activeObservationIds: () => new Set(activeObservationOrder),
     reflectionById,
+    reflectionLifecycle: id => {
+      if (!reflectionHistory.has(id)) return undefined;
+      const supersession = reflectionSupersessions.get(id);
+      return supersession
+        ? { state: "superseded", supersession: structuredClone(supersession) }
+        : { state: "current" };
+    },
     sourceEntryById: id => branchEntries.get(id),
     sourcesForObservation,
     evidenceForReflection: id => {

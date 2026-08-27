@@ -65,7 +65,7 @@ describe("foldMemory", () => {
       outcome: "below-threshold",
       reflections: [],
       observations: [observation],
-      retirements: [],
+      retirements: [], supersessions: [],
     });
     expect(port.propose).not.toHaveBeenCalled();
   });
@@ -81,10 +81,40 @@ describe("foldMemory", () => {
         reason,
         reflections: [],
         observations: [observation],
-        retirements: [],
+        retirements: [], supersessions: [],
       });
     },
   );
+
+  it("returns a strengthened successor and explicit supersession edge", async () => {
+    const secondObservation = { ...observation, id: "cccccccccccc", content: "second fact" };
+    const existing = {
+      id: "bbbbbbbbbbbb",
+      content: "durable reflection",
+      supportingObservationIds: [observation.id],
+    };
+    const result = await foldMemory({
+      ...input(modelPort({
+        ok: true,
+        proposal: { reflections: [{
+          content: " durable   reflection ",
+          supportingObservationIds: [secondObservation.id],
+        }] },
+      })),
+      reflections: [existing],
+      observations: [observation, secondObservation],
+      canonicalObservationIds: new Set([observation.id, secondObservation.id]),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      reflections: [{
+        content: existing.content,
+        supportingObservationIds: [observation.id, secondObservation.id],
+      }],
+      supersessions: [{ reflectionId: existing.id, reason: "strengthened" }],
+    });
+  });
 
   it("accepts validated reflections without retiring observations", async () => {
     const result = await foldMemory(input(modelPort({
@@ -101,7 +131,7 @@ describe("foldMemory", () => {
       ok: true,
       outcome: "reflected",
       observations: [observation],
-      retirements: [],
+      retirements: [], supersessions: [],
       reflections: [{
         content: "durable reflection",
         supportingObservationIds: [observation.id],
@@ -150,7 +180,7 @@ describe("foldMemory", () => {
       reason: "invalid-provenance",
       reflections: [],
       observations: [observation],
-      retirements: [],
+      retirements: [], supersessions: [],
     });
   });
 

@@ -64,6 +64,12 @@ export interface ObservationRetirement {
   preservedByReflectionIds: [];
 }
 
+export interface ReflectionSupersession {
+  reflectionId: string;
+  supersededByReflectionId: string;
+  reason: "strengthened";
+}
+
 export interface MemoryLifecycleDetailsV5 {
   type: "observational-memory";
   version: 5;
@@ -73,7 +79,7 @@ export interface MemoryLifecycleDetailsV5 {
   };
   reflectionsAdded: ReflectionRecord[];
   observationsRetired: ObservationRetirement[];
-  reflectionsSuperseded: [];
+  reflectionsSuperseded: ReflectionSupersession[];
 }
 
 export type PersistedMemoryDetails = MemoryDetailsV4 | MemoryLifecycleDetailsV5;
@@ -140,6 +146,16 @@ const isMemoryReflection = (value: unknown): value is MemoryReflection => {
 const isReflectionRecord = (value: unknown): value is ReflectionRecord =>
   typeof value !== "string" && isMemoryReflection(value);
 
+const isReflectionSupersession = (value: unknown): value is ReflectionSupersession => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const supersession = value as Record<string, unknown>;
+  return typeof supersession.reflectionId === "string"
+    && MEMORY_ID_PATTERN.test(supersession.reflectionId)
+    && typeof supersession.supersededByReflectionId === "string"
+    && MEMORY_ID_PATTERN.test(supersession.supersededByReflectionId)
+    && supersession.reason === "strengthened";
+};
+
 const isObservationRetirement = (value: unknown): value is ObservationRetirement => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const retirement = value as Record<string, unknown>;
@@ -196,7 +212,7 @@ export const readMemoryDetails = (value: unknown): PersistedMemoryDetails | unde
     || !Array.isArray(details.observationsRetired)
     || !details.observationsRetired.every(isObservationRetirement)
     || !Array.isArray(details.reflectionsSuperseded)
-    || details.reflectionsSuperseded.length !== 0
+    || !details.reflectionsSuperseded.every(isReflectionSupersession)
   ) {
     return undefined;
   }
@@ -211,7 +227,7 @@ export const readMemoryDetails = (value: unknown): PersistedMemoryDetails | unde
     },
     reflectionsAdded: structuredClone(details.reflectionsAdded),
     observationsRetired: structuredClone(details.observationsRetired),
-    reflectionsSuperseded: [],
+    reflectionsSuperseded: structuredClone(details.reflectionsSuperseded),
   };
 };
 

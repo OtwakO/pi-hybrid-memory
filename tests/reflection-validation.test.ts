@@ -22,34 +22,48 @@ describe("validateAndMergeReflections", () => {
     }])).toEqual({ ok: false, reason: "invalid-provenance" });
   });
 
-  it("keeps an existing reflection revision immutable when extra support is proposed", () => {
+  it("creates one immutable strengthened successor with unioned support", () => {
+    const secondObservation: ObservationRecord = {
+      ...observation,
+      id: "cccccccccccc",
+      content: "second durable fact",
+    };
     const existing: MemoryReflection[] = [{
       id: "bbbbbbbbbbbb",
       content: "durable reflection",
-      supportingObservationIds: [],
+      supportingObservationIds: [observation.id],
     }];
 
-    const result = validateAndMergeReflections(existing, [observation], [{
-      content: "durable reflection",
-      supportingObservationIds: [observation.id],
-    }]);
+    const result = validateAndMergeReflections(existing, [observation, secondObservation], [
+      {
+        content: " durable   reflection ",
+        supportingObservationIds: [secondObservation.id],
+      },
+      {
+        content: "durable reflection",
+        supportingObservationIds: [observation.id],
+      },
+    ]);
 
     expect(result).toMatchObject({
       ok: true,
-      proposedItems: 1,
-      acceptedItems: 0,
+      proposedItems: 2,
+      acceptedItems: 1,
       addedItems: 0,
-      strengthenedItems: 0,
-      supportedObservationIds: [observation.id],
+      strengthenedItems: 1,
+      supersessions: [{
+        reflectionId: existing[0].id,
+        reason: "strengthened",
+      }],
       reflections: [{
-        id: "bbbbbbbbbbbb",
-        supportingObservationIds: [],
+        content: "durable reflection",
+        supportingObservationIds: [observation.id, secondObservation.id],
       }],
     });
     expect(existing[0]).toEqual({
       id: "bbbbbbbbbbbb",
       content: "durable reflection",
-      supportingObservationIds: [],
+      supportingObservationIds: [observation.id],
     });
   });
 

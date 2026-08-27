@@ -335,6 +335,87 @@ describe("branch memory index", () => {
     })]);
   });
 
+  it("replaces a strengthened reflection in the current projection but preserves revision history", () => {
+    const first = reflection("aaaaaaaaaaaa", "durable reflection", ["bbbbbbbbbbbb"]);
+    const successor = reflection("cccccccccccc", " durable   reflection ", ["bbbbbbbbbbbb", "dddddddddddd"]);
+    const index = buildBranchMemoryIndex([
+      observationEntry("obsentry1", "source01", [
+        observation("bbbbbbbbbbbb", "first support"),
+        observation("dddddddddddd", "second support"),
+      ]),
+      compaction("compact1", "kept0001", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "first" },
+        reflectionsAdded: [first],
+        observationsRetired: [],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0001"),
+      compaction("compact2", "kept0002", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "strengthened", parentMemoryCompactionId: "compact1" },
+        reflectionsAdded: [successor],
+        observationsRetired: [],
+        reflectionsSuperseded: [{
+          reflectionId: first.id,
+          supersededByReflectionId: successor.id,
+          reason: "strengthened",
+        }],
+      }),
+      source("kept0002"),
+    ]);
+
+    expect(index.current.reflections).toEqual([successor]);
+    expect(index.reflectionById(first.id)).toEqual(first);
+    expect(index.reflectionLifecycle(first.id)).toEqual({
+      state: "superseded",
+      supersession: expect.objectContaining({ supersededByReflectionId: successor.id }),
+    });
+  });
+
+  it("rejects strengthening that drops predecessor support atomically", () => {
+    const first = reflection("aaaaaaaaaaaa", "durable reflection", ["bbbbbbbbbbbb", "dddddddddddd"]);
+    const invalidSuccessor = reflection("cccccccccccc", "durable reflection", ["bbbbbbbbbbbb", "eeeeeeeeeeee"]);
+    const index = buildBranchMemoryIndex([
+      observationEntry("obsentry1", "source01", [
+        observation("bbbbbbbbbbbb", "first support"),
+        observation("dddddddddddd", "required support"),
+        observation("eeeeeeeeeeee", "new support"),
+      ]),
+      compaction("compact1", "kept0001", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "first" },
+        reflectionsAdded: [first],
+        observationsRetired: [],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0001"),
+      compaction("compact2", "kept0002", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "invalid", parentMemoryCompactionId: "compact1" },
+        reflectionsAdded: [invalidSuccessor],
+        observationsRetired: [],
+        reflectionsSuperseded: [{
+          reflectionId: first.id,
+          supersededByReflectionId: invalidSuccessor.id,
+          reason: "strengthened",
+        }],
+      }),
+      source("kept0002"),
+    ]);
+
+    expect(index.current.reflections).toEqual([first]);
+    expect(index.reflectionById(invalidSuccessor.id)).toBeUndefined();
+    expect(index.issues).toEqual([expect.objectContaining({
+      entryId: "compact2",
+      reason: "invalid-lifecycle-batch",
+    })]);
+  });
+
   it("rejects a malformed or wrong-parent V5 batch atomically", () => {
     const committed = observation("aaaaaaaaaaaa", "committed", "2026-08-26T00:00:01.000Z");
     const validReflection = reflection("bbbbbbbbbbbb", "valid", [committed.id]);

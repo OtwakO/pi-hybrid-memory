@@ -115,6 +115,47 @@ describe("hm_recall memory ID compatibility", () => {
     expect(resultText(result)).toContain("Use an 8-character source id with hm_recall to retrieve that exact entry.");
   });
 
+  it("recalls a superseded reflection with its successor link", async () => {
+    const predecessor = {
+      id: CURRENT_BASE36_MEMORY_ID,
+      content: "durable reflection",
+      supportingObservationIds: ["mr6pp8nr000c"],
+    };
+    const successor = {
+      id: "mr6pp8nr000d",
+      content: "durable reflection",
+      supportingObservationIds: ["mr6pp8nr000c", "mr6pp8nr000e"],
+    };
+    const result = await execute(predecessor.id, [
+      memoryCompactionEntry([predecessor], [
+        observation("mr6pp8nr000c"),
+        observation("mr6pp8nr000e"),
+      ]),
+      {
+        type: "compaction",
+        id: "compaction-entry-2",
+        details: {
+          type: "observational-memory",
+          version: 5,
+          generation: { inputFingerprint: "strengthened", parentMemoryCompactionId: "compaction-entry" },
+          reflectionsAdded: [successor],
+          observationsRetired: [],
+          reflectionsSuperseded: [{
+            reflectionId: predecessor.id,
+            supersededByReflectionId: successor.id,
+            reason: "strengthened",
+          }],
+        },
+      },
+    ]);
+
+    expect(result.details.lifecycle).toMatchObject({
+      state: "superseded",
+      supersession: { supersededByReflectionId: successor.id },
+    });
+    expect(resultText(result)).toContain(`superseded (strengthened) by ${successor.id}`);
+  });
+
   it("recalls retired duplicate evidence with its original provenance and lifecycle link", async () => {
     const representative = observation(CURRENT_BASE36_MEMORY_ID);
     const retired = { ...observation("mr6pp8nr000c"), content: representative.content };

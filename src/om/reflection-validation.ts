@@ -1,4 +1,4 @@
-import type { MemoryReflection, ObservationRecord } from "../types.js";
+import type { MemoryReflection, ObservationRecord, ReflectionRecord, ReflectionSupersession } from "../types.js";
 import { MAX_REFLECTION_CONTENT_CHARS } from "./reflection-budget.js";
 
 let idCounter = 0;
@@ -26,7 +26,8 @@ export type ReflectionValidationResult =
       acceptedItems: number;
       addedItems: number;
       strengthenedItems: number;
-      supportedObservationIds: string[];
+       supportedObservationIds: string[];
+       supersessions: ReflectionSupersession[];
     }
   | { ok: false; reason: "invalid-output" | "invalid-provenance" };
 
@@ -63,8 +64,9 @@ export const validateAndMergeReflections = (
   }
 
   let addedItems = 0;
-  const strengthenedItems = 0;
+  let strengthenedItems = 0;
   const supportedObservationIds = new Set<string>();
+  const proposedSupportByExistingIndex = new Map<number, Set<string>>();
   for (const candidate of proposal) {
     const content = candidate.content.trim();
     const supportingObservationIds = [...candidate.supportingObservationIds];
@@ -80,11 +82,30 @@ export const validateAndMergeReflections = (
     }
 
     const existing = merged[existingIndex];
-    // Existing reflection revisions are immutable. Support strengthening will
-    // create and supersede a new revision only after the lifecycle contract can
-    // transfer preservation obligations safely. Phase A therefore keeps the
-    // existing revision unchanged.
-    void existing;
+    if (typeof existing === "string") continue;
+    const support = proposedSupportByExistingIndex.get(existingIndex)
+      ?? new Set(existing.supportingObservationIds);
+    for (const id of supportingObservationIds) support.add(id);
+    proposedSupportByExistingIndex.set(existingIndex, support);
+  }
+
+  const supersessions: ReflectionSupersession[] = [];
+  for (const [existingIndex, support] of proposedSupportByExistingIndex) {
+    const existing = merged[existingIndex] as ReflectionRecord;
+    if (support.size === existing.supportingObservationIds.length) continue;
+    const successor: ReflectionRecord = {
+      id: makeId(),
+      content: existing.content,
+      supportingObservationIds: [...support],
+      ...(existing.legacy ? { legacy: true } : {}),
+    };
+    merged[existingIndex] = successor;
+    supersessions.push({
+      reflectionId: existing.id,
+      supersededByReflectionId: successor.id,
+      reason: "strengthened",
+    });
+    strengthenedItems++;
   }
 
   return {
@@ -95,5 +116,6 @@ export const validateAndMergeReflections = (
     addedItems,
     strengthenedItems,
     supportedObservationIds: [...supportedObservationIds],
+    supersessions,
   };
 };

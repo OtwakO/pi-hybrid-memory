@@ -375,6 +375,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         previousReflections: workingReflections,
         currentReflections: finalReflections,
         retirements: fold.retirements,
+        supersessions: fold.supersessions,
       });
 
       runtime.observerEpoch.invalidate("compaction");
