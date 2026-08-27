@@ -30,7 +30,8 @@
         "build": "bun build ./src/index.ts --outfile ./dist/pi-hybrid-memory/index.js --target bun --external @earendil-works/pi-coding-agent --external @earendil-works/pi-tui --external @earendil-works/pi-ai --external typebox --format esm",
         "typecheck": "tsc --noEmit",
         "test": "vitest run",
-        "evaluate:retirement": "bun evaluation/semantic-retirement/run.ts"
+        "evaluate:retirement": "bun evaluation/semantic-retirement/run.ts",
+        "validate:live": "bun evaluation/live-validation/run.ts"
     },
     "peerDependencies": {
         "@earendil-works/pi-agent-core": "^0.84.3",

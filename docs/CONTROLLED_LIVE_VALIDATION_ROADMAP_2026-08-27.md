@@ -1,6 +1,6 @@
 # Controlled Live Validation Roadmap
 
-**Status:** Approved design direction; implementation not started
+**Status:** Deterministic lifecycle trial passed; model-assisted trial remains
 
 ## Objective
 
@@ -70,7 +70,7 @@ Launch Pi RPC with only the repository bundle.
 Verify:
 
 - `get_commands` exposes `hm-status`, `hm-memory`, and `hm-cache-info`;
-- the `hm_recall` tool appears in the active tool catalogue or can be exercised through a controlled prompt-free boundary;
+- replay reconstructs the exact immutable evidence and provenance inputs consumed by `hm_recall`; RPC exposes no direct named-tool execution command, so actual tool invocation remains for the model-assisted trial;
 - auto-compaction can be disabled;
 - manual `compact` succeeds through the extension;
 - no `extension_error` event occurs;
@@ -158,14 +158,30 @@ Do not add a generic process framework, test runner, package installer, session 
 
 - [x] Isolation and rollback contract documented.
 - [x] Deterministic first-trial boundary selected.
-- [ ] Live-validation runner implemented.
-- [ ] Compact RPC client implemented.
-- [ ] Public-API session fixture implemented.
-- [ ] Pure persisted-session verifier implemented.
-- [ ] Dry-run preflight passes without launching Pi.
-- [ ] Deterministic write-enabled trial passes.
-- [ ] Restart/replay/idempotency checks pass.
-- [ ] Old-bundle read-only rollback inspection passes fail-closed.
-- [ ] Installed bundle and real sessions remain unchanged.
+- [x] Live-validation runner implemented.
+- [x] Compact RPC client implemented.
+- [x] Public-API session fixture implemented.
+- [x] Pure persisted-session verifier implemented.
+- [x] Dry-run preflight passes without launching Pi.
+- [x] Deterministic write-enabled trial passes.
+- [x] Restart/replay/idempotency checks pass.
+- [x] Old-bundle read-only rollback inspection passes fail-closed.
+- [x] Installed bundle and real sessions remain unchanged.
 - [ ] Model-assisted observer/reflector trial passes.
 - [ ] Extension declared stable for actual usage.
+
+## Deterministic trial result
+
+The passing isolated trial at `2026-08-27T08-35-55-589Z` exercised two real Pi RPC compactions with a process restart between them:
+
+- exactly one `exact-duplicate` retirement was persisted across the complete V5 journal;
+- the preserving observation remained active and the later duplicate remained immutable and retired;
+- both observations retained one exact source entry;
+- the second compaction emitted no duplicate retirement;
+- no unexpected observer records were accepted by the deterministic verifier;
+- replay reported no lifecycle issue;
+- the Phase A bundle surfaced the expected rejected-batch warning when `/hm-status` forced projection;
+- the read-only Phase A inspection left the session hash unchanged;
+- the installed bundle SHA-256 remained `346f7f9a123976cb568cba5151627412b82a8a30afc5c37204fa28b31d89ac8b`.
+
+An earlier trial correctly failed because Pi's default `keepRecentTokens` made the fixture too small to compact. A later intermediate trial revealed an incomplete coverage fixture by producing unexpected observer observations. Both findings were fixed at the fixture/orchestration boundary rather than bypassing Pi or weakening lifecycle assertions.
