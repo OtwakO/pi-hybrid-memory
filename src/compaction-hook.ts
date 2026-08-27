@@ -144,7 +144,14 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
             fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
             minimumSourceTokens: OBSERVER_MINIMUM_DELTA_TOKENS,
           });
-          runtime.cacheTelemetry.recordObserverCapacity("catch-up", request.capacity);
+          runtime.cacheTelemetry.recordObserverCapacity("catch-up", request.capacity, {
+            stableTokens: contextPlan.tokens.stableBaseline,
+            sourceRelatedTokens: contextPlan.tokens.sourceRelated,
+            stableObservationCount: contextPlan.stableObservations.length,
+            sourceRelatedObservationCount: contextPlan.sourceRelatedObservations.length,
+            omittedObservationCount: contextPlan.omitted.observations,
+            protectedOverflow: contextPlan.protectedOverflow,
+          });
           if (!request.ok) {
             if (ctx.hasUI) ctx.ui.notify(
               `Hybrid memory: sync catch-up observer failed: baseline leaves only ${request.capacity.availableDeltaTokens} useful source tokens (${request.capacity.minimumDeltaTokens} required). Cancelling compaction.`,

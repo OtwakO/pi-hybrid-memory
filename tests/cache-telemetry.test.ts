@@ -102,6 +102,13 @@ describe("CacheTelemetry", () => {
       minimumDeltaTokens: 256,
       occupiedTokens: 9_880,
       maxTokens: 10_000,
+    }, {
+      stableTokens: 5_000,
+      sourceRelatedTokens: 800,
+      stableObservationCount: 42,
+      sourceRelatedObservationCount: 7,
+      omittedObservationCount: 120,
+      protectedOverflow: false,
     });
 
     expect(telemetry.calls()).toEqual([]);
@@ -111,6 +118,8 @@ describe("CacheTelemetry", () => {
     });
     expect(formatCacheInfo(telemetry)).toContain("baseline pressure: 1 event(s)");
     expect(formatCacheInfo(telemetry)).toContain("minimum fresh delta: ~120 tokens");
+    expect(formatCacheInfo(telemetry)).toContain("latest bounded context: stable ~5,000, source-related ~800 tokens");
+    expect(formatCacheInfo(telemetry)).toContain("selected observations: stable 42, source-related 7; omitted 120");
   });
 
   it("counts locally warm provider misses without treating them as epoch resets", () => {

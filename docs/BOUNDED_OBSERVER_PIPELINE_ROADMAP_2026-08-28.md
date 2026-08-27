@@ -1,6 +1,6 @@
 # Bounded Observer Pipeline Roadmap
 
-**Status:** M1–M4 implemented; focused telemetry and live validation remain
+**Status:** M1–M5 implemented; isolated live validation remains
 
 **Scope:** Observer context, observer segment protocol, durable coverage orchestration, and compaction catch-up behavior
 
@@ -337,6 +337,8 @@ Completion criteria:
 
 Expose only operational data needed to understand the bounded pipeline:
 
+Implemented result: the existing session-local cache telemetry retains the latest content-free bounded-context summary (stable/source-related tokens, selected/omitted observation counts, and protected overflow) and renders it through `/hm-cache-info`. No prompt content, persistent analytics, new command, or generalized metrics path was added.
+
 - pending raw token estimate;
 - effective observer limit;
 - stable/source-related/source selected token totals;
@@ -405,7 +407,7 @@ Implementation proceeds only if each step demonstrates its intended value:
 - [x] M2 bounded planner evaluated without runtime activation.
 - [x] M3 shared runtime planning implemented.
 - [x] M4 bounded compaction coverage barrier implemented.
-- [ ] M5 focused operational telemetry implemented.
+- [x] M5 focused operational telemetry implemented.
 - [ ] M6 isolated live validation passed.
 - [ ] Full targeted verification, typecheck, suite, and build pass.
 - [ ] Installed rollout separately approved.

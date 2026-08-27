@@ -66,6 +66,15 @@ export interface ObserverCapacityMetadata {
   maxTokens: number;
 }
 
+export interface ObserverContextMetadata {
+  stableTokens: number;
+  sourceRelatedTokens: number;
+  stableObservationCount: number;
+  sourceRelatedObservationCount: number;
+  omittedObservationCount: number;
+  protectedOverflow: boolean;
+}
+
 export interface ObserverEpochAggregate {
   calls: number;
   proactiveCalls: number;
@@ -77,6 +86,7 @@ export interface ObserverEpochAggregate {
   minimumHeadroomTokens?: number;
   baselinePressureEvents: number;
   minimumFreshDeltaTokens?: number;
+  latestContext?: ObserverContextMetadata;
   resetReasons: Record<string, number>;
 }
 
@@ -264,6 +274,7 @@ export class CacheTelemetry {
   recordObserverCapacity(
     _source: ObserverCallSource,
     capacity: ObserverCapacityMetadata,
+    context?: ObserverContextMetadata,
   ): void {
     const epoch = this.observerEpochTotals;
     epoch.minimumFreshDeltaTokens = epoch.minimumFreshDeltaTokens === undefined
@@ -272,6 +283,7 @@ export class CacheTelemetry {
     if (capacity.availableDeltaTokens < capacity.minimumDeltaTokens) {
       epoch.baselinePressureEvents++;
     }
+    if (context) epoch.latestContext = { ...context };
   }
 
   recordMemoryLifecycle(
@@ -308,6 +320,9 @@ export class CacheTelemetry {
   observerEpochAggregate(): ObserverEpochAggregate {
     return {
       ...this.observerEpochTotals,
+      latestContext: this.observerEpochTotals.latestContext
+        ? { ...this.observerEpochTotals.latestContext }
+        : undefined,
       resetReasons: { ...this.observerEpochTotals.resetReasons },
     };
   }
@@ -370,6 +385,13 @@ export const formatCacheInfo = (
       `minimum capacity headroom: ${observerEpochAggregate.minimumHeadroomTokens === undefined ? "unknown" : `~${formatTokens(observerEpochAggregate.minimumHeadroomTokens)} tokens`}`,
       `baseline pressure: ${observerEpochAggregate.baselinePressureEvents} event(s); minimum fresh delta: ${observerEpochAggregate.minimumFreshDeltaTokens === undefined ? "unknown" : `~${formatTokens(observerEpochAggregate.minimumFreshDeltaTokens)} tokens`}`,
     );
+    if (observerEpochAggregate.latestContext) {
+      const context = observerEpochAggregate.latestContext;
+      lines.push(
+        `latest bounded context: stable ~${formatTokens(context.stableTokens)}, source-related ~${formatTokens(context.sourceRelatedTokens)} tokens`,
+        `  selected observations: stable ${formatTokens(context.stableObservationCount)}, source-related ${formatTokens(context.sourceRelatedObservationCount)}; omitted ${formatTokens(context.omittedObservationCount)}${context.protectedOverflow ? "; protected overflow" : ""}`,
+      );
+    }
   }
 
   if (lifecycleAggregates.length > 0) {

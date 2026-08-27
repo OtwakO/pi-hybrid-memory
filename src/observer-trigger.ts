@@ -126,7 +126,14 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
           fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
           minimumSourceTokens: OBSERVER_MINIMUM_DELTA_TOKENS,
         });
-        runtime.cacheTelemetry.recordObserverCapacity("proactive", request.capacity);
+        runtime.cacheTelemetry.recordObserverCapacity("proactive", request.capacity, {
+          stableTokens: contextPlan.tokens.stableBaseline,
+          sourceRelatedTokens: contextPlan.tokens.sourceRelated,
+          stableObservationCount: contextPlan.stableObservations.length,
+          sourceRelatedObservationCount: contextPlan.sourceRelatedObservations.length,
+          omittedObservationCount: contextPlan.omitted.observations,
+          protectedOverflow: contextPlan.protectedOverflow,
+        });
         if (!request.ok) {
           if (ctx.hasUI && ctx.ui) ctx.ui.notify(
             `Hybrid memory: observer baseline pressure leaves only ~${request.capacity.availableDeltaTokens.toLocaleString()} source tokens; coverage was not advanced.`,

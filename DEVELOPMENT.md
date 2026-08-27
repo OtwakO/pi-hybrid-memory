@@ -347,3 +347,9 @@
 - **Reason**: Provider work inside `/compact` must have an extension-owned upper bound. Existing durable coverage already provides the resume mechanism; another queue or drain framework was unnecessary.
 - **Verified**: A host-hook regression forces a large partial source and proves exactly one observer invocation, one durable partial-progress append, compaction cancellation, and no fold or final assembly. Existing branch/session fencing, empty coverage, final-fence, source-progress, and compaction safety tests remain green.
 - **Watch out**: Repeated manual `/compact` calls may each advance one segment when proactive observation has not caught up. That is deliberate bounded progress, not an implicit full drain; status/telemetry should make the remaining backlog visible before rollout.
+
+### [2026-08-28] Bounded observer context is visible through existing cache telemetry
+- **Context**: Runtime rollout needs a content-free way to verify that observer requests remain bounded and protected-memory pressure is not being hidden.
+- **Change**: `recordObserverCapacity()` optionally stores the latest plan's stable/source-related token counts, selected observation counts, omitted count, and protected-overflow flag. `/hm-cache-info` renders this beside existing epoch capacity and cache data.
+- **Reason**: The existing session-local telemetry seam already owns observer capacity. Extending it avoids a new command, persistent analytics, or prompt-content logging.
+- **Verified**: Focused telemetry and observer/compaction integration tests pass; typecheck and static diagnostics are clean.
