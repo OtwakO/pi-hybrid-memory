@@ -26,6 +26,7 @@ describe("memory lifecycle details", () => {
       observations: [observation],
       previousReflections: [existing],
       currentReflections: [existing, added],
+      retirements: [],
     });
 
     expect(result).toMatchObject({
@@ -41,11 +42,31 @@ describe("memory lifecycle details", () => {
     expect(result.generation.inputFingerprint).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("persists explicit retirement events without copying observation evidence", () => {
+    const retirement = {
+      observationId: "bbbbbbbbbbbb",
+      reason: "exact-duplicate" as const,
+      preservedByObservationIds: [observation.id] as [string],
+      preservedByReflectionIds: [] as [],
+    };
+
+    const result = createMemoryLifecycleDetails({
+      observations: [observation],
+      previousReflections: [],
+      currentReflections: [],
+      retirements: [retirement],
+    });
+
+    expect(result.observationsRetired).toEqual([retirement]);
+    expect(result).not.toHaveProperty("observations");
+  });
+
   it("fingerprints the complete immutable input rather than ids alone", () => {
     const input = {
       observations: [observation],
       previousReflections: [],
       currentReflections: [],
+      retirements: [],
     };
     const changed = {
       ...input,
@@ -61,6 +82,7 @@ describe("memory lifecycle details", () => {
     const base = {
       observations: [observation],
       currentReflections: [],
+      retirements: [],
     };
     const legacyString = createMemoryLifecycleDetails({
       ...base,
@@ -90,6 +112,7 @@ describe("memory lifecycle details", () => {
       observations: [observation],
       previousReflections: [],
       currentReflections: [added],
+      retirements: [],
     };
 
     expect(createMemoryLifecycleDetails(input)).toEqual(createMemoryLifecycleDetails(input));

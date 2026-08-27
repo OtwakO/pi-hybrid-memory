@@ -1,5 +1,5 @@
 import type { CacheTelemetry, MemoryLifecycleOutcome } from "../cache-telemetry.js";
-import type { MemoryReflection, ObservationRecord } from "../types.js";
+import type { MemoryReflection, ObservationRecord, ObservationRetirement } from "../types.js";
 import { REFLECTOR_PROMPT, REFLECTOR_SYSTEM } from "./prompts.js";
 import {
   planReflectionRequest,
@@ -12,6 +12,7 @@ import {
 } from "./reflection-model.js";
 import { validateAndMergeReflections } from "./reflection-validation.js";
 import { estimateStringTokens } from "./tokens.js";
+import { planExactDuplicateRetirements } from "./observation-retirement.js";
 
 export type MemoryFoldFailureReason =
   | ReflectionModelFailureReason
@@ -24,7 +25,7 @@ export type MemoryFoldResult =
       outcome: "below-threshold" | "reflected" | "deliberate-empty" | "no-change";
       reflections: MemoryReflection[];
       observations: ObservationRecord[];
-      retiredObservationIds: [];
+      retirements: ObservationRetirement[];
     }
   | {
       ok: false;
@@ -32,13 +33,14 @@ export type MemoryFoldResult =
       reason: MemoryFoldFailureReason;
       reflections: MemoryReflection[];
       observations: ObservationRecord[];
-      retiredObservationIds: [];
+      retirements: ObservationRetirement[];
     };
 
 interface MemoryFoldInput {
   params: ReflectionModelParams & { telemetry?: CacheTelemetry };
   reflections: MemoryReflection[];
   observations: ObservationRecord[];
+  canonicalObservationIds: ReadonlySet<string>;
   reflectionThresholdTokens: number;
   targetSummaryTokens: number;
   modelPort: ReflectionModelPort;
@@ -72,7 +74,7 @@ const failedFold = (
   reason,
   reflections,
   observations,
-  retiredObservationIds: [],
+  retirements: [],
 });
 
 /**
@@ -95,12 +97,13 @@ export const foldMemory = async (input: MemoryFoldInput): Promise<MemoryFoldResu
       inputItems: observations.length,
       inputTokens: observationTokens,
     });
+    const retirement = planExactDuplicateRetirements(observations, input.canonicalObservationIds);
     return {
       ok: true,
       outcome: "below-threshold",
       reflections,
-      observations,
-      retiredObservationIds: [],
+      observations: retirement.activeObservations,
+      retirements: retirement.retirements,
     };
   }
 
@@ -156,6 +159,7 @@ export const foldMemory = async (input: MemoryFoldInput): Promise<MemoryFoldResu
     proposedItems: validated.proposedItems,
     acceptedItems: validated.acceptedItems,
   });
+  const retirement = planExactDuplicateRetirements(observations, input.canonicalObservationIds);
   return {
     ok: true,
     outcome: validated.proposedItems === 0
@@ -164,7 +168,7 @@ export const foldMemory = async (input: MemoryFoldInput): Promise<MemoryFoldResu
         ? "no-change"
         : "reflected",
     reflections: validated.reflections,
-    observations,
-    retiredObservationIds: [],
+    observations: retirement.activeObservations,
+    retirements: retirement.retirements,
   };
 };

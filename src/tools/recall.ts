@@ -2,7 +2,7 @@
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import type { Entry } from "../types.js";
+import type { Entry, ObservationRetirement } from "../types.js";
 import { MEMORY_ID_PATTERN } from "../types.js";
 import { buildBranchMemoryIndex } from "../om/branch-memory-index.js";
 import { estimateEntryTokens } from "../om/tokens.js";
@@ -23,6 +23,7 @@ interface MatchDetails {
   }>;
   missingSourceIds: string[];
   missingObservationIds: string[];
+  lifecycle?: { state: "active" } | { state: "retired"; retirement: ObservationRetirement };
   message?: string;
 }
 
@@ -238,6 +239,13 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
         }
       }
 
+      if (details.lifecycle?.state === "retired") {
+        lines.push(
+          "",
+          `Lifecycle: retired (${details.lifecycle.retirement.reason}); preserved by ${details.lifecycle.retirement.preservedByObservationIds.join(", ")}`,
+        );
+      }
+
       if (details.sourceEntries.length > 0) {
         lines.push(
           "",
@@ -311,6 +319,7 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
 
         const status: MatchDetails["status"] = missingSourceIds.length > 0 ? "source_unavailable" : sourceEntries.length > 0 ? "ok" : "no_source";
 
+        const lifecycle = memoryIndex.observationLifecycle(memoryId);
         const details: MatchDetails = {
           status,
           memoryId,
@@ -324,11 +333,15 @@ export const registerRecallTool = (pi: ExtensionAPI): void => {
           sourceEntries: sourceDetails,
           missingSourceIds,
           missingObservationIds: [],
+          lifecycle,
         };
 
+        const lifecycleText = lifecycle?.state === "retired"
+          ? `\n\nLifecycle: retired (${lifecycle.retirement.reason}); preserved by ${lifecycle.retirement.preservedByObservationIds.join(", ")}.`
+          : "";
         const text = sourceEntries.length > 0
-          ? `Observation ${memoryId}:\n${observation.content}\n\nSources (bounded chronological previews):\nUse an 8-character source id with hm_recall to retrieve that exact entry.\n\n${renderSourceDetails(sourceDetails)}`
-          : `Observation ${memoryId}:\n${observation.content}\n\nNo source entries available.`;
+          ? `Observation ${memoryId}:\n${observation.content}${lifecycleText}\n\nSources (bounded chronological previews):\nUse an 8-character source id with hm_recall to retrieve that exact entry.\n\n${renderSourceDetails(sourceDetails)}`
+          : `Observation ${memoryId}:\n${observation.content}${lifecycleText}\n\nNo source entries available.`;
 
         return textResult(text, details);
       }

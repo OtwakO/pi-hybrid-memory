@@ -1,6 +1,6 @@
 # Exact-Duplicate Observation Retirement Roadmap
 
-**Status:** Approved Phase B design; implementation not started
+**Status:** Phase B implemented and verified; pending review before Phase C
 
 ## Objective
 
@@ -115,15 +115,15 @@ Run focused policy/projector/fold/recall tests during implementation. Run typech
 
 ## Completion criteria
 
-- [ ] Strict retirement event type and reader implemented.
-- [ ] Pure exact-duplicate policy implemented.
-- [ ] V5 replay validates and applies retirement batches atomically.
-- [ ] Active summaries exclude retired duplicates.
-- [ ] Every original ID and source provenance remain recallable.
-- [ ] V3/V4-only observations are not retireable.
-- [ ] Repeated folds emit no duplicate lifecycle event.
-- [ ] Branches before and after retirement project independently.
-- [ ] Focused tests pass.
-- [ ] TypeScript, full suite, and production build pass.
+- [x] Strict retirement event type and reader implemented.
+- [x] Pure exact-duplicate policy implemented.
+- [x] V5 replay validates and applies retirement batches atomically.
+- [x] Active summaries exclude retired duplicates.
+- [x] Every original ID and source provenance remain recallable.
+- [x] V3/V4-only observations are not retireable.
+- [x] Repeated folds emit no duplicate lifecycle event.
+- [x] Branches before and after retirement project independently.
+- [x] Focused tests pass.
+- [x] TypeScript, full suite, and production build pass.
 - [ ] Phase B committed separately from Phase C.
 - [ ] Review completed before reflection supersession begins.

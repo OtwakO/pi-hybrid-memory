@@ -23,12 +23,35 @@ const input = (port: ReflectionModelPort) => ({
   params,
   reflections: [],
   observations: [observation],
+  canonicalObservationIds: new Set([observation.id]),
   reflectionThresholdTokens: 0,
   targetSummaryTokens: 16_000,
   modelPort: port,
 });
 
 describe("foldMemory", () => {
+  it("retires exact duplicates below the reflection threshold without calling the model", async () => {
+    const duplicate = { ...observation, id: "bbbbbbbbbbbb", content: "  durable fact\r\n" };
+    const port = modelPort({ ok: false, reason: "error" });
+
+    const result = await foldMemory({
+      ...input(port),
+      observations: [observation, duplicate],
+      canonicalObservationIds: new Set([observation.id, duplicate.id]),
+      reflectionThresholdTokens: Number.MAX_SAFE_INTEGER,
+    });
+
+    expect(port.propose).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: true,
+      observations: [observation],
+      retirements: [{
+        observationId: duplicate.id,
+        preservedByObservationIds: [observation.id],
+      }],
+    });
+  });
+
   it("skips model work below the reflection threshold", async () => {
     const port = modelPort({ ok: false, reason: "error" });
 
@@ -42,7 +65,7 @@ describe("foldMemory", () => {
       outcome: "below-threshold",
       reflections: [],
       observations: [observation],
-      retiredObservationIds: [],
+      retirements: [],
     });
     expect(port.propose).not.toHaveBeenCalled();
   });
@@ -58,7 +81,7 @@ describe("foldMemory", () => {
         reason,
         reflections: [],
         observations: [observation],
-        retiredObservationIds: [],
+        retirements: [],
       });
     },
   );
@@ -78,7 +101,7 @@ describe("foldMemory", () => {
       ok: true,
       outcome: "reflected",
       observations: [observation],
-      retiredObservationIds: [],
+      retirements: [],
       reflections: [{
         content: "durable reflection",
         supportingObservationIds: [observation.id],
@@ -127,7 +150,7 @@ describe("foldMemory", () => {
       reason: "invalid-provenance",
       reflections: [],
       observations: [observation],
-      retiredObservationIds: [],
+      retirements: [],
     });
   });
 

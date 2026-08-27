@@ -1,7 +1,9 @@
+import { areExactDuplicateObservations } from "./observation-retirement.js";
 import type {
   Entry,
   MemoryReflection,
   ObservationRecord,
+  ObservationRetirement,
   ReflectionRecord,
 } from "../types.js";
 import {
@@ -17,6 +19,10 @@ export interface CurrentBranchMemory {
   committedObs: ObservationRecord[];
   pendingObs: ObservationRecord[];
 }
+
+export type ObservationLifecycle =
+  | { state: "active" }
+  | { state: "retired"; retirement: ObservationRetirement };
 
 export interface ObservationSources {
   entries: Entry[];
@@ -40,6 +46,8 @@ export interface BranchMemoryIndex {
   issues: MemoryReplayIssue[];
   latestMemoryCompactionId?: string;
   observationById(id: string): ObservationRecord | undefined;
+  observationLifecycle(id: string): ObservationLifecycle | undefined;
+  activeObservationIds(): Set<string>;
   reflectionById(id: string): ReflectionRecord | undefined;
   sourceEntryById(id: string): Entry | undefined;
   sourcesForObservation(id: string): ObservationSources;
@@ -84,6 +92,10 @@ export const buildBranchMemoryIndex = (
   const compactions: Entry[] = [];
   const observationHistory = new Map<string, ObservationRecord>();
   const reflectionHistory = new Map<string, ReflectionRecord>();
+  const canonicalObservationIds = new Set<string>();
+  const activeObservationOrder: string[] = [];
+  const activeObservationIds = new Set<string>();
+  const observationRetirements = new Map<string, ObservationRetirement>();
   const observationEntries: Array<{ entryIndex: number; coversFromIndex?: number; records: ObservationRecord[] }> = [];
   const issues: MemoryReplayIssue[] = [];
 
@@ -119,7 +131,12 @@ export const buildBranchMemoryIndex = (
       }
       observationEntries.push({ entryIndex, records });
       for (const observation of records) {
+        canonicalObservationIds.add(observation.id);
         if (!observationHistory.has(observation.id)) observationHistory.set(observation.id, observation);
+        if (!observationRetirements.has(observation.id) && !activeObservationIds.has(observation.id)) {
+          activeObservationIds.add(observation.id);
+          activeObservationOrder.push(observation.id);
+        }
       }
       continue;
     }
@@ -162,7 +179,14 @@ export const buildBranchMemoryIndex = (
       baselineObservations = details.observations.map(observation =>
         cloneObservation(observationHistory.get(observation.id) ?? observation));
       currentReflections = details.reflections.map(cloneReflection);
+      observationRetirements.clear();
+      activeObservationIds.clear();
+      activeObservationOrder.length = 0;
       for (const observation of baselineObservations) {
+        if (!activeObservationIds.has(observation.id)) {
+          activeObservationIds.add(observation.id);
+          activeObservationOrder.push(observation.id);
+        }
         if (!observationHistory.has(observation.id)) {
           observationHistory.set(observation.id, cloneObservation(observation));
         }
@@ -186,17 +210,39 @@ export const buildBranchMemoryIndex = (
     const additions = details.reflectionsAdded.map(
       reflection => cloneReflection(reflection) as ReflectionRecord,
     );
+    const retirements = details.observationsRetired.map(retirement => structuredClone(retirement));
     const batchIds = new Set<string>();
-    const validBatch = additions.every(reflection => {
+    const retirementTargetIds = new Set(retirements.map(retirement => retirement.observationId));
+    const validAdditions = additions.every(reflection => {
       if (batchIds.has(reflection.id) || reflectionHistory.has(reflection.id)) return false;
       batchIds.add(reflection.id);
       return reflection.supportingObservationIds.every(id => observationHistory.has(id));
     });
+    const validRetirements = retirementTargetIds.size === retirements.length && retirements.every(retirement => {
+      const observation = observationHistory.get(retirement.observationId);
+      const preservingId = retirement.preservedByObservationIds[0];
+      const preserving = observationHistory.get(preservingId);
+      if (
+        !observation
+        || !preserving
+        || retirement.observationId === preservingId
+        || observationRetirements.has(retirement.observationId)
+        || observationRetirements.has(preservingId)
+        || retirementTargetIds.has(preservingId)
+        || !canonicalObservationIds.has(retirement.observationId)
+        || !activeObservationOrder.includes(retirement.observationId)
+        || !activeObservationOrder.includes(preservingId)
+        || !areExactDuplicateObservations(observation, preserving)
+      ) return false;
+      if (activeObservationOrder.indexOf(preservingId) >= activeObservationOrder.indexOf(retirement.observationId)) return false;
+      return true;
+    });
+    const validBatch = validAdditions && validRetirements;
     if (!validBatch) {
       issues.push({
         entryId: entry.id,
         reason: "invalid-lifecycle-batch",
-        detail: "reflection additions contain a duplicate id or unknown supporting observation id",
+        detail: "lifecycle additions or retirements violate immutable ids, provenance, or preservation rules",
       });
       continue;
     }
@@ -206,6 +252,12 @@ export const buildBranchMemoryIndex = (
     for (const reflection of additions) {
       reflectionHistory.set(reflection.id, reflection);
       currentReflections.push(reflection);
+    }
+    for (const retirement of retirements) {
+      observationRetirements.set(retirement.observationId, retirement);
+      activeObservationIds.delete(retirement.observationId);
+      const activeIndex = activeObservationOrder.indexOf(retirement.observationId);
+      if (activeIndex >= 0) activeObservationOrder.splice(activeIndex, 1);
     }
   }
 
@@ -232,8 +284,10 @@ export const buildBranchMemoryIndex = (
 
   const current: CurrentBranchMemory = {
     reflections: currentReflections.map(cloneReflection),
-    committedObs: [...committedById.values()].map(cloneObservation),
-    pendingObs,
+    committedObs: [...committedById.values()]
+      .filter(observation => !observationRetirements.has(observation.id))
+      .map(cloneObservation),
+    pendingObs: pendingObs.filter(observation => !observationRetirements.has(observation.id)),
   };
 
   const observationById = (id: string): ObservationRecord | undefined => {
@@ -264,6 +318,14 @@ export const buildBranchMemoryIndex = (
     issues: issues.map(issue => ({ ...issue })),
     latestMemoryCompactionId,
     observationById,
+    observationLifecycle: id => {
+      if (!observationHistory.has(id)) return undefined;
+      const retirement = observationRetirements.get(id);
+      return retirement
+        ? { state: "retired", retirement: structuredClone(retirement) }
+        : { state: "active" };
+    },
+    activeObservationIds: () => new Set(activeObservationOrder),
     reflectionById,
     sourceEntryById: id => branchEntries.get(id),
     sourcesForObservation,

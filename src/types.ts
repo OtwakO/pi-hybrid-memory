@@ -57,6 +57,13 @@ export interface MemoryDetailsV4 {
   reflections: MemoryReflection[];
 }
 
+export interface ObservationRetirement {
+  observationId: string;
+  reason: "exact-duplicate";
+  preservedByObservationIds: [string];
+  preservedByReflectionIds: [];
+}
+
 export interface MemoryLifecycleDetailsV5 {
   type: "observational-memory";
   version: 5;
@@ -65,7 +72,7 @@ export interface MemoryLifecycleDetailsV5 {
     parentMemoryCompactionId?: string;
   };
   reflectionsAdded: ReflectionRecord[];
-  observationsRetired: [];
+  observationsRetired: ObservationRetirement[];
   reflectionsSuperseded: [];
 }
 
@@ -133,6 +140,20 @@ const isMemoryReflection = (value: unknown): value is MemoryReflection => {
 const isReflectionRecord = (value: unknown): value is ReflectionRecord =>
   typeof value !== "string" && isMemoryReflection(value);
 
+const isObservationRetirement = (value: unknown): value is ObservationRetirement => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const retirement = value as Record<string, unknown>;
+  return typeof retirement.observationId === "string"
+    && MEMORY_ID_PATTERN.test(retirement.observationId)
+    && retirement.reason === "exact-duplicate"
+    && Array.isArray(retirement.preservedByObservationIds)
+    && retirement.preservedByObservationIds.length === 1
+    && typeof retirement.preservedByObservationIds[0] === "string"
+    && MEMORY_ID_PATTERN.test(retirement.preservedByObservationIds[0])
+    && Array.isArray(retirement.preservedByReflectionIds)
+    && retirement.preservedByReflectionIds.length === 0;
+};
+
 export const claimsMemoryDetailsVersion = (value: unknown, version: number): boolean => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const details = value as Record<string, unknown>;
@@ -173,7 +194,7 @@ export const readMemoryDetails = (value: unknown): PersistedMemoryDetails | unde
     || !Array.isArray(details.reflectionsAdded)
     || !details.reflectionsAdded.every(isReflectionRecord)
     || !Array.isArray(details.observationsRetired)
-    || details.observationsRetired.length !== 0
+    || !details.observationsRetired.every(isObservationRetirement)
     || !Array.isArray(details.reflectionsSuperseded)
     || details.reflectionsSuperseded.length !== 0
   ) {
@@ -189,7 +210,7 @@ export const readMemoryDetails = (value: unknown): PersistedMemoryDetails | unde
         : {}),
     },
     reflectionsAdded: structuredClone(details.reflectionsAdded),
-    observationsRetired: [],
+    observationsRetired: structuredClone(details.observationsRetired),
     reflectionsSuperseded: [],
   };
 };

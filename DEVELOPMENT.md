@@ -270,3 +270,10 @@
 - **Reason**: Capacity selection and final preparation must use one accounting rule so a source candidate cannot pass preliminary sizing and fail after dynamic prompt composition.
 - **Verified**: Focused capacity, epoch, serialization, progress, proactive, and catch-up tests pass; TypeScript, the full Vitest suite, and the production build pass.
 - **Watch out**: Warm epochs still size against fresh capacity and may cold-roll when a smaller useful source could remain warm. This is a deferred cache optimization. Persisted progress now restarts from zero when rendered length changes, but no serializer digest/version has been added to the durable schema.
+
+### [2026-08-27] Exact duplicates retire through explicit branch-local lifecycle events
+- **Context**: Phase A retained every observation indefinitely. The first safe convergence class was locally provable exact duplication without model judgment.
+- **Change**: Active observations are traversed in authoritative projection order and compared by normalized line endings, surrounding whitespace, and relevance. Later canonical custom-entry duplicates emit explicit V5 `exact-duplicate` retirement events naming the earlier active representative. V5 replay validates the complete lifecycle batch atomically and removes retired IDs only from the active projection; immutable lookup and source provenance remain intact. V3/V4-only observations may preserve a duplicate but cannot themselves retire.
+- **Reason**: Explicit events make retirement auditable, branch-local, idempotent, and independent of omission-sensitive model output while reducing repeated active context.
+- **Verified**: Focused policy, projector, fold, writer, and recall tests pass; TypeScript, the full Vitest suite, and the production build pass.
+- **Watch out**: Equality is intentionally narrow and does not merge provenance or infer semantic equivalence. Reflection supersession and broader semantic retirement remain disabled pending their separate milestones.

@@ -4,6 +4,7 @@ import type {
   MemoryLifecycleDetailsV5,
   MemoryReflection,
   ObservationRecord,
+  ObservationRetirement,
   ReflectionRecord,
 } from "../types.js";
 
@@ -43,6 +44,7 @@ export const createMemoryLifecycleDetails = (input: {
   observations: readonly ObservationRecord[];
   previousReflections: readonly MemoryReflection[];
   currentReflections: readonly MemoryReflection[];
+  retirements: readonly ObservationRetirement[];
 }): MemoryLifecycleDetailsV5 => {
   const previousIds = new Set(reflectionRecords(input.previousReflections).map(reflection => reflection.id));
   const reflectionsAdded = reflectionRecords(input.currentReflections)
@@ -62,7 +64,7 @@ export const createMemoryLifecycleDetails = (input: {
         : {}),
     },
     reflectionsAdded,
-    observationsRetired: [],
+    observationsRetired: input.retirements.map(retirement => structuredClone(retirement)),
     reflectionsSuperseded: [],
   };
 };

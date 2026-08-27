@@ -237,6 +237,104 @@ describe("branch memory index", () => {
     expect(index.current.reflections).toEqual([firstReflection, secondReflection]);
   });
 
+  it("retires a canonical duplicate from the active branch projection without deleting evidence", () => {
+    const representative = observation("aaaaaaaaaaaa", "same\r\ncontent", "2026-08-26T00:00:01.000Z", ["source01"]);
+    const duplicate = observation("bbbbbbbbbbbb", "  same\ncontent  ", "2026-08-26T00:00:02.000Z", ["source02"]);
+    const entries: Entry[] = [
+      source("source01"),
+      source("source02"),
+      observationEntry("obsentry1", "source01", [representative, duplicate]),
+      compaction("compact1", "kept0001", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "retirement" },
+        reflectionsAdded: [],
+        observationsRetired: [{
+          observationId: duplicate.id,
+          reason: "exact-duplicate",
+          preservedByObservationIds: [representative.id],
+          preservedByReflectionIds: [],
+        }],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0001"),
+    ];
+
+    const index = buildBranchMemoryIndex(entries);
+
+    expect(index.current.committedObs).toEqual([representative]);
+    expect(index.observationById(duplicate.id)).toEqual(duplicate);
+    expect(index.observationLifecycle(duplicate.id)).toEqual({
+      state: "retired",
+      retirement: expect.objectContaining({
+        reason: "exact-duplicate",
+        preservedByObservationIds: [representative.id],
+      }),
+    });
+  });
+
+  it("keeps retirement branch-local and replay idempotent", () => {
+    const representative = observation("aaaaaaaaaaaa", "same", "2026-08-26T00:00:01.000Z");
+    const duplicate = observation("bbbbbbbbbbbb", "same", "2026-08-26T00:00:02.000Z");
+    const beforeRetirement: Entry[] = [
+      observationEntry("obsentry1", "source01", [representative, duplicate]),
+    ];
+    const afterRetirement: Entry[] = [
+      ...beforeRetirement,
+      compaction("compact1", "kept0001", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "retirement" },
+        reflectionsAdded: [],
+        observationsRetired: [{
+          observationId: duplicate.id,
+          reason: "exact-duplicate",
+          preservedByObservationIds: [representative.id],
+          preservedByReflectionIds: [],
+        }],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0001"),
+    ];
+
+    expect(buildBranchMemoryIndex(beforeRetirement).current.committedObs).toEqual([representative, duplicate]);
+    const after = buildBranchMemoryIndex(afterRetirement);
+    expect([...after.current.committedObs, ...after.current.pendingObs]).toEqual([representative]);
+    expect(buildBranchMemoryIndex(structuredClone(afterRetirement)).current).toEqual(
+      buildBranchMemoryIndex(afterRetirement).current,
+    );
+  });
+
+  it("rejects a malformed retirement batch atomically with its reflection additions", () => {
+    const representative = observation("aaaaaaaaaaaa", "same", "2026-08-26T00:00:01.000Z");
+    const duplicate = observation("bbbbbbbbbbbb", "same", "2026-08-26T00:00:02.000Z");
+    const added = reflection("cccccccccccc", "must not partially apply", [representative.id]);
+    const index = buildBranchMemoryIndex([
+      observationEntry("obsentry1", "source01", [representative, duplicate]),
+      compaction("compact1", "kept0001", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "invalid" },
+        reflectionsAdded: [added],
+        observationsRetired: [{
+          observationId: representative.id,
+          reason: "exact-duplicate",
+          preservedByObservationIds: [duplicate.id],
+          preservedByReflectionIds: [],
+        }],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0001"),
+    ]);
+
+    expect(index.current.committedObs).toEqual([representative, duplicate]);
+    expect(index.reflectionById(added.id)).toBeUndefined();
+    expect(index.issues).toEqual([expect.objectContaining({
+      entryId: "compact1",
+      reason: "invalid-lifecycle-batch",
+    })]);
+  });
+
   it("rejects a malformed or wrong-parent V5 batch atomically", () => {
     const committed = observation("aaaaaaaaaaaa", "committed", "2026-08-26T00:00:01.000Z");
     const validReflection = reflection("bbbbbbbbbbbb", "valid", [committed.id]);

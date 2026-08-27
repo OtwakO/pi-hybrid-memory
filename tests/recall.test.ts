@@ -115,6 +115,43 @@ describe("hm_recall memory ID compatibility", () => {
     expect(resultText(result)).toContain("Use an 8-character source id with hm_recall to retrieve that exact entry.");
   });
 
+  it("recalls retired duplicate evidence with its original provenance and lifecycle link", async () => {
+    const representative = observation(CURRENT_BASE36_MEMORY_ID);
+    const retired = { ...observation("mr6pp8nr000c"), content: representative.content };
+    const result = await execute(retired.id, [
+      rawEntry(),
+      observationEntry(representative),
+      {
+        ...observationEntry(retired),
+        id: "observer-entry-2",
+      },
+      {
+        type: "compaction",
+        id: "compaction-entry",
+        details: {
+          type: "observational-memory",
+          version: 5,
+          generation: { inputFingerprint: "retirement" },
+          reflectionsAdded: [],
+          observationsRetired: [{
+            observationId: retired.id,
+            reason: "exact-duplicate",
+            preservedByObservationIds: [representative.id],
+            preservedByReflectionIds: [],
+          }],
+          reflectionsSuperseded: [],
+        },
+      },
+    ]);
+
+    expect(result.details.lifecycle).toMatchObject({
+      state: "retired",
+      retirement: { preservedByObservationIds: [representative.id] },
+    });
+    expect(result.details.sourceEntries[0].content).toBe("source text");
+    expect(resultText(result)).toContain(`preserved by ${representative.id}`);
+  });
+
   it("recalls observations that exist only in compaction details", async () => {
     const record = observation(CURRENT_BASE36_MEMORY_ID);
     const result = await execute(CURRENT_BASE36_MEMORY_ID, [
