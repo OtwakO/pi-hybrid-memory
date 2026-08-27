@@ -348,6 +348,14 @@ it's fine to write the code first and test right after.
 Stop once the change is covered at a reasonable level and the tests pass. Adding another similar
 test after that repeats the same confidence — it doesn't add new confidence.
 
+### [Important] The general rules are:
+- Design tests that are effective at covering the **real practical risks of the interested scope**.
+- Tests should be deterministic, and **token efficient to write, run, and maintain**.
+- Tests should be **repeatable** and **easy to run** in a repeatable way.
+- Do not overfit tests to a specific test dataset, test runner, or test framework.
+- Duplicated tests, repo-wide tests when the scope is small and added no real value, are a waste of token and time without offering any real confidence, that is just over-testing for no real gain.
+- Tests should maximize confidence per test and per fixture token, not maximize test count.
+
 ## Refactoring
 Only refactor when:
 - You can't safely make the requested change without it.
