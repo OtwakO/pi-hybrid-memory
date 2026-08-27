@@ -1,6 +1,6 @@
 # Long-Session Memory Quality Harness Roadmap
 
-**Status:** Approved harness design; implementation not started
+**Status:** Deterministic quality harness implemented and verified; pending review before Phase D
 
 ## Objective
 
@@ -135,15 +135,15 @@ Do not snapshot full summaries or print all observations. Failure output should 
 
 ## Completion criteria
 
-- [ ] Deterministic 300/600/900 fixture generator implemented.
-- [ ] Required-fact and provenance oracle implemented.
-- [ ] Compact quality report implemented.
-- [ ] Retention baseline verified at all three sizes.
-- [ ] Failure metrics proven sensitive with one compact candidate.
-- [ ] Structural-invalidity reporting covered once.
-- [ ] Evaluation convergence verified.
-- [ ] No runtime code or provider calls added.
-- [ ] Focused harness tests pass.
-- [ ] TypeScript, full suite, and production build pass.
+- [x] Deterministic 300/600/900 fixture generator implemented.
+- [x] Required-fact and provenance oracle implemented.
+- [x] Compact quality report implemented.
+- [x] Retention baseline verified at all three sizes.
+- [x] Failure metrics proven sensitive with one compact candidate.
+- [x] Structural-invalidity reporting covered once.
+- [x] Evaluation convergence verified.
+- [x] No runtime code or provider calls added.
+- [x] Focused harness tests pass.
+- [x] TypeScript, full suite, and production build pass.
 - [ ] Harness committed separately from Phase D protocol experiments.
 - [ ] Review completed before semantic retirement design begins.

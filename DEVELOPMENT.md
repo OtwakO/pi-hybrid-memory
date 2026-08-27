@@ -284,3 +284,10 @@
 - **Reason**: This bounds duplicate same-content reflection revisions and establishes safe support-transfer mechanics without delegating semantic replacement to the model.
 - **Verified**: Focused validation, projector, fold, writer, and recall tests pass; TypeScript, the full Vitest suite, and the production build pass.
 - **Watch out**: Legacy string reflections have no ID and cannot be superseded. Model-proposed corrections and broader semantic supersession remain deferred to the quality-evaluation decision.
+
+### [2026-08-27] Semantic retirement now has a deterministic long-session quality gate
+- **Context**: Broader retirement cannot be justified by token reduction alone. It needs repeatable evidence that exact identifiers, corrections, chronology, rationale, constraints, and provenance remain available at realistic observation counts.
+- **Change**: Added a test-only 300/600/900-observation fixture generator and projection evaluator. The evaluator reports required-fact failures, false retirement/retention, structural invalidity, missing provenance, active-context reduction, and deterministic projection fingerprints. `must-retain` facts require their original active observation; only explicitly labelled facts may count exact reflection payload plus provenance as preservation.
+- **Reason**: This creates a strategy-neutral acceptance seam for future combined-call or separate-call retirement experiments without adding runtime abstractions or provider cost prematurely.
+- **Verified**: Parameterized harness tests, TypeScript, the full Vitest suite, and the production build pass. The production bundle size and module count are unchanged because the harness lives entirely under `tests/`.
+- **Watch out**: Generated filler has no synthetic semantic-deletion oracle and is intentionally excluded from false-retention scoring. An optional LLM judge may supplement nuanced evaluation later but cannot override deterministic required-fact failures.
