@@ -298,3 +298,10 @@
 - **Reason**: Provider cost and schema validity are insufficient; deterministic fact preservation must choose the architecture. The separate protocol is unsafe in its current prompt/protocol, while the combined result needs repeat-run stability before scaling.
 - **Verified**: Authentication readiness was confirmed through Pi, both 300-observation calls completed, local validation accepted their shapes, and the quality harness produced deterministic compact reports.
 - **Watch out**: Do not interpret one successful combined run as approval. It proposed 288 retirements and used 40,405 total tokens. Repeat 300 runs must establish stability before 600/900 or runtime design. Semantic retirement remains disabled.
+
+### [2026-08-27] Phase D rejects both semantic-retirement protocols
+- **Context**: One combined 300-observation run initially appeared safe, while the separate protocol failed all deterministic required facts. Repeat stability was required before scaling or approving runtime behavior.
+- **Change**: Repeated the combined protocol on the identical fixture/model. The repeat retired 9 required facts and achieved only 0.70% reduction, versus zero false retirements and 84.61% reduction in the first run. No 600/900 runs were performed and no runtime semantic retirement was enabled.
+- **Reason**: The same protocol cannot be trusted when safety and aggressiveness vary radically across identical runs. Schema validity and one successful sample do not establish semantic deletion safety.
+- **Verified**: Both compact gitignored reports were reviewed through the deterministic harness. Separate failed with 12 false retirements; repeated combined failed with 9 false retirements and a different projection fingerprint.
+- **Watch out**: Do not tune prompts until one sample passes and then treat the result as architecture evidence. Any future reconsideration needs a materially different preservation mechanism or model capability and must restart at the 300-observation repeated-run gate.

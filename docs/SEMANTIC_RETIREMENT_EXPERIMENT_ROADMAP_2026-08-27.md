@@ -1,6 +1,6 @@
 # Semantic Retirement Protocol Experiment Roadmap
 
-**Status:** Experiment infrastructure implemented; first 300-observation comparison completed
+**Status:** Phase D decision complete — semantic retirement remains disabled
 **Evaluation model:** `opencode-go/deepseek-v4-flash`
 
 ## Objective
@@ -155,7 +155,9 @@ If neither protocol passes, semantic retirement remains disabled.
 - [x] TypeScript, full suite, and production build pass.
 - [x] First 300-observation provider evaluation run manually and reviewed.
 - [x] No runtime semantic retirement enabled.
-- [ ] Experiment committed separately from any runtime decision.
+- [x] Experiment committed separately from any runtime decision.
+- [x] Repeat 300-observation stability check completed.
+- [x] Phase D decision recorded: no semantic retirement protocol approved.
 
 ## First 300-observation result
 
@@ -166,4 +168,13 @@ Using `opencode-go/deepseek-v4-flash`:
 | Combined | 0 | 0 | 3 | 84.61% | 40,405 tokens | 0.021320 |
 | Separate | 12 | 12 | 0 | 0.00% | 30,802 tokens | 0.009650 |
 
-The combined protocol is promising but generated 288 explicit retirement proposals and requires repeat-run stability before larger fixtures. The separate protocol fails the deterministic safety gate in its current form because all 12 required facts were retired without exact preservation. Do not run 600/900 or enable runtime retirement based on this single comparison.
+The separate protocol fails the deterministic safety gate in its current form because all 12 required facts were retired without exact preservation.
+
+A repeat combined-only 300-observation run also failed decisively:
+
+| Combined run | Required failures | False retirements | False retentions | Reduction | Retirement proposals | Total usage |
+|---|---:|---:|---:|---:|---:|---:|
+| First | 0 | 0 | 3 | 84.61% | 288 | 40,405 tokens |
+| Repeat | 9 | 9 | 0 | 0.70% | 12 | 15,761 tokens |
+
+The same model, fixture, protocol, and size produced radically different safety and convergence outcomes. Neither combined nor separate protocol is approved for runtime semantic retirement. Do not run 600/900; larger fixtures cannot rescue a protocol that fails deterministic required facts and repeat stability at 300 observations. Semantic retirement remains disabled.
