@@ -241,7 +241,8 @@ describe("compaction catch-up safety integration", () => {
       outcome: "below-threshold",
       reflections: input.reflections,
       observations: input.observations,
-      retiredObservationIds: [],
+      retirements: [],
+      supersessions: [],
     }));
 
     await fixture.getHandler()(fixture.event, fixture.ctx);
@@ -353,7 +354,8 @@ describe("compaction catch-up safety integration", () => {
         reason: "missing-tool-call",
         reflections: input.reflections,
         observations: input.observations,
-        retiredObservationIds: [],
+        retirements: [],
+        supersessions: [],
       };
     });
     fixture.complete.mockResolvedValue(assistantMessage("no tool call"));
@@ -382,7 +384,8 @@ describe("compaction catch-up safety integration", () => {
         outcome: "reflected",
         reflections: input.reflections,
         observations: input.observations,
-        retiredObservationIds: [],
+        retirements: [],
+        supersessions: [],
       };
     });
 

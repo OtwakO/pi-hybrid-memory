@@ -67,7 +67,6 @@ describe("observer source request preparation", () => {
         ok: false,
         reason: "insufficient-source-capacity",
         capacity: {
-          availableDeltaTokens: 15,
           minimumDeltaTokens: 16,
           pressured: true,
         },

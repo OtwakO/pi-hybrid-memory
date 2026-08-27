@@ -35,7 +35,10 @@ describe("long-session memory quality harness", () => {
       content: `Durable preservation: ${preservable.requiredMarker}`,
       supportingObservationIds: [preservable.observationId, falselyRetained.observationId],
     };
-    const retiredIds = [preservable.observationId, falselyRetired.observationId];
+    const fillerIds = fixture.observations
+      .slice(fixture.requiredFacts.length, fixture.requiredFacts.length + 20)
+      .map(item => item.id);
+    const retiredIds = [preservable.observationId, falselyRetired.observationId, ...fillerIds];
     const activeObservations = fixture.observations.filter(item => !retiredIds.includes(item.id));
     const candidate = evaluateMemoryQuality(fixture, {
       activeObservations,
