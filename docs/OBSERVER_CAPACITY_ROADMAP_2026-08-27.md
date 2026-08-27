@@ -1,6 +1,6 @@
 # Observer Capacity and Source-Progress Roadmap
 
-**Status:** Approved design direction; implementation not started  
+**Status:** Capacity-aware request preparation implemented and verified; pending review before Phase B
 **Scope:** Immediate observer-capacity reliability correction and closely related follow-up decisions  
 **Primary goal:** Fit the largest useful contiguous source input inside the observer request without omitting active memory, weakening coverage guarantees, or duplicating capacity logic across callers.
 
@@ -286,16 +286,16 @@ Exact-duplicate retirement does not require a new repeated-provenance aggregate.
 
 ## 11. Tracking checklist
 
-- [ ] M1 accounting-class regression test added and red.
-- [ ] M2 shared request-preparation operation implemented.
-- [ ] M3 proactive caller migrated.
-- [ ] M4 catch-up caller migrated.
-- [ ] M5 progress-integrity behavior explicitly decided and verified.
-- [ ] Focused capacity/progress tests pass.
-- [ ] Existing proactive/catch-up lifecycle tests pass.
-- [ ] TypeScript passes.
-- [ ] Full suite passes once at milestone completion.
-- [ ] Production build passes.
-- [ ] `PLAN.md` and `DEVELOPMENT.md` updated if implementation decisions change.
+- [x] M1 accounting-class regression test added and verified red before implementation.
+- [x] M2 shared request-preparation operation implemented.
+- [x] M3 proactive caller migrated.
+- [x] M4 catch-up caller migrated.
+- [x] M5 minimal progress-integrity behavior implemented: mismatched rendered length restarts from offset zero without a schema change.
+- [x] Focused capacity/progress tests pass.
+- [x] Existing proactive/catch-up lifecycle tests pass.
+- [x] TypeScript passes.
+- [x] Full suite passes once at milestone completion.
+- [x] Production build passes.
+- [x] `PLAN.md` and `DEVELOPMENT.md` updated for durable implementation decisions.
 - [ ] Capacity milestone committed separately.
 - [ ] Review completed before Phase B retirement work begins.

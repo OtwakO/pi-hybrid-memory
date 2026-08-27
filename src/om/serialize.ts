@@ -112,10 +112,13 @@ export const serializeSourceAddressedBranchEntries = (
 
   for (let index = 0; index < activeRenderable.length; index++) {
     const item = activeRenderable[index];
-    const startOffset = index === 0 && progress?.sourceEntryId === item.entry.id
-      ? progress.nextOffset
-      : 0;
     const rendered = renderSourceEntry(item.entry);
+    const resumeProgress = index === 0
+      && progress?.sourceEntryId === item.entry.id
+      && progress.totalLength === rendered?.length
+      ? progress
+      : undefined;
+    const startOffset = resumeProgress?.nextOffset ?? 0;
     if (!rendered) continue;
     if (startOffset > 0 || estimateStringTokens(item.block) > maxTokens) {
       if (blocks.length > 0) break;

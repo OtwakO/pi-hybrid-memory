@@ -65,6 +65,18 @@ describe("oversized source progress", () => {
     expect(second.coversUpToId).toBe("large-source");
   });
 
+  it("restarts from zero when persisted progress no longer matches the rendered source", () => {
+    const source = entry("large-source", `HEAD ${"middle ".repeat(200)}TAIL`);
+    const first = serializeSourceAddressedBranchEntries([source], 80);
+    expect(first.sourceProgress).toBeDefined();
+
+    const changedSource = entry("large-source", `CHANGED ${"middle ".repeat(200)}TAIL`);
+    const resumed = serializeSourceAddressedBranchEntries([changedSource], 80, first.sourceProgress);
+
+    expect(resumed.text).toContain("[Source segment: large-source 0-");
+    expect(resumed.sourceProgress?.nextOffset).toBe(first.sourceProgress!.nextOffset);
+  });
+
   it("restores partial progress without advancing the durable full-coverage anchor", () => {
     const progress: SourceProgress = {
       sourceEntryId: "large-source",

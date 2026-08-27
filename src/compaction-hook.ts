@@ -10,15 +10,13 @@ import {
 } from "./om/branch.js";
 import { buildBranchMemoryIndex } from "./om/branch-memory-index.js";
 import { estimateEntryTokens, estimateStringTokens } from "./om/tokens.js";
-import { serializeSourceAddressedBranchEntries } from "./om/serialize.js";
 import { runObserver } from "./om/observer.js";
+import { prepareObserverSourceRequest } from "./om/observer-request.js";
 import {
-  OBSERVER_DELTA_INSTRUCTIONS,
   OBSERVER_FIXED_TOKEN_RESERVE,
   OBSERVER_MINIMUM_DELTA_TOKENS,
   observerBaselineText,
   observerCompatibilityKey,
-  observerDeltaText,
   observerEpochTokenLimit,
 } from "./om/observer-context.js";
 import { foldMemory } from "./om/memory-fold.js";
@@ -128,45 +126,25 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
           const model = resolved.model;
           const baselineText = observerBaselineText(memoryState.reflections, baselineObservations);
           const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
-          const freshCapacity = draftEpoch.freshEpochCapacity({
-            baselineText,
-            maxTokens: epochMaxTokens,
-            fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
-            deltaOverheadText: OBSERVER_DELTA_INSTRUCTIONS,
-            minimumDeltaTokens: OBSERVER_MINIMUM_DELTA_TOKENS,
-          });
-          runtime.cacheTelemetry.recordObserverCapacity("catch-up", freshCapacity);
-          if (freshCapacity.pressured) {
-            if (ctx.hasUI) ctx.ui.notify(
-              `Hybrid memory: compaction catch-up blocked by baseline pressure (${freshCapacity.availableDeltaTokens.toLocaleString()} source tokens available; ${freshCapacity.minimumDeltaTokens.toLocaleString()} required). Cancelling compaction.`,
-              "warning",
-            );
-            return { cancel: true };
-          }
-          const freshDeltaBudget = freshCapacity.availableDeltaTokens;
           while (remainingGap.length > 0) {
-            const serialized = serializeSourceAddressedBranchEntries(
-              remainingGap,
-              Math.min(runtime.config.hybrid.observerChunkMaxTokens, freshDeltaBudget),
-              sourceProgress,
-            );
-            if (!serialized.text.trim() || serialized.sourceEntryIds.length === 0) {
-              gapFailedReason = "could not serialize the remaining source entries within the observer budget";
-              break;
-            }
-
-            const prepared = draftEpoch.prepare({
+            const request = prepareObserverSourceRequest({
+              epoch: draftEpoch,
               compatibilityKey: observerCompatibilityKey(model),
               expectedCoverageId,
               baselineText,
-              deltaText: observerDeltaText(serialized.text, serialized.sourceEntryIds),
-              maxTokens: observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens),
+              entries: remainingGap,
+              sourceProgress,
+              maxTokens: epochMaxTokens,
+              sourceMaxTokens: runtime.config.hybrid.observerChunkMaxTokens,
               fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
+              minimumSourceTokens: OBSERVER_MINIMUM_DELTA_TOKENS,
             });
-            if (!prepared.ok) {
-              gapFailedReason = `observer epoch cannot fit fresh baseline and source chunk (${prepared.projectedTokens} > ${prepared.maxTokens})`;
+            runtime.cacheTelemetry.recordObserverCapacity("catch-up", request.capacity);
+            if (!request.ok) {
+              gapFailedReason = `observer baseline leaves only ${request.capacity.availableDeltaTokens} useful source tokens (${request.capacity.minimumDeltaTokens} required)`;
               break;
             }
+            const { serialized, prepared } = request;
 
             const result = await runObserver({
               complete: (selectedModel, context, options) =>

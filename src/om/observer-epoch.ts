@@ -98,6 +98,15 @@ const contentText = (content: unknown): string => {
 const messageTokens = (messages: readonly Message[]): number =>
   messages.reduce((total, message) => total + estimateStringTokens(`${message.role}\n${contentText(message.content)}`), 0);
 
+export const estimateFreshObserverEpochTokens = (
+  baselineText: string,
+  deltaText: string,
+  fixedTokens: number,
+): number => fixedTokens + messageTokens([
+  userMessage(`${BASELINE_PREFIX}${baselineText.trim()}`),
+  userMessage(`${DELTA_PREFIX}${deltaText.trim()}`),
+]);
+
 const startsWithPrompts = (messages: readonly Message[], prompts: readonly Message[]): boolean => {
   if (messages.length < prompts.length) return false;
   return prompts.every((prompt, index) => JSON.stringify(messages[index]) === JSON.stringify(prompt));
@@ -129,7 +138,11 @@ export class ObserverEpochManager {
     const baselineMessage = userMessage(`${BASELINE_PREFIX}${input.baselineText.trim()}`);
     const deltaMessage = userMessage(`${DELTA_PREFIX}${input.deltaText.trim()}`);
     const freshMessages = [baselineMessage];
-    const freshProjectedTokens = input.fixedTokens + messageTokens([...freshMessages, deltaMessage]);
+    const freshProjectedTokens = estimateFreshObserverEpochTokens(
+      input.baselineText,
+      input.deltaText,
+      input.fixedTokens,
+    );
     if (freshProjectedTokens > input.maxTokens) {
       return {
         ok: false,

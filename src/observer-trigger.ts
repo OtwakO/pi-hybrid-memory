@@ -10,16 +10,14 @@ import {
 } from "./om/branch.js";
 import { buildBranchMemoryIndex } from "./om/branch-memory-index.js";
 import { runObserver } from "./om/observer.js";
-import { serializeSourceAddressedBranchEntries } from "./om/serialize.js";
+import { prepareObserverSourceRequest } from "./om/observer-request.js";
 import { operationCacheOptions } from "./cache-options.js";
 import { estimateStringTokens } from "./om/tokens.js";
 import {
-  OBSERVER_DELTA_INSTRUCTIONS,
   OBSERVER_FIXED_TOKEN_RESERVE,
   OBSERVER_MINIMUM_DELTA_TOKENS,
   observerBaselineText,
   observerCompatibilityKey,
-  observerDeltaText,
   observerEpochTokenLimit,
 } from "./om/observer-context.js";
 import type { Runtime } from "./runtime.js";
@@ -108,46 +106,30 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
         const model = resolved.model;
         const baselineText = observerBaselineText(reflections, baselineObservations);
         const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
-        const freshCapacity = runtime.observerEpoch.freshEpochCapacity({
-          baselineText,
-          maxTokens: epochMaxTokens,
-          fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
-          deltaOverheadText: OBSERVER_DELTA_INSTRUCTIONS,
-          minimumDeltaTokens: OBSERVER_MINIMUM_DELTA_TOKENS,
-        });
-        runtime.cacheTelemetry.recordObserverCapacity("proactive", freshCapacity);
-        if (freshCapacity.pressured) {
-          if (ctx.hasUI && ctx.ui) ctx.ui.notify(
-            `Hybrid memory: observer baseline pressure leaves only ~${freshCapacity.availableDeltaTokens.toLocaleString()} source tokens; coverage was not advanced.`,
-            "warning",
-          );
-          return;
-        }
-
-        const serialized = serializeSourceAddressedBranchEntries(
-          chunkEntries,
-          Math.min(runtime.config.hybrid.observerChunkMaxTokens, freshCapacity.availableDeltaTokens),
-          coverageAnchor.sourceProgress,
-        );
-        const { text: chunk, sourceEntryIds } = serialized;
-        const observedUpToId = serialized.coversUpToId ?? boundaryId;
-        if (!chunk.trim() || sourceEntryIds.length === 0) return;
-
-        const prepared = runtime.observerEpoch.prepare({
+        const request = prepareObserverSourceRequest({
+          epoch: runtime.observerEpoch,
           compatibilityKey: observerCompatibilityKey(model),
           expectedCoverageId: boundaryId,
           baselineText,
-          deltaText: observerDeltaText(chunk, sourceEntryIds),
+          entries: chunkEntries,
+          sourceProgress: coverageAnchor.sourceProgress,
           maxTokens: epochMaxTokens,
+          sourceMaxTokens: runtime.config.hybrid.observerChunkMaxTokens,
           fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
+          minimumSourceTokens: OBSERVER_MINIMUM_DELTA_TOKENS,
         });
-        if (!prepared.ok) {
+        runtime.cacheTelemetry.recordObserverCapacity("proactive", request.capacity);
+        if (!request.ok) {
           if (ctx.hasUI && ctx.ui) ctx.ui.notify(
-            `Hybrid memory: observer epoch cannot fit a fresh baseline and source chunk (${prepared.projectedTokens.toLocaleString()} > ${prepared.maxTokens.toLocaleString()} estimated tokens). Coverage was not advanced.`,
+            `Hybrid memory: observer baseline pressure leaves only ~${request.capacity.availableDeltaTokens.toLocaleString()} source tokens; coverage was not advanced.`,
             "warning",
           );
           return;
         }
+
+        const { serialized, prepared } = request;
+        const { sourceEntryIds } = serialized;
+        const observedUpToId = serialized.coversUpToId ?? boundaryId;
 
         const result = await runObserver({
           complete: (selectedModel, context, options) =>
