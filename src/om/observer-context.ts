@@ -1,9 +1,6 @@
 import type { Model } from "@earendil-works/pi-ai";
-import type { MemoryReflection, ObservationRecord } from "../types.js";
-import { reflectionContent } from "./compaction.js";
-import { observationsToPromptLines } from "./observer.js";
 
-export const OBSERVER_PROMPT_VERSION = "observer-v5-one-shot";
+export const OBSERVER_PROMPT_VERSION = "observer-v6-bounded-context";
 export const OBSERVER_TOOL_VERSION = "record-observations-v5-native";
 export const OBSERVER_SERIALIZER_VERSION = "source-segments-v2";
 
@@ -12,30 +9,22 @@ export const OBSERVER_SERIALIZER_VERSION = "source-segments-v2";
 export const OBSERVER_FIXED_TOKEN_RESERVE = 6_144;
 export const OBSERVER_MINIMUM_DELTA_TOKENS = 256;
 
-const joinOrEmpty = (items: string[]): string => items.length ? items.join("\n") : "(none yet)";
-
-export const observerBaselineText = (
-  reflections: readonly MemoryReflection[],
-  observations: readonly ObservationRecord[],
-): string => [
-  "This is the immutable memory baseline for the current observer epoch.",
-  "Use it to avoid duplicates and preserve corrections. Later source chunks and recorded observations appear chronologically after this baseline.",
-  "",
-  `CURRENT REFLECTIONS:\n${joinOrEmpty(reflections.map((reflection) => reflectionContent(reflection)))}`,
-  "",
-  `CURRENT OBSERVATIONS:\n${joinOrEmpty(observationsToPromptLines([...observations]))}`,
-].join("\n");
-
 export const OBSERVER_DELTA_INSTRUCTIONS = [
-  "Compress this new conversation chunk into observations by calling record_observations one or more times.",
-  "Do not restate facts already visible in the immutable baseline or committed epoch transcript.",
-  "Stop calling the tool and reply with a short plain-text confirmation once this chunk is fully covered.",
+  "Submit the complete set of durable observations for this source chunk through record_observations.",
+  "Do not restate facts already visible in the bounded baseline, source-related history, or committed epoch transcript.",
+  "Use an empty observations array when this chunk contains nothing durable.",
 ].join("\n");
 
-export const observerDeltaText = (chunk: string, sourceEntryIds: readonly string[]): string => [
+export const observerDeltaText = (
+  chunk: string,
+  sourceEntryIds: readonly string[],
+  sourceRelatedText = "",
+): string => [
   OBSERVER_DELTA_INSTRUCTIONS,
+  ...(sourceRelatedText.trim() ? ["", sourceRelatedText.trim()] : []),
+  "",
   `Valid sourceEntryIds for this chunk: ${sourceEntryIds.join(", ")}`,
-  "If sourceEntryIds is supplied, use only IDs from that exact list. Do not cite source IDs from earlier epoch messages.",
+  "If sourceEntryIds is supplied, use only IDs from that exact list. Do not cite source IDs from historical context.",
   "Omit sourceEntryIds when an observation depends on the full current chunk.",
   "",
   chunk.trim(),

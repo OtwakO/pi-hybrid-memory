@@ -11,11 +11,11 @@ import {
 import { buildBranchMemoryIndex } from "./om/branch-memory-index.js";
 import { estimateEntryTokens, estimateStringTokens } from "./om/tokens.js";
 import { runObserver } from "./om/observer.js";
+import { planObserverContextForSource } from "./om/observer-context-plan.js";
 import { prepareObserverSourceRequest } from "./om/observer-request.js";
 import {
   OBSERVER_FIXED_TOKEN_RESERVE,
   OBSERVER_MINIMUM_DELTA_TOKENS,
-  observerBaselineText,
   observerCompatibilityKey,
   observerEpochTokenLimit,
 } from "./om/observer-context.js";
@@ -124,14 +124,22 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         let gapFailedReason: string | null = null;
         try {
           const model = resolved.model;
-          const baselineText = observerBaselineText(memoryState.reflections, baselineObservations);
           const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
           while (remainingGap.length > 0) {
+            const contextPlan = planObserverContextForSource({
+              reflections: memoryState.reflections,
+              observations: [...baselineObservations, ...accumulatedRecords],
+              entries: remainingGap,
+              sourceProgress,
+              maxTokens: epochMaxTokens,
+              sourceMaxTokens: runtime.config.hybrid.observerChunkMaxTokens,
+            });
             const request = prepareObserverSourceRequest({
               epoch: draftEpoch,
               compatibilityKey: observerCompatibilityKey(model),
               expectedCoverageId,
-              baselineText,
+              baselineText: contextPlan.stableBaselineText,
+              sourceRelatedText: contextPlan.sourceRelatedText,
               entries: remainingGap,
               sourceProgress,
               maxTokens: epochMaxTokens,

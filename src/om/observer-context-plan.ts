@@ -1,6 +1,7 @@
-import type { MemoryReflection, ObservationRecord, Relevance } from "../types.js";
+import type { Entry, MemoryReflection, ObservationRecord, Relevance, SourceProgress } from "../types.js";
 import { reflectionContent } from "./compaction.js";
 import { observationsToPromptLines } from "./observer.js";
+import { serializeSourceAddressedBranchEntries } from "./serialize.js";
 import { estimateStringTokens } from "./tokens.js";
 
 export interface ObserverContextBudgets {
@@ -15,6 +16,15 @@ export interface ObserverContextPlanInput {
   observations: readonly ObservationRecord[];
   sourceText: string;
   budgets: ObserverContextBudgets;
+}
+
+export interface ObserverContextSourceInput {
+  reflections: readonly MemoryReflection[];
+  observations: readonly ObservationRecord[];
+  entries: Entry[];
+  sourceProgress?: SourceProgress;
+  maxTokens: number;
+  sourceMaxTokens: number;
 }
 
 export interface ObserverContextPlan {
@@ -38,6 +48,11 @@ export interface ObserverContextPlan {
   };
   protectedOverflow: boolean;
 }
+
+const REFLECTION_BUDGET_RATIO = 0.07;
+const PROTECTED_BUDGET_RATIO = 0.38;
+const RECENT_BUDGET_RATIO = 0.07;
+const SOURCE_RELATED_BUDGET_RATIO = 0.07;
 
 const relevanceRank: Record<Relevance, number> = {
   low: 0,
@@ -90,6 +105,16 @@ const overlapScore = (sourceTerms: ReadonlySet<string>, observation: Observation
     score += /\d|[./_:@-]/.test(term) ? 3 : 1;
   }
   return score;
+};
+
+export const observerContextBudgets = (maxTokens: number): ObserverContextBudgets => {
+  const limit = normalizedBudget(maxTokens);
+  return {
+    reflectionTokens: Math.floor(limit * REFLECTION_BUDGET_RATIO),
+    protectedObservationTokens: Math.floor(limit * PROTECTED_BUDGET_RATIO),
+    recentObservationTokens: Math.floor(limit * RECENT_BUDGET_RATIO),
+    sourceRelatedObservationTokens: Math.floor(limit * SOURCE_RELATED_BUDGET_RATIO),
+  };
 };
 
 export const planObserverContext = (input: ObserverContextPlanInput): ObserverContextPlan => {
@@ -189,4 +214,20 @@ export const planObserverContext = (input: ObserverContextPlanInput): ObserverCo
     },
     protectedOverflow: protectedIds.size < protectedCandidateIds.size,
   };
+};
+
+export const planObserverContextForSource = (
+  input: ObserverContextSourceInput,
+): ObserverContextPlan => {
+  const preview = serializeSourceAddressedBranchEntries(
+    input.entries,
+    normalizedBudget(input.sourceMaxTokens),
+    input.sourceProgress,
+  );
+  return planObserverContext({
+    reflections: input.reflections,
+    observations: input.observations,
+    sourceText: preview.text,
+    budgets: observerContextBudgets(input.maxTokens),
+  });
 };

@@ -17,6 +17,7 @@ export interface ObserverSourceRequestInput {
   compatibilityKey: string;
   expectedCoverageId: string;
   baselineText: string;
+  sourceRelatedText?: string;
   entries: Entry[];
   sourceProgress?: SourceProgress;
   maxTokens: number;
@@ -52,7 +53,11 @@ const candidateRequest = (
     input.sourceProgress,
   );
   if (!serialized.text.trim() || serialized.sourceEntryIds.length === 0) return undefined;
-  const deltaText = observerDeltaText(serialized.text, serialized.sourceEntryIds);
+  const deltaText = observerDeltaText(
+    serialized.text,
+    serialized.sourceEntryIds,
+    input.sourceRelatedText,
+  );
   return {
     serialized,
     deltaText,

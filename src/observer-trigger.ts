@@ -10,13 +10,13 @@ import {
 } from "./om/branch.js";
 import { buildBranchMemoryIndex } from "./om/branch-memory-index.js";
 import { runObserver } from "./om/observer.js";
+import { planObserverContextForSource } from "./om/observer-context-plan.js";
 import { prepareObserverSourceRequest } from "./om/observer-request.js";
 import { operationCacheOptions } from "./cache-options.js";
 import { estimateStringTokens } from "./om/tokens.js";
 import {
   OBSERVER_FIXED_TOKEN_RESERVE,
   OBSERVER_MINIMUM_DELTA_TOKENS,
-  observerBaselineText,
   observerCompatibilityKey,
   observerEpochTokenLimit,
 } from "./om/observer-context.js";
@@ -104,13 +104,21 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
         runtime.resolveFailureNotified = false;
 
         const model = resolved.model;
-        const baselineText = observerBaselineText(reflections, baselineObservations);
         const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
+        const contextPlan = planObserverContextForSource({
+          reflections,
+          observations: baselineObservations,
+          entries: chunkEntries,
+          sourceProgress: coverageAnchor.sourceProgress,
+          maxTokens: epochMaxTokens,
+          sourceMaxTokens: runtime.config.hybrid.observerChunkMaxTokens,
+        });
         const request = prepareObserverSourceRequest({
           epoch: runtime.observerEpoch,
           compatibilityKey: observerCompatibilityKey(model),
           expectedCoverageId: boundaryId,
-          baselineText,
+          baselineText: contextPlan.stableBaselineText,
+          sourceRelatedText: contextPlan.sourceRelatedText,
           entries: chunkEntries,
           sourceProgress: coverageAnchor.sourceProgress,
           maxTokens: epochMaxTokens,

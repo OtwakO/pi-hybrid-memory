@@ -1,6 +1,6 @@
 # Bounded Observer Pipeline Roadmap
 
-**Status:** M1 one-shot observer protocol and M2 evaluation-only bounded context planner implemented
+**Status:** M1–M3 implemented; compaction coverage barrier not started
 
 **Scope:** Observer context, observer segment protocol, durable coverage orchestration, and compaction catch-up behavior
 
@@ -295,6 +295,16 @@ Completion criteria:
 
 Use the planner for proactive observation and the bounded compaction segment. Keep source fitting in `prepareObserverSourceRequest()`.
 
+Implemented result:
+
+- budgets derive from the already-effective observer limit rather than adding a new configuration surface;
+- 38% protects high/critical observations, with 7% each for reflections, recent continuity, and source-related history;
+- source-related history is rendered inside the dynamic delta and counted by the existing complete-envelope binary-search fitter;
+- both proactive and catch-up callers use `planObserverContextForSource()`;
+- catch-up replans against records accepted earlier in that bounded operation, so a cold reset retains within-operation awareness;
+- the obsolete full-active-memory baseline renderer was removed;
+- the observer compatibility version advanced so old full-baseline epochs cannot be reused.
+
 Completion criteria:
 
 - both callers consume one shared plan;
@@ -383,7 +393,7 @@ Implementation proceeds only if each step demonstrates its intended value:
 - [x] Minimal architecture and non-goals documented.
 - [x] M1 one-shot observer protocol implemented.
 - [x] M2 bounded planner evaluated without runtime activation.
-- [ ] M3 shared runtime planning implemented.
+- [x] M3 shared runtime planning implemented.
 - [ ] M4 bounded compaction coverage barrier implemented.
 - [ ] M5 focused operational telemetry implemented.
 - [ ] M6 isolated live validation passed.
