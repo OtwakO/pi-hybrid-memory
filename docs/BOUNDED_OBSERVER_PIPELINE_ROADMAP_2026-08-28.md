@@ -1,7 +1,9 @@
 # Bounded Observer Pipeline Roadmap
 
-**Status:** Design checkpoint — implementation not started  
-**Scope:** Observer context, observer segment protocol, durable coverage orchestration, and compaction catch-up behavior  
+**Status:** M1 one-shot observer protocol implemented; bounded context planning not started
+
+**Scope:** Observer context, observer segment protocol, durable coverage orchestration, and compaction catch-up behavior
+
 **Primary goal:** Keep observation operational and token-efficient as a session grows, while preserving immutable evidence, memory quality, and cache-prefix reuse.
 
 ## 1. Production evidence
@@ -370,7 +372,7 @@ Implementation proceeds only if each step demonstrates its intended value:
 - [x] Production call-amplification evidence captured.
 - [x] Root cause assigned to extension context/orchestration behavior.
 - [x] Minimal architecture and non-goals documented.
-- [ ] M1 one-shot observer protocol implemented.
+- [x] M1 one-shot observer protocol implemented.
 - [ ] M2 bounded planner evaluated without runtime activation.
 - [ ] M3 shared runtime planning implemented.
 - [ ] M4 bounded compaction coverage barrier implemented.

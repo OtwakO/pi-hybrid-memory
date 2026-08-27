@@ -3,12 +3,12 @@ import type { MemoryReflection, ObservationRecord } from "../types.js";
 import { reflectionContent } from "./compaction.js";
 import { observationsToPromptLines } from "./observer.js";
 
-export const OBSERVER_PROMPT_VERSION = "observer-v4-tool-contract";
-export const OBSERVER_TOOL_VERSION = "record-observations-v4-native";
+export const OBSERVER_PROMPT_VERSION = "observer-v5-one-shot";
+export const OBSERVER_TOOL_VERSION = "record-observations-v5-native";
 export const OBSERVER_SERIALIZER_VERSION = "source-segments-v2";
 
 // Conservative allowance for observer output, tool schemas, provider framing,
-// and the final tool-continuation turn. Both observer paths must use one value.
+// and one bounded correction turn. Both observer paths must use one value.
 export const OBSERVER_FIXED_TOKEN_RESERVE = 6_144;
 export const OBSERVER_MINIMUM_DELTA_TOKENS = 256;
 

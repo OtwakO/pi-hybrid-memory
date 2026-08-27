@@ -19,7 +19,7 @@ import { estimateEntryTokens } from "./tokens.js";
 import { OBSERVER_SYSTEM } from "./prompts.js";
 
 const DEFAULT_OBSERVER_TIMEOUT_MS = 5 * 60_000;
-const MAX_OBSERVER_TURNS = 8;
+const MAX_OBSERVER_TURNS = 2;
 const OBSERVER_MAX_OUTPUT_TOKENS = 4_096;
 
 const RelevanceSchema = StringEnum(["low", "medium", "high", "critical"] as const);
@@ -158,7 +158,7 @@ const executeObservationTool = (
   return {
     message: toolResult(
       call,
-      `Recorded ${staged.length} observation(s). Continue with another corrected or additional batch, or stop when this chunk is fully covered.`,
+      `Accepted ${staged.length} observation(s); this source segment is complete.`,
       false,
       { added: staged.length },
     ),
@@ -176,9 +176,7 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
     ? AbortSignal.any([params.signal, timeoutSignal])
     : timeoutSignal;
   const transcriptSuffix: Message[] = structuredClone(params.prompts);
-  const records: ObservationRecord[] = [];
   let finalToolFailure: string | null = null;
-  let acceptedToolSubmission = false;
 
   for (let turn = 0; turn < MAX_OBSERVER_TURNS; turn++) {
     const appendedPrefixTokens = transcriptSuffix
@@ -198,8 +196,8 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
         tools: [{
           name: "record_observations",
           description:
-            "Record a batch of new observations distilled from the current source chunk. " +
-            "Call again only to add another batch or correct a rejected submission, then stop when coverage is complete.",
+            "Submit the complete set of observations distilled from the current source chunk. " +
+            "A valid submission completes this source segment; use an empty observations array when nothing durable should be recorded.",
           parameters: RecordObservationsSchema,
           constrainedSampling: { type: "json_schema", strict: "prefer" },
         }],
@@ -261,31 +259,28 @@ export const runObserver = async (params: ObserverParams): Promise<ObserverResul
       if (assistant.stopReason === "toolUse") {
         return { ok: false, reason: "observer returned toolUse without a tool call", rawResponse: "" };
       }
-      if (finalToolFailure) return { ok: false, reason: finalToolFailure, rawResponse: "" };
-      if (!acceptedToolSubmission) {
-        return {
-          ok: false,
-          reason: "observer stopped without submitting record_observations",
-          rawResponse: "",
-        };
-      }
-      return { ok: true, records, transcriptSuffix };
+      return {
+        ok: false,
+        reason: finalToolFailure ?? "observer stopped without submitting record_observations",
+        rawResponse: "",
+      };
     }
 
-    for (const call of calls) {
-      const execution = executeObservationTool(call, params.allowedSourceEntryIds);
-      transcriptSuffix.push(execution.message);
-      if (execution.failure) {
-        finalToolFailure = execution.failure;
-      } else {
-        records.push(...execution.records);
-        acceptedToolSubmission = true;
-        finalToolFailure = null;
-      }
+    const executions = calls.map(call => executeObservationTool(call, params.allowedSourceEntryIds));
+    transcriptSuffix.push(...executions.map(execution => execution.message));
+    const failure = executions.find(execution => execution.failure)?.failure ?? null;
+    if (!failure) {
+      return {
+        ok: true,
+        records: executions.flatMap(execution => execution.records),
+        transcriptSuffix,
+      };
     }
+
+    finalToolFailure = failure;
   }
 
-  return { ok: false, reason: `observer turn limit exceeded (${MAX_OBSERVER_TURNS})`, rawResponse: "" };
+  return { ok: false, reason: finalToolFailure ?? "observer correction limit exceeded", rawResponse: "" };
 };
 
 export const observationsToPromptLines = (records: ObservationRecord[]): string[] =>

@@ -180,7 +180,7 @@ describe("Pi-native observer inference", () => {
     complete = vi.fn<ObserverComplete>();
   });
 
-  it("runs a bounded native tool continuation and returns the exact transcript suffix", async () => {
+  it("completes after one valid tool submission and returns the exact transcript suffix", async () => {
     const first = assistant([toolCall({
       observations: [{
         content: "durable fact",
@@ -188,8 +188,7 @@ describe("Pi-native observer inference", () => {
         sourceEntryIds: ["source01"],
       }],
     })], "toolUse");
-    const final = assistant([{ type: "text", text: "covered" }]);
-    complete.mockResolvedValueOnce(first).mockResolvedValueOnce(final);
+    complete.mockResolvedValueOnce(first);
 
     const result = await runObserver({
       ...params,
@@ -217,9 +216,8 @@ describe("Pi-native observer inference", () => {
         toolName: "record_observations",
         isError: false,
       }),
-      final,
     ]);
-    expect(complete).toHaveBeenCalledTimes(2);
+    expect(complete).toHaveBeenCalledTimes(1);
     const [receivedModel, firstContext, options] = complete.mock.calls[0];
     expect(receivedModel).toBe(model);
     expect(firstContext).toMatchObject<Partial<Context>>({
@@ -234,10 +232,6 @@ describe("Pi-native observer inference", () => {
       cacheRetention: "long",
       maxRetries: 0,
     });
-    expect(complete.mock.calls[1][1].messages).toEqual([
-      ...params.contextMessages,
-      ...result.transcriptSuffix.slice(0, -1),
-    ]);
   });
 
   it("fails if the model stops before submitting the observation tool", async () => {
@@ -252,10 +246,9 @@ describe("Pi-native observer inference", () => {
     });
   });
 
-  it("accepts an explicit deliberate-empty tool submission followed by text", async () => {
+  it("accepts an explicit deliberate-empty tool submission in one completion", async () => {
     complete = completionQueue(
       assistant([toolCall({ observations: [] })], "toolUse"),
-      assistant([{ type: "text", text: "nothing durable in this chunk" }]),
     );
 
     const result = await runObserver({ ...params, complete });
@@ -267,7 +260,6 @@ describe("Pi-native observer inference", () => {
   it("uses all current source ids when provenance is omitted", async () => {
     complete = completionQueue(
       assistant([toolCall({ observations: [{ content: "whole chunk", relevance: "medium" }] })], "toolUse"),
-      assistant([{ type: "text", text: "done" }]),
     );
 
     const result = await runObserver({
@@ -296,7 +288,6 @@ describe("Pi-native observer inference", () => {
           sourceEntryIds: ["source01"],
         }],
       }, "call-2")], "toolUse"),
-      assistant([{ type: "text", text: "done" }]),
     );
 
     const result = await runObserver({ ...params, complete });
@@ -305,6 +296,7 @@ describe("Pi-native observer inference", () => {
     if (!result.ok) return;
     expect(result.records).toHaveLength(1);
     expect(result.records[0].content).toBe("corrected fact");
+    expect(complete).toHaveBeenCalledTimes(2);
     expect(result.transcriptSuffix).toContainEqual(expect.objectContaining({
       role: "toolResult",
       toolCallId: "call-1",
@@ -312,25 +304,53 @@ describe("Pi-native observer inference", () => {
     }));
   });
 
+  it("discards an entire mixed-validity response before accepting one corrected response", async () => {
+    complete = completionQueue(
+      assistant([
+        toolCall({ observations: [{ content: "must not escape", relevance: "high" }] }),
+        toolCall({
+          observations: [{
+            content: "unsupported fact",
+            relevance: "critical",
+            sourceEntryIds: ["old-source"],
+          }],
+        }, "call-invalid"),
+      ], "toolUse"),
+      assistant([toolCall({
+        observations: [{ content: "corrected complete result", relevance: "high" }],
+      }, "call-2")], "toolUse"),
+    );
+
+    const result = await runObserver({ ...params, complete });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.records.map(record => record.content)).toEqual(["corrected complete result"]);
+  });
+
   it("fails closed when the final tool attempt remains invalid", async () => {
     complete = completionQueue(
-      assistant([toolCall({
-        observations: [{ content: "valid fact", relevance: "high" }],
-      })], "toolUse"),
       assistant([toolCall({
         observations: [{
           content: "unsupported fact",
           relevance: "critical",
           sourceEntryIds: ["old-source"],
         }],
+      })], "toolUse"),
+      assistant([toolCall({
+        observations: [{
+          content: "still unsupported",
+          relevance: "critical",
+          sourceEntryIds: ["old-source"],
+        }],
       }, "call-2")], "toolUse"),
-      assistant([{ type: "text", text: "done" }]),
     );
 
     const result = await runObserver({ ...params, complete });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("sourceEntryIds");
+    expect(complete).toHaveBeenCalledTimes(2);
   });
 
   it("rejects toolUse termination without an actual tool call", async () => {
@@ -365,16 +385,6 @@ describe("Pi-native observer inference", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain(expected);
-  });
-
-  it("fails when the model exhausts the global continuation turn limit", async () => {
-    complete.mockImplementation(async () => assistant([toolCall({ observations: [] })], "toolUse"));
-
-    const result = await runObserver({ ...params, complete });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("turn limit");
-    expect(complete).toHaveBeenCalledTimes(8);
   });
 
   it("classifies caller cancellation separately from provider failure", async () => {
@@ -412,13 +422,12 @@ describe("Pi-native observer inference", () => {
     const telemetry = new CacheTelemetry();
     complete = completionQueue(
       assistant([toolCall({ observations: [] })], "toolUse"),
-      assistant([{ type: "text", text: "done" }]),
     );
 
     const result = await runObserver({ ...params, complete, telemetry });
 
     expect(result.ok).toBe(true);
-    expect(telemetry.calls()).toHaveLength(2);
+    expect(telemetry.calls()).toHaveLength(1);
     expect(telemetry.calls()[0]).toMatchObject({
       operation: "observer",
       provider: "test-provider",
