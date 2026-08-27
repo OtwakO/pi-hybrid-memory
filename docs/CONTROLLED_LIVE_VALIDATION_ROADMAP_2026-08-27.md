@@ -154,6 +154,31 @@ Add one opt-in repository script under `evaluation/live-validation/`:
 
 Do not add a generic process framework, test runner, package installer, session database, or runtime code path. Routine `npm test` must not spawn Pi or make provider calls.
 
+## Model-assisted trial design
+
+The remaining gate uses a fresh isolated session and exactly three provider calls:
+
+1. one compaction catch-up observer call;
+2. one compaction reflector call;
+3. one post-restart agent call that must invoke `hm_recall`.
+
+The fixture seeds one canonical baseline observation so compaction does not enter bootstrap mode, then appends an uncovered durable assertion containing a unique exact marker, identifier, path, numeric value, and explicit long-lived constraint. Enough bounded filler is added to make Pi's normal compaction preparation valid. Automatic/proactive observation remains disabled by a high threshold; only compaction catch-up may observe the uncovered gap.
+
+The trial passes only when:
+
+- catch-up durably appends at least one new canonical observation;
+- at least one new observation preserves every exact fixture detail and cites available source provenance;
+- the reflector persists at least one valid reflection with canonical support;
+- restart replay reports no lifecycle issue and reconstructs the same observations/reflections;
+- a normal agent prompt explicitly requiring `hm_recall(<new observation id>)` emits a real `tool_execution_end` event for `hm_recall`;
+- the tool result contains the exact durable marker and source provenance;
+- the final assistant response does not replace tool evidence with an unsupported claim;
+- no semantic retirement event is persisted;
+- provider usage is recorded but raw provider responses are not stored;
+- installed extension and real sessions remain unchanged.
+
+Any empty observer result, missing exact detail, missing provenance, reflector failure/empty result, absent recall tool invocation, tool error, lifecycle warning, or unexpected write fails closed. Do not retry a failed provider call automatically inside the trial; preserve the isolated result for diagnosis.
+
 ## Completion checklist
 
 - [x] Isolation and rollback contract documented.
