@@ -77,7 +77,7 @@ const branch = (): Entry[] => [
 
 const warmEpoch = (runtime: Runtime, coverageEndId: string) => {
   const prepared = runtime.observerEpoch.prepare({
-    compatibilityKey: "test|openai-completions|model|observer-v4-tool-contract|record-observations-v4-native|source-segments-v2",
+    compatibilityKey: "test|openai-completions|model|observer-v6-bounded-context|record-observations-v5-native|source-segments-v2",
     expectedCoverageId: "initial",
     baselineText: "baseline",
     deltaText: "delta",
@@ -275,6 +275,36 @@ describe("compaction catch-up safety integration", () => {
     const vccSummary = mergePipelinesMock.mock.calls.at(-1)?.[0]?.vccSummary as string;
     expect(vccSummary).toContain("removed-history feature");
     expect(vccSummary).not.toContain("retained-tail-only feature");
+  });
+
+  it("advances at most one durable catch-up segment before cancelling behind remaining backlog", async () => {
+    const entries = branch();
+    const raw = entries.find(entry => entry.id === "raw-1");
+    if (raw?.type === "message") {
+      raw.message = { role: "user", content: "large durable source ".repeat(2_000), timestamp: 1 };
+    }
+    const fixture = setup(entries);
+    fixture.runtime.config.hybrid.observerChunkMaxTokens = 512;
+    runObserverMock.mockImplementation(async (params: any) => ({
+      ok: true,
+      records: [observation("bbbbbbbbbbbb")],
+      transcriptSuffix: [...params.prompts, assistantMessage("recorded")],
+    }));
+
+    const result = await fixture.getHandler()(fixture.event, fixture.ctx);
+
+    expect(result).toEqual({ cancel: true });
+    expect(runObserverMock).toHaveBeenCalledOnce();
+    expect(fixture.appendEntry).toHaveBeenCalledWith(
+      OBSERVATION_CUSTOM_TYPE,
+      expect.objectContaining({
+        coversFromId: "raw-1",
+        coversUpToId: "raw-0",
+        sourceProgress: expect.objectContaining({ sourceEntryId: "raw-1" }),
+      }),
+    );
+    expect(foldMemoryMock).not.toHaveBeenCalled();
+    expect(mergePipelinesMock).not.toHaveBeenCalled();
   });
 
   it("persists a durable coverage marker when catch-up finds no observations", async () => {

@@ -11,6 +11,7 @@ import {
 import { buildBranchMemoryIndex } from "./om/branch-memory-index.js";
 import { estimateEntryTokens, estimateStringTokens } from "./om/tokens.js";
 import { runObserver } from "./om/observer.js";
+import { catchUpProgress } from "./om/compaction-catch-up.js";
 import { planObserverContextForSource } from "./om/observer-context-plan.js";
 import { prepareObserverSourceRequest } from "./om/observer-request.js";
 import {
@@ -102,110 +103,96 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       const isBootstrap = memoryState.reflections.length === 0 && memoryState.committedObs.length === 0;
 
       if (gap.length > 0 && !isBootstrap) {
-        // Normal mode: process the entire gap in bounded chunks before allowing
-        // compaction. This preserves fail-closed coverage without sending one
-        // unbounded observer request.
+        // Normal mode: one compaction attempt may advance at most one durable
+        // observer segment. Remaining backlog is resumed by later proactive work
+        // or a later explicit compaction instead of an unbounded provider loop.
         const baselineObservations = [
           ...memoryState.committedObs,
           ...memoryState.pendingObs,
         ];
         const gapTokenEstimate = gap.reduce((sum, entry) => sum + estimateEntryTokens(entry), 0);
         if (ctx.hasUI) ctx.ui.notify(
-          `Hybrid memory: sync catch-up observer running on ~${gapTokenEstimate.toLocaleString()}-token gap`,
+          `Hybrid memory: sync catch-up observer running one bounded segment on ~${gapTokenEstimate.toLocaleString()}-token gap`,
           "info",
         );
 
-        const accumulatedRecords: ObservationRecord[] = [];
         const draftEpoch = runtime.observerEpoch.fork();
-        let remainingGap = gap;
         const coverageAnchor = resolveObservationCoverageAnchor(entries);
-        let sourceProgress = coverageAnchor.sourceProgress;
-        let expectedCoverageId = coverageAnchor.coveredSourceId ?? firstKeptEntryId;
-        let gapFailedReason: string | null = null;
+        const sourceProgress = coverageAnchor.sourceProgress;
+        const expectedCoverageId = coverageAnchor.coveredSourceId ?? firstKeptEntryId;
         try {
           const model = resolved.model;
           const epochMaxTokens = observerEpochTokenLimit(model, runtime.config.hybrid.observerEpochMaxTokens);
-          while (remainingGap.length > 0) {
-            const contextPlan = planObserverContextForSource({
-              reflections: memoryState.reflections,
-              observations: [...baselineObservations, ...accumulatedRecords],
-              entries: remainingGap,
-              sourceProgress,
-              maxTokens: epochMaxTokens,
-              sourceMaxTokens: runtime.config.hybrid.observerChunkMaxTokens,
-            });
-            const request = prepareObserverSourceRequest({
-              epoch: draftEpoch,
-              compatibilityKey: observerCompatibilityKey(model),
-              expectedCoverageId,
-              baselineText: contextPlan.stableBaselineText,
-              sourceRelatedText: contextPlan.sourceRelatedText,
-              entries: remainingGap,
-              sourceProgress,
-              maxTokens: epochMaxTokens,
-              sourceMaxTokens: runtime.config.hybrid.observerChunkMaxTokens,
-              fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
-              minimumSourceTokens: OBSERVER_MINIMUM_DELTA_TOKENS,
-            });
-            runtime.cacheTelemetry.recordObserverCapacity("catch-up", request.capacity);
-            if (!request.ok) {
-              gapFailedReason = `observer baseline leaves only ${request.capacity.availableDeltaTokens} useful source tokens (${request.capacity.minimumDeltaTokens} required)`;
-              break;
-            }
-            const { serialized, prepared } = request;
-
-            const result = await runObserver({
-              complete: (selectedModel, context, options) =>
-                ctx.modelRegistry.complete(selectedModel, context, options),
-              model,
-              contextMessages: prepared.contextMessages,
-              prompts: prepared.prompts,
-              allowedSourceEntryIds: serialized.sourceEntryIds,
-              signal,
-              telemetry: runtime.cacheTelemetry,
-              cacheOptions: runtime.piSessionId
-                ? operationCacheOptions(runtime.piSessionId, "observer")
-                : undefined,
-              prefixTelemetry: {
-                source: "catch-up",
-                epochRunIndex: prepared.runIndex,
-                cold: prepared.cold,
-                predictedPrefixTokens: prepared.predictedPrefixTokens,
-                projectedTokens: prepared.projectedTokens,
-                maxTokens: epochMaxTokens,
-                resetReason: prepared.resetReason,
-              },
-            });
-            if (!result.ok) {
-              gapFailedReason = result.reason;
-              break;
-            }
-            accumulatedRecords.push(...result.records);
-            const completedUpToId = serialized.coversUpToId ?? expectedCoverageId;
-            draftEpoch.commit(prepared, result.transcriptSuffix, completedUpToId);
-            expectedCoverageId = completedUpToId;
-            sourceProgress = serialized.sourceProgress;
-
-            if (serialized.completedSourceEntryIds.length > 0) {
-              const coveredIndex = remainingGap.findIndex(entry => entry.id === completedUpToId);
-              if (coveredIndex < 0) {
-                gapFailedReason = `observer coverage marker ${completedUpToId} was not found in the remaining gap`;
-                break;
-              }
-              remainingGap = remainingGap.slice(coveredIndex + 1);
-            } else if (!sourceProgress) {
-              gapFailedReason = "observer source segment made no durable coverage progress";
-              break;
-            }
-          }
-
-          if (gapFailedReason) {
+          const contextPlan = planObserverContextForSource({
+            reflections: memoryState.reflections,
+            observations: baselineObservations,
+            entries: gap,
+            sourceProgress,
+            maxTokens: epochMaxTokens,
+            sourceMaxTokens: runtime.config.hybrid.observerChunkMaxTokens,
+          });
+          const request = prepareObserverSourceRequest({
+            epoch: draftEpoch,
+            compatibilityKey: observerCompatibilityKey(model),
+            expectedCoverageId,
+            baselineText: contextPlan.stableBaselineText,
+            sourceRelatedText: contextPlan.sourceRelatedText,
+            entries: gap,
+            sourceProgress,
+            maxTokens: epochMaxTokens,
+            sourceMaxTokens: runtime.config.hybrid.observerChunkMaxTokens,
+            fixedTokens: OBSERVER_FIXED_TOKEN_RESERVE,
+            minimumSourceTokens: OBSERVER_MINIMUM_DELTA_TOKENS,
+          });
+          runtime.cacheTelemetry.recordObserverCapacity("catch-up", request.capacity);
+          if (!request.ok) {
             if (ctx.hasUI) ctx.ui.notify(
-              `Hybrid memory: sync catch-up observer failed: ${gapFailedReason}. Cancelling compaction.`,
+              `Hybrid memory: sync catch-up observer failed: baseline leaves only ${request.capacity.availableDeltaTokens} useful source tokens (${request.capacity.minimumDeltaTokens} required). Cancelling compaction.`,
               "warning",
             );
             return { cancel: true };
           }
+          const { serialized, prepared } = request;
+
+          const result = await runObserver({
+            complete: (selectedModel, context, options) =>
+              ctx.modelRegistry.complete(selectedModel, context, options),
+            model,
+            contextMessages: prepared.contextMessages,
+            prompts: prepared.prompts,
+            allowedSourceEntryIds: serialized.sourceEntryIds,
+            signal,
+            telemetry: runtime.cacheTelemetry,
+            cacheOptions: runtime.piSessionId
+              ? operationCacheOptions(runtime.piSessionId, "observer")
+              : undefined,
+            prefixTelemetry: {
+              source: "catch-up",
+              epochRunIndex: prepared.runIndex,
+              cold: prepared.cold,
+              predictedPrefixTokens: prepared.predictedPrefixTokens,
+              projectedTokens: prepared.projectedTokens,
+              maxTokens: epochMaxTokens,
+              resetReason: prepared.resetReason,
+            },
+          });
+          if (!result.ok) {
+            if (ctx.hasUI) ctx.ui.notify(
+              `Hybrid memory: sync catch-up observer failed: ${result.reason}. Cancelling compaction.`,
+              "warning",
+            );
+            return { cancel: true };
+          }
+
+          const progress = catchUpProgress(gap, expectedCoverageId, serialized);
+          if (!progress.complete && !serialized.sourceProgress && progress.remainingEntries.length === gap.length) {
+            if (ctx.hasUI) ctx.ui.notify(
+              "Hybrid memory: sync catch-up observer made no durable source progress. Cancelling compaction.",
+              "warning",
+            );
+            return { cancel: true };
+          }
+          draftEpoch.commit(prepared, result.transcriptSuffix, progress.coveredUpToId);
 
           if (!isSessionBranchFenceCurrent(compactionFence, ctx.sessionManager)) {
             if (ctx.hasUI) ctx.ui.notify(
@@ -215,27 +202,37 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
             return { cancel: true };
           }
 
-          const observationTokens = accumulatedRecords.reduce(
+          const observationTokens = result.records.reduce(
             (sum, record) => sum + estimateStringTokens(record.content),
             0,
           );
           gapObservationData = {
-            records: accumulatedRecords,
+            records: result.records,
             coversFromId: gap[0].id,
-            coversUpToId: expectedCoverageId,
+            coversUpToId: progress.coveredUpToId,
             tokenCount: observationTokens,
-            sourceProgress: undefined,
+            sourceProgress: serialized.sourceProgress,
           };
           pi.appendEntry(OBSERVATION_CUSTOM_TYPE, gapObservationData);
-          // Positive and deliberate-empty catch-up share one durable coverage
-          // transaction. The write advances Pi's active leaf, which becomes the
-          // expected branch state for final assembly.
           compactionFence = captureSessionBranchFence(ctx.sessionManager);
           runtime.observerEpoch.invalidate("catch-up-persisted");
+
+          if (!progress.complete) {
+            const remainingTokens = progress.remainingEntries.reduce(
+              (sum, entry) => sum + estimateEntryTokens(entry),
+              0,
+            );
+            if (ctx.hasUI) ctx.ui.notify(
+              `Hybrid memory: sync catch-up advanced one durable segment; ~${remainingTokens.toLocaleString()} source tokens remain. Cancelling compaction so later observation can resume safely.`,
+              "warning",
+            );
+            return { cancel: true };
+          }
+
           if (ctx.hasUI) ctx.ui.notify(
-            accumulatedRecords.length > 0
-              ? `Hybrid memory: sync catch-up recorded ${accumulatedRecords.length} observation(s) (~${observationTokens.toLocaleString()} tokens)`
-              : "Hybrid memory: sync catch-up examined the full gap and persisted an empty coverage marker",
+            result.records.length > 0
+              ? `Hybrid memory: sync catch-up recorded ${result.records.length} observation(s) (~${observationTokens.toLocaleString()} tokens)`
+              : "Hybrid memory: sync catch-up examined the complete gap and persisted an empty coverage marker",
             "info",
           );
         } catch (error) {

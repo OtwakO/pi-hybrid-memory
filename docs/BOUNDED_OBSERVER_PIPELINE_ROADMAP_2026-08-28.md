@@ -1,6 +1,6 @@
 # Bounded Observer Pipeline Roadmap
 
-**Status:** M1–M3 implemented; compaction coverage barrier not started
+**Status:** M1–M4 implemented; focused telemetry and live validation remain
 
 **Scope:** Observer context, observer segment protocol, durable coverage orchestration, and compaction catch-up behavior
 
@@ -316,6 +316,16 @@ Completion criteria:
 
 Replace complete-gap draining with at most one bounded durable segment per compaction attempt.
 
+Implemented result:
+
+- the complete-gap `while` loop was removed;
+- a compaction attempt processes at most one source segment through the shared planner/request path;
+- valid observations or deliberate-empty progress are persisted immediately with existing `SourceProgress` semantics;
+- a completed gap continues into normal fold/VCC assembly;
+- remaining backlog cancels compaction after preserving the one valid segment;
+- no fold or final assembly runs behind uncovered backlog;
+- branch/session fencing remains immediately before persistence.
+
 Completion criteria:
 
 - covered compaction makes zero observer completions;
@@ -394,7 +404,7 @@ Implementation proceeds only if each step demonstrates its intended value:
 - [x] M1 one-shot observer protocol implemented.
 - [x] M2 bounded planner evaluated without runtime activation.
 - [x] M3 shared runtime planning implemented.
-- [ ] M4 bounded compaction coverage barrier implemented.
+- [x] M4 bounded compaction coverage barrier implemented.
 - [ ] M5 focused operational telemetry implemented.
 - [ ] M6 isolated live validation passed.
 - [ ] Full targeted verification, typecheck, suite, and build pass.

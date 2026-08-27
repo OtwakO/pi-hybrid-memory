@@ -340,3 +340,10 @@
 - **Reason**: One shared pure seam prevents proactive/catch-up drift, keeps the largest useful context prefix stable, and restores source capacity without changing journal, lifecycle, or recall semantics.
 - **Verified**: Context, planner, request, proactive lifecycle, and compaction safety tests pass; TypeScript and static diagnostics are clean with no dead or unused observer context path.
 - **Watch out**: Compaction still contains the complete-gap loop at this checkpoint. M4 must bound it to one durable segment per compaction attempt before the latency incident is considered structurally resolved.
+
+### [2026-08-28] Manual compaction can no longer drain an unbounded observer backlog
+- **Context**: The compaction hook previously looped until the complete uncovered gap was observed. With a near-full baseline, one manual compaction issued dozens of sequential completions and ran for more than 30 minutes.
+- **Change**: A compaction attempt now processes at most one bounded observer segment. It persists valid observations or deliberate-empty partial progress through the existing observation entry and `SourceProgress`, then cancels if any required backlog remains. Only a segment that completes the gap proceeds to fold and VCC assembly.
+- **Reason**: Provider work inside `/compact` must have an extension-owned upper bound. Existing durable coverage already provides the resume mechanism; another queue or drain framework was unnecessary.
+- **Verified**: A host-hook regression forces a large partial source and proves exactly one observer invocation, one durable partial-progress append, compaction cancellation, and no fold or final assembly. Existing branch/session fencing, empty coverage, final-fence, source-progress, and compaction safety tests remain green.
+- **Watch out**: Repeated manual `/compact` calls may each advance one segment when proactive observation has not caught up. That is deliberate bounded progress, not an implicit full drain; status/telemetry should make the remaining backlog visible before rollout.
