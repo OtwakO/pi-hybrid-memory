@@ -1,6 +1,6 @@
 # Bounded Observer Pipeline Roadmap
 
-**Status:** M1 one-shot observer protocol implemented; bounded context planning not started
+**Status:** M1 one-shot observer protocol and M2 evaluation-only bounded context planner implemented
 
 **Scope:** Observer context, observer segment protocol, durable coverage orchestration, and compaction catch-up behavior
 
@@ -274,6 +274,15 @@ Completion criteria:
 
 Add a pure deterministic planner and evaluate it against synthetic long baselines plus a read-only real-session report.
 
+Implemented result:
+
+- one pure in-memory pass over active records;
+- explicit caller-supplied category budgets, with no runtime setting or persisted index;
+- deterministic protected, recent, and source-related selection;
+- exact rendered-token fitting and explicit protected-overflow diagnostics;
+- 300/600/900 quality fixtures retain every required high/critical fact and deterministically retrieve an older source-related fact;
+- on the current real branch (613 active observations, no replay issues), the full baseline measured ~75,809 tokens; a candidate 36K protected / 8K recent / 8K source-related partition retained every critical/high observation and produced ~40,720 stable plus ~7,992 source-related tokens. With the existing 6,144 fixed reserve and a 32K source/envelope allowance, the projected ceiling was ~86,856 of 108,800 tokens. This is evaluation evidence, not a runtime default.
+
 Completion criteria:
 
 - plan remains within its historical-context budget;
@@ -373,7 +382,7 @@ Implementation proceeds only if each step demonstrates its intended value:
 - [x] Root cause assigned to extension context/orchestration behavior.
 - [x] Minimal architecture and non-goals documented.
 - [x] M1 one-shot observer protocol implemented.
-- [ ] M2 bounded planner evaluated without runtime activation.
+- [x] M2 bounded planner evaluated without runtime activation.
 - [ ] M3 shared runtime planning implemented.
 - [ ] M4 bounded compaction coverage barrier implemented.
 - [ ] M5 focused operational telemetry implemented.
