@@ -22,7 +22,7 @@ const main = async (): Promise<void> => {
   const installedHashBefore = await sha256(installedBundle);
   console.log(`Repository bundle: ${repositoryHash}`);
   console.log(`Installed bundle:  ${installedHashBefore}`);
-  console.log("Model-assisted operations: observer, reflector, and recall agent turn. Observer may use a bounded continuation completion.");
+  console.log("Model-assisted operations: one-shot observer segment, reflector, and recall agent turn. Exact provider-call count is not observable through Pi RPC.");
   if (!execute) {
     console.log("Dry run only. Add --execute to run the isolated model-assisted gate.");
     return;

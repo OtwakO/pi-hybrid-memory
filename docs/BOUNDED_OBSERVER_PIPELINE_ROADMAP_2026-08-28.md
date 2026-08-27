@@ -1,6 +1,6 @@
 # Bounded Observer Pipeline Roadmap
 
-**Status:** M1–M5 implemented; isolated live validation remains
+**Status:** M1–M6 complete; repository bundle validated, installed rollout remains separate
 
 **Scope:** Observer context, observer segment protocol, durable coverage orchestration, and compaction catch-up behavior
 
@@ -350,7 +350,21 @@ Do not add persistent analytics or prompt-content logging.
 
 ### M6. Controlled live gate
 
-Use an isolated long-baseline fixture to verify:
+Verify the bounded pipeline through complementary gates rather than spending provider calls to duplicate assertions that Pi RPC cannot observe.
+
+Completed evidence:
+
+- focused `runObserver` tests prove one completion for a valid or deliberate-empty segment and exactly one bounded correction opportunity;
+- 300/600/900 growth tests prove deterministic bounded planning and required-fact availability;
+- read-only replay of the real 613-observation branch proves clean lifecycle projection and practical bounded capacity;
+- host-hook integration proves one segment maximum, durable partial progress, and no fold/assembly behind backlog;
+- deterministic isolated Pi RPC validation passes compaction, restart/replay, idempotency, and unchanged installed bundle with repository hash `1f41a970d82bc5c8896a403b6015fe6563ac8474c2630a2bcc6026b67dc8b01f`;
+- model-assisted isolated Pi validation passes observer output, supported reflection persistence, restart replay, exact source provenance, and an actual `hm_recall` tool invocation for marker `HM-LIVE-MODEL-7Q9X`, path `/srv/hybrid-memory/live-gate/config.json`, and value `41729`;
+- Pi RPC does not expose exact provider-call count, so the live gate does not claim to measure it. The extension-owned one-shot contract is proven at its direct interface.
+
+The installed bundle remained `0a03dd3de03fd74d0b1f027ed14f3bcc060182b6ade0b86028314b6748016103` throughout both gates. Rollout of the new repository bundle requires separate approval and a fresh Pi process.
+
+The validated behaviors are:
 
 - one completion for a valid segment;
 - bounded request size;
@@ -408,6 +422,6 @@ Implementation proceeds only if each step demonstrates its intended value:
 - [x] M3 shared runtime planning implemented.
 - [x] M4 bounded compaction coverage barrier implemented.
 - [x] M5 focused operational telemetry implemented.
-- [ ] M6 isolated live validation passed.
-- [ ] Full targeted verification, typecheck, suite, and build pass.
+- [x] M6 isolated live validation passed.
+- [x] Full targeted verification, typecheck, suite, and build pass.
 - [ ] Installed rollout separately approved.

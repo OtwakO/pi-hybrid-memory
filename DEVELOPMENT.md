@@ -353,3 +353,9 @@
 - **Change**: `recordObserverCapacity()` optionally stores the latest plan's stable/source-related token counts, selected observation counts, omitted count, and protected-overflow flag. `/hm-cache-info` renders this beside existing epoch capacity and cache data.
 - **Reason**: The existing session-local telemetry seam already owns observer capacity. Extending it avoids a new command, persistent analytics, or prompt-content logging.
 - **Verified**: Focused telemetry and observer/compaction integration tests pass; typecheck and static diagnostics are clean.
+
+### [2026-08-28] Bounded observer pipeline passes real Pi host gates
+- **Context**: Unit and hook tests proved bounded planning, one-shot observation, and one-segment compaction, but rollout still required real Pi loading, persistence, restart replay, model-assisted memory quality, and exact recall verification.
+- **Change**: Re-ran both isolated live-validation gates against repository bundle `1f41a970d82bc5c8896a403b6015fe6563ac8474c2630a2bcc6026b67dc8b01f`. Updated the model-gate preflight wording to describe the one-shot contract accurately; Pi RPC still cannot expose exact provider-call count.
+- **Verified**: The deterministic gate passed two compactions, restart/replay, idempotency, and unchanged installed bundle. The model-assisted gate persisted an exact held-out observation and supported reflection, replayed cleanly after restart, and invoked `hm_recall` with exact marker/path/value and source provenance. Reports: `evaluation-results/live-validation/2026-08-27T23-19-50-208Z/report.json` and `evaluation-results/live-validation/2026-08-27T23-21-28-875Z-model/report-model.json`.
+- **Watch out**: The installed extension is still the prior validated bundle. Installing this milestone remains a separate backed-up rollout and requires a fresh Pi process.
