@@ -86,3 +86,6 @@ node_modules/
 # Custom Files
 PLAN.md
 AGENTS.md
+
+# Manual model-backed evaluation output
+evaluation-results/
