@@ -1,6 +1,6 @@
 # Controlled Live Validation Roadmap
 
-**Status:** Deterministic lifecycle trial passed; model-assisted trial remains
+**Status:** Controlled live validation passed; repository bundle is stable for actual usage
 
 ## Objective
 
@@ -156,11 +156,13 @@ Do not add a generic process framework, test runner, package installer, session 
 
 ## Model-assisted trial design
 
-The remaining gate uses a fresh isolated session and exactly three provider calls:
+The remaining gate uses a fresh isolated session and three model-assisted operations:
 
-1. one compaction catch-up observer call;
-2. one compaction reflector call;
-3. one post-restart agent call that must invoke `hm_recall`.
+1. one compaction catch-up observer operation;
+2. one compaction reflector operation;
+3. one post-restart agent turn that must invoke `hm_recall`.
+
+The observer protocol may use its normal bounded continuation completion after an accepted tool submission, so Pi RPC does not expose an exact provider-call count. The gate records operations rather than claiming an unobservable completion count.
 
 The fixture seeds one canonical baseline observation so compaction does not enter bootstrap mode, then appends an uncovered durable assertion containing a unique exact marker, identifier, path, numeric value, and explicit long-lived constraint. Enough bounded filler is added to make Pi's normal compaction preparation valid. Automatic/proactive observation remains disabled by a high threshold; only compaction catch-up may observe the uncovered gap.
 
@@ -192,8 +194,38 @@ Any empty observer result, missing exact detail, missing provenance, reflector f
 - [x] Restart/replay/idempotency checks pass.
 - [x] Old-bundle read-only rollback inspection passes fail-closed.
 - [x] Installed bundle and real sessions remain unchanged.
-- [ ] Model-assisted observer/reflector trial passes.
-- [ ] Extension declared stable for actual usage.
+- [x] Model-assisted observer/reflector trial passes.
+- [x] Repository bundle declared stable for actual usage through the controlled rollout procedure.
+
+## Model-assisted trial result
+
+The passing isolated trial at `2026-08-27T08-52-11-706Z-model` exercised the repository bundle through Pi RPC with `opencode-go/deepseek-v4-flash`:
+
+- compaction catch-up produced canonical observation `mtbacbu30002`;
+- the observation preserved exact marker `HM-LIVE-MODEL-7Q9X`, path `/srv/hybrid-memory/live-gate/config.json`, numeric value `41729`, and the explicit-until-revoked constraint;
+- provenance cited and replayed source entry `67f3453a`;
+- the reflector persisted supported reflection `mtbacjgm0001`;
+- V5 replay reported no lifecycle issue and persisted no semantic retirement;
+- after process restart, a normal agent turn invoked `hm_recall(mtbacbu30002)` exactly once and the tool result contained the exact fixture values and source provenance;
+- the installed Phase A bundle hash remained unchanged.
+
+The first model-assisted attempt was intentionally preserved as a failed fixture result: its pending baseline caused bootstrap mode, so catch-up correctly skipped the gap and the reflector had no durable material to add. The corrected fixture seeds a historical V4 baseline compaction, accurately representing an existing extension-managed session. No prompt or runtime policy was changed to obtain the pass.
+
+## Actual-usage verdict
+
+The current repository bundle is stable for actual usage under a controlled rollout. This verdict covers the tested Pi 0.84.3 host boundary, V5 exact-duplicate lifecycle, deterministic strengthening code paths already covered by the full suite, model-assisted observer/reflection, restart replay, exact recall, and Phase A fail-closed rollback inspection.
+
+It does not mean the currently installed bundle has been upgraded; it remains Phase A. Rollout must still:
+
+1. back up the installed bundle;
+2. back up the target session JSONL before its first V5 compaction;
+3. install the verified repository bundle atomically;
+4. restart Pi in a fresh process;
+5. inspect `/hm-status` and `/hm-memory`;
+6. perform one controlled manual compaction;
+7. verify replay and recall before broader use.
+
+Semantic retirement remains disabled and is not part of this stability verdict.
 
 ## Deterministic trial result
 

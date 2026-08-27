@@ -102,6 +102,22 @@ export class PiRpcClient {
     return this.events;
   }
 
+  async waitForEvent(
+    predicate: (event: RpcEvent) => boolean,
+    timeoutMs = 180_000,
+  ): Promise<RpcEvent> {
+    const existing = this.events.find(predicate);
+    if (existing) return existing;
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+      const event = this.events.find(predicate);
+      if (event) return event;
+      if (this.process.exitCode !== null) throw new Error(`Pi RPC exited before the awaited event. ${this.stderr.trim()}`);
+    }
+    throw new Error(`Timed out waiting for Pi RPC event after ${timeoutMs}ms.`);
+  }
+
   async close(): Promise<void> {
     if (this.process.exitCode !== null) return;
     this.process.kill("SIGTERM");

@@ -31,7 +31,8 @@
         "typecheck": "tsc --noEmit",
         "test": "vitest run",
         "evaluate:retirement": "bun evaluation/semantic-retirement/run.ts",
-        "validate:live": "bun evaluation/live-validation/run.ts"
+        "validate:live": "bun evaluation/live-validation/run.ts",
+        "validate:live:model": "bun evaluation/live-validation/run-model.ts"
     },
     "peerDependencies": {
         "@earendil-works/pi-agent-core": "^0.84.3",
