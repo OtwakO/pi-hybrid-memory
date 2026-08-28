@@ -1,6 +1,6 @@
 # Incremental Reflection and Bounded Projection Roadmap
 
-**Status:** Approved direction; Stage 1A bounded context planner evaluated
+**Status:** Approved direction; Stage 1A–1B pure seams evaluated
 
 **Scope:** Reflection request design, reflection lifecycle persistence, compaction orchestration, and the main-session memory projection.
 
@@ -151,7 +151,9 @@ Keep the existing `foldMemory()` production seam and compaction-attached persist
 
 Stage 1A result: a pure, runtime-disconnected planner now distinguishes a bounded **focus window** (the evidence this transaction must consider) from bounded protected/recent historical context. This correction was required after a real-session measurement showed that treating all high/critical history as one protected pool would omit hundreds of candidates and obscure transaction progress. The planner assigns deterministic local handles only after final authoritative ordering and reports focus/protected overflow explicitly. On a current 1,290-observation projection, a synthetic latest-12 focus window fit completely with ~12,072 total planned tokens and ~209 ms planning time; historical omissions remained durable by design.
 
-Remaining Stage 1 work: wire local handles into the small output contract, add one correction limit, per-candidate validation, and content-free stage/rejection telemetry.
+Stage 1B result: request-local handles resolve candidate-by-candidate into canonical observation IDs. A malformed candidate is rejected completely without discarding unrelated valid candidates; accepted canonical candidates still pass through the existing atomic merge/strengthening validator, so there remains one final semantic merge authority.
+
+Remaining Stage 1 work: wire the planner and resolver into the small model contract, add one correction limit, and content-free stage/rejection telemetry.
 
 Completion gate:
 

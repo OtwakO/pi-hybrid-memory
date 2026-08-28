@@ -378,3 +378,9 @@
 - **Change**: The pure planner now accepts a bounded focus window separately from historical observations. Focus evidence is fitted and reported independently; protected and recent history can support interpretation but cannot displace the transaction's focus. Deterministic local handles are assigned after final ordering.
 - **Reason**: An incremental processor needs explicit progress semantics. Selecting vaguely from all history is harder to reason about, test, and maintain than processing a bounded window with bounded context.
 - **Verified**: 300/600/900 deterministic tests and a 600-item all-high/critical stress case pass. On a read-only 1,290-observation projection, a latest-12 focus window fit completely in a ~12,072-token plan in ~209 ms; no runtime or persisted schema uses the planner yet.
+
+### [2026-08-28] Local provenance handles resolve before canonical merge
+- **Context**: The production reflector lost all 13 proposed reflections when at least one opaque observation ID was invalid. Whole-batch canonical validation was safe but made one copying error discard unrelated candidates.
+- **Change**: Added a pure pre-validation seam that maps deterministic request-local handles to canonical observation IDs per candidate. Unknown, duplicate, empty, or malformed support rejects that complete candidate; other candidates remain eligible. Canonical candidates still use the existing atomic merge and strengthening validator.
+- **Reason**: This fixes the measured failure without weakening provenance, guessing IDs, dropping unsupported support, or duplicating reflection merge semantics.
+- **Verified**: Focused resolver and existing canonical validation tests pass; typecheck and static diagnostics are clean. The resolver is not wired into runtime yet.
