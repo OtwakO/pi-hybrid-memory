@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 
 import type {
   MemoryLifecycleDetailsV5,
+  MemoryLifecycleEventV6,
   MemoryReflection,
+  ReflectionProgress,
   ObservationRecord,
   ObservationRetirement,
   ReflectionRecord,
@@ -22,6 +24,19 @@ const reflectionPayload = (reflection: MemoryReflection): unknown =>
       supportingObservationIds: reflection.supportingObservationIds,
       legacy: reflection.legacy ?? false,
     };
+
+const addedReflectionRecords = (
+  previousReflections: readonly MemoryReflection[],
+  currentReflections: readonly MemoryReflection[],
+): ReflectionRecord[] => {
+  const previousIds = new Set(reflectionRecords(previousReflections).map(reflection => reflection.id));
+  return reflectionRecords(currentReflections)
+    .filter(reflection => !previousIds.has(reflection.id))
+    .map(reflection => ({
+      ...reflection,
+      supportingObservationIds: [...reflection.supportingObservationIds],
+    }));
+};
 
 const stableMemoryFingerprint = (
   observations: readonly ObservationRecord[],
@@ -48,14 +63,6 @@ export const createMemoryLifecycleDetails = (input: {
   retirements: readonly ObservationRetirement[];
   supersessions: readonly ReflectionSupersession[];
 }): MemoryLifecycleDetailsV5 => {
-  const previousIds = new Set(reflectionRecords(input.previousReflections).map(reflection => reflection.id));
-  const reflectionsAdded = reflectionRecords(input.currentReflections)
-    .filter(reflection => !previousIds.has(reflection.id))
-    .map(reflection => ({
-      ...reflection,
-      supportingObservationIds: [...reflection.supportingObservationIds],
-    }));
-
   return {
     type: "observational-memory",
     version: 5,
@@ -65,8 +72,34 @@ export const createMemoryLifecycleDetails = (input: {
         ? { parentMemoryCompactionId: input.parentMemoryCompactionId }
         : {}),
     },
-    reflectionsAdded,
+    reflectionsAdded: addedReflectionRecords(input.previousReflections, input.currentReflections),
     observationsRetired: input.retirements.map(retirement => structuredClone(retirement)),
     reflectionsSuperseded: input.supersessions.map(supersession => structuredClone(supersession)),
   };
 };
+
+/** Create one parent-linked lifecycle event for compaction details or a custom journal entry. */
+export const createMemoryLifecycleEvent = (input: {
+  parentLifecycleEntryId?: string;
+  reflectionProgress?: ReflectionProgress;
+  observations: readonly ObservationRecord[];
+  previousReflections: readonly MemoryReflection[];
+  currentReflections: readonly MemoryReflection[];
+  retirements: readonly ObservationRetirement[];
+  supersessions: readonly ReflectionSupersession[];
+}): MemoryLifecycleEventV6 => ({
+  type: "observational-memory",
+  version: 6,
+  generation: {
+    inputFingerprint: stableMemoryFingerprint(input.observations, input.previousReflections),
+    ...(input.parentLifecycleEntryId
+      ? { parentLifecycleEntryId: input.parentLifecycleEntryId }
+      : {}),
+  },
+  ...(input.reflectionProgress
+    ? { reflectionProgress: structuredClone(input.reflectionProgress) }
+    : {}),
+  reflectionsAdded: addedReflectionRecords(input.previousReflections, input.currentReflections),
+  observationsRetired: input.retirements.map(retirement => structuredClone(retirement)),
+  reflectionsSuperseded: input.supersessions.map(supersession => structuredClone(supersession)),
+});

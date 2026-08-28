@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { buildBranchMemoryIndex } from "../src/om/branch-memory-index.js";
-import { OBSERVATION_CUSTOM_TYPE } from "../src/types.js";
+import { MEMORY_LIFECYCLE_CUSTOM_TYPE, OBSERVATION_CUSTOM_TYPE } from "../src/types.js";
 import type {
   Entry,
   MemoryDetailsV4,
   ObservationEntryData,
   ObservationRecord,
   ReflectionRecord,
+  MemoryLifecycleEventV6,
 } from "../src/types.js";
 
 const source = (id: string): Entry => ({
@@ -65,6 +66,34 @@ const observationEntry = (
   };
   return { type: "custom", id, customType: OBSERVATION_CUSTOM_TYPE, data };
 };
+
+const lifecycleV6 = (
+  id: string,
+  event: MemoryLifecycleEventV6,
+): Entry => ({ type: "custom", id, customType: MEMORY_LIFECYCLE_CUSTOM_TYPE, data: event });
+
+const v6 = (input: {
+  fingerprint: string;
+  parentLifecycleEntryId?: string;
+  frontier?: { entryId: string; compatibilityVersion?: string };
+  reflectionsAdded?: ReflectionRecord[];
+}): MemoryLifecycleEventV6 => ({
+  type: "observational-memory",
+  version: 6,
+  generation: {
+    inputFingerprint: input.fingerprint,
+    ...(input.parentLifecycleEntryId ? { parentLifecycleEntryId: input.parentLifecycleEntryId } : {}),
+  },
+  ...(input.frontier
+    ? { reflectionProgress: {
+        consideredThroughObservationEntryId: input.frontier.entryId,
+        compatibilityVersion: input.frontier.compatibilityVersion ?? "reflection-v1",
+      } }
+    : {}),
+  reflectionsAdded: input.reflectionsAdded ?? [],
+  observationsRetired: [],
+  reflectionsSuperseded: [],
+});
 
 describe("branch memory index", () => {
   it("projects latest committed memory and post-boundary pending observations", () => {
@@ -578,6 +607,121 @@ describe("branch memory index", () => {
     expect(index.current.committedObs).toEqual([committed]);
     expect(index.current.reflections).toEqual([added]);
     expect(index.issues).toEqual([]);
+  });
+
+  it("replays one parent-linked V6 lifecycle sequence across custom entries and compactions", () => {
+    const firstObservation = observation("aaaaaaaaaaaa", "first", "2026-08-26T00:00:01.000Z");
+    const secondObservation = observation("bbbbbbbbbbbb", "second", "2026-08-26T00:00:02.000Z");
+    const firstReflection = reflection("cccccccccccc", "first reflection", [firstObservation.id]);
+    const secondReflection = reflection("dddddddddddd", "second reflection", [secondObservation.id]);
+    const entries: Entry[] = [
+      observationEntry("obsentry1", "source01", [firstObservation]),
+      compaction("compact1", "kept0001", {
+        type: "observational-memory",
+        version: 5,
+        generation: { inputFingerprint: "v5-root" },
+        reflectionsAdded: [],
+        observationsRetired: [],
+        reflectionsSuperseded: [],
+      }),
+      source("kept0001"),
+      observationEntry("obsentry2", "source02", [secondObservation]),
+      lifecycleV6("life0001", v6({
+        fingerprint: "incremental",
+        parentLifecycleEntryId: "compact1",
+        frontier: { entryId: "obsentry1" },
+        reflectionsAdded: [firstReflection],
+      })),
+      compaction("compact2", "kept0002", v6({
+        fingerprint: "compaction",
+        parentLifecycleEntryId: "life0001",
+        frontier: { entryId: "obsentry2" },
+        reflectionsAdded: [secondReflection],
+      })),
+      source("kept0002"),
+    ];
+
+    const index = buildBranchMemoryIndex(entries);
+
+    expect(index.latestLifecycleEntryId).toBe("compact2");
+    expect(index.reflectionProgress).toEqual({
+      consideredThroughObservationEntryId: "obsentry2",
+      compatibilityVersion: "reflection-v1",
+    });
+    expect(index.current.reflections).toEqual([firstReflection, secondReflection]);
+    expect(index.issues).toEqual([]);
+  });
+
+  it("rejects stale parents and invalid frontiers atomically without changing the lifecycle head", () => {
+    const firstObservation = observation("aaaaaaaaaaaa", "first", "2026-08-26T00:00:01.000Z");
+    const secondObservation = observation("bbbbbbbbbbbb", "second", "2026-08-26T00:00:02.000Z");
+    const validReflection = reflection("cccccccccccc", "valid", [firstObservation.id]);
+    const rejectedReflection = reflection("dddddddddddd", "rejected", [secondObservation.id]);
+    const base: Entry[] = [
+      observationEntry("obsentry1", "source01", [firstObservation]),
+      observationEntry("obsentry2", "source02", [secondObservation]),
+      lifecycleV6("life0001", v6({
+        fingerprint: "root",
+        frontier: { entryId: "obsentry2" },
+        reflectionsAdded: [validReflection],
+      })),
+    ];
+
+    const stale = buildBranchMemoryIndex([
+      ...base,
+      lifecycleV6("life0002", v6({
+        fingerprint: "stale",
+        parentLifecycleEntryId: "missing-parent",
+        frontier: { entryId: "obsentry2" },
+        reflectionsAdded: [rejectedReflection],
+      })),
+    ]);
+    expect(stale.latestLifecycleEntryId).toBe("life0001");
+    expect(stale.reflectionById(rejectedReflection.id)).toBeUndefined();
+    expect(stale.issues).toEqual([expect.objectContaining({ reason: "invalid-lifecycle-parent" })]);
+
+    const backward = buildBranchMemoryIndex([
+      ...base,
+      lifecycleV6("life0002", v6({
+        fingerprint: "backward",
+        parentLifecycleEntryId: "life0001",
+        frontier: { entryId: "obsentry1" },
+        reflectionsAdded: [rejectedReflection],
+      })),
+    ]);
+    expect(backward.latestLifecycleEntryId).toBe("life0001");
+    expect(backward.reflectionById(rejectedReflection.id)).toBeUndefined();
+    expect(backward.issues).toEqual([expect.objectContaining({ reason: "invalid-lifecycle-batch" })]);
+  });
+
+  it("derives V6 lifecycle state from the selected branch and rejects legacy authority after V6", () => {
+    const committed = observation("aaaaaaaaaaaa", "committed", "2026-08-26T00:00:01.000Z");
+    const added = reflection("bbbbbbbbbbbb", "incremental", [committed.id]);
+    const beforeV6: Entry[] = [observationEntry("obsentry1", "source01", [committed])];
+    const withV6: Entry[] = [
+      ...beforeV6,
+      lifecycleV6("life0001", v6({
+        fingerprint: "root",
+        frontier: { entryId: "obsentry1" },
+        reflectionsAdded: [added],
+      })),
+    ];
+    const withLegacyOverwrite: Entry[] = [
+      ...withV6,
+      compaction("compact1", "kept0001", details([committed], [])),
+      source("kept0001"),
+    ];
+
+    expect(buildBranchMemoryIndex(beforeV6).latestLifecycleEntryId).toBeUndefined();
+    expect(buildBranchMemoryIndex(beforeV6).current.reflections).toEqual([]);
+    expect(buildBranchMemoryIndex(withV6).current.reflections).toEqual([added]);
+    const replayed = buildBranchMemoryIndex(structuredClone(withLegacyOverwrite));
+    expect(replayed.latestLifecycleEntryId).toBe("life0001");
+    expect(replayed.current.reflections).toEqual([added]);
+    expect(replayed.issues).toEqual([expect.objectContaining({
+      entryId: "compact1",
+      reason: "invalid-lifecycle-parent",
+    })]);
   });
 
   it("returns isolated memory records from lookup methods", () => {

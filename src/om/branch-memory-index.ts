@@ -4,10 +4,12 @@ import type {
   MemoryReflection,
   ObservationRecord,
   ObservationRetirement,
+  ReflectionProgress,
   ReflectionRecord,
   ReflectionSupersession,
 } from "../types.js";
 import {
+  MEMORY_LIFECYCLE_CUSTOM_TYPE,
   OBSERVATION_CUSTOM_TYPE,
   claimsMemoryDetailsVersion,
   isObservationEntryData,
@@ -50,6 +52,8 @@ export interface BranchMemoryIndex {
   compactions: Entry[];
   issues: MemoryReplayIssue[];
   latestMemoryCompactionId?: string;
+  latestLifecycleEntryId?: string;
+  reflectionProgress?: ReflectionProgress;
   observationById(id: string): ObservationRecord | undefined;
   observationLifecycle(id: string): ObservationLifecycle | undefined;
   activeObservationIds(): Set<string>;
@@ -77,6 +81,9 @@ const cloneReflection = (reflection: MemoryReflection): MemoryReflection =>
 const isObservationEntry = (entry: Entry): boolean =>
   entry.type === "custom" && entry.customType === OBSERVATION_CUSTOM_TYPE;
 
+const isLifecycleEntry = (entry: Entry): boolean =>
+  entry.type === "custom" && entry.customType === MEMORY_LIFECYCLE_CUSTOM_TYPE;
+
 const observationPayload = (observation: ObservationRecord): string => JSON.stringify({
   id: observation.id,
   content: observation.content,
@@ -103,11 +110,15 @@ export const buildBranchMemoryIndex = (
   const activeObservationOrder: string[] = [];
   const activeObservationIds = new Set<string>();
   const observationRetirements = new Map<string, ObservationRetirement>();
-  const observationEntries: Array<{ entryIndex: number; coversFromIndex?: number; records: ObservationRecord[] }> = [];
+  const observationEntries: Array<{ entryId: string; entryIndex: number; coversFromIndex?: number; records: ObservationRecord[] }> = [];
+  const observationEntryIndexes = new Map<string, number>();
   const issues: MemoryReplayIssue[] = [];
 
   let latestMemoryCompactionIndex = -1;
   let latestMemoryCompactionId: string | undefined;
+  let latestLifecycleEntryId: string | undefined;
+  let reflectionProgress: ReflectionProgress | undefined;
+  let hasV6Lifecycle = false;
   let legacyBaselineIndex = -1;
   let baselineObservations: ObservationRecord[] = [];
   let currentReflections: MemoryReflection[] = [];
@@ -136,7 +147,8 @@ export const buildBranchMemoryIndex = (
         });
         continue;
       }
-      observationEntries.push({ entryIndex, records });
+      observationEntries.push({ entryId: entry.id, entryIndex, records });
+      observationEntryIndexes.set(entry.id, entryIndex);
       for (const observation of records) {
         canonicalObservationIds.add(observation.id);
         if (!observationHistory.has(observation.id)) observationHistory.set(observation.id, observation);
@@ -147,21 +159,39 @@ export const buildBranchMemoryIndex = (
       }
       continue;
     }
-    if (entry.type !== "compaction") continue;
+    const lifecycleCustomEntry = isLifecycleEntry(entry);
+    if (entry.type !== "compaction" && !lifecycleCustomEntry) continue;
 
-    const details = readMemoryDetails(entry.details);
+    const rawDetails = lifecycleCustomEntry ? entry.data : entry.details;
+    const details = readMemoryDetails(rawDetails);
     if (!details) {
-      if (claimsMemoryDetailsVersion(entry.details, 5)) {
+      if (claimsMemoryDetailsVersion(rawDetails, 5) || claimsMemoryDetailsVersion(rawDetails, 6)) {
         issues.push({
           entryId: entry.id,
           reason: "invalid-lifecycle-batch",
-          detail: "persisted V5 lifecycle details failed structural validation",
+          detail: "persisted lifecycle event failed structural validation",
         });
       }
       continue;
     }
+    if (lifecycleCustomEntry && details.version !== 6) {
+      issues.push({
+        entryId: entry.id,
+        reason: "invalid-lifecycle-batch",
+        detail: "custom lifecycle entries require V6 event data",
+      });
+      continue;
+    }
 
     if (details.version === 4) {
+      if (hasV6Lifecycle) {
+        issues.push({
+          entryId: entry.id,
+          reason: "invalid-lifecycle-parent",
+          detail: "legacy memory details cannot replace an established V6 lifecycle sequence",
+        });
+        continue;
+      }
       const baselineBatch = new Map<string, ObservationRecord>();
       const conflict = details.observations.find(observation => {
         const existing = baselineBatch.get(observation.id) ?? observationHistory.get(observation.id);
@@ -182,6 +212,7 @@ export const buildBranchMemoryIndex = (
 
       latestMemoryCompactionIndex = entryIndex;
       latestMemoryCompactionId = entry.id;
+      latestLifecycleEntryId = entry.id;
       legacyBaselineIndex = entryIndex;
       baselineObservations = details.observations.map(observation =>
         cloneObservation(observationHistory.get(observation.id) ?? observation));
@@ -207,14 +238,38 @@ export const buildBranchMemoryIndex = (
       continue;
     }
 
-    if (details.generation.parentMemoryCompactionId !== latestMemoryCompactionId) {
+    if (details.version === 5 && hasV6Lifecycle) {
       issues.push({
         entryId: entry.id,
         reason: "invalid-lifecycle-parent",
-        detail: `expected parent ${latestMemoryCompactionId ?? "<root>"}, received ${details.generation.parentMemoryCompactionId ?? "<root>"}`,
+        detail: "V5 memory details cannot replace an established V6 lifecycle sequence",
       });
       continue;
     }
+    const receivedParent = details.version === 5
+      ? details.generation.parentMemoryCompactionId
+      : details.generation.parentLifecycleEntryId;
+    const expectedParent = details.version === 5 ? latestMemoryCompactionId : latestLifecycleEntryId;
+    if (receivedParent !== expectedParent) {
+      issues.push({
+        entryId: entry.id,
+        reason: "invalid-lifecycle-parent",
+        detail: `expected parent ${expectedParent ?? "<root>"}, received ${receivedParent ?? "<root>"}`,
+      });
+      continue;
+    }
+    const nextProgress = details.version === 6 ? details.reflectionProgress : undefined;
+    const nextProgressIndex = nextProgress
+      ? observationEntryIndexes.get(nextProgress.consideredThroughObservationEntryId)
+      : undefined;
+    const currentProgressIndex = reflectionProgress
+      ? observationEntryIndexes.get(reflectionProgress.consideredThroughObservationEntryId)
+      : undefined;
+    const validProgress = !nextProgress
+      || (nextProgressIndex !== undefined
+        && (reflectionProgress?.compatibilityVersion !== nextProgress.compatibilityVersion
+          || currentProgressIndex === undefined
+          || nextProgressIndex >= currentProgressIndex));
     const additions = details.reflectionsAdded.map(
       reflection => cloneReflection(reflection) as ReflectionRecord,
     );
@@ -267,7 +322,7 @@ export const buildBranchMemoryIndex = (
       successorIds.add(supersession.supersededByReflectionId);
       return true;
     });
-    const validBatch = validAdditions && validRetirements && validSupersessions;
+    const validBatch = validProgress && validAdditions && validRetirements && validSupersessions;
     if (!validBatch) {
       issues.push({
         entryId: entry.id,
@@ -277,8 +332,15 @@ export const buildBranchMemoryIndex = (
       continue;
     }
 
-    latestMemoryCompactionIndex = entryIndex;
-    latestMemoryCompactionId = entry.id;
+    if (entry.type === "compaction") {
+      latestMemoryCompactionIndex = entryIndex;
+      latestMemoryCompactionId = entry.id;
+    }
+    latestLifecycleEntryId = entry.id;
+    if (details.version === 6) {
+      hasV6Lifecycle = true;
+      if (nextProgress) reflectionProgress = structuredClone(nextProgress);
+    }
     for (const reflection of additions) {
       reflectionHistory.set(reflection.id, reflection);
       currentReflections.push(reflection);
@@ -352,6 +414,8 @@ export const buildBranchMemoryIndex = (
     compactions: [...compactions],
     issues: issues.map(issue => ({ ...issue })),
     latestMemoryCompactionId,
+    latestLifecycleEntryId,
+    reflectionProgress: reflectionProgress ? structuredClone(reflectionProgress) : undefined,
     observationById,
     observationLifecycle: id => {
       if (!observationHistory.has(id)) return undefined;

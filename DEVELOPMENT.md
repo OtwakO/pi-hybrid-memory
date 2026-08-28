@@ -403,3 +403,9 @@
 - **Change**: Ran deterministic and model-assisted isolated Pi validation against repository bundle `3614d7ac21beee7c2407a71c488b6da67b747f362736d33f808179e194fd0f24`.
 - **Verified**: The deterministic gate passed compaction, restart/replay, idempotency, and unchanged installed bundle. The model-assisted gate accepted local handles, persisted canonical support for observation `mtci653r0001` in reflection `mtci68fd0001`, replayed cleanly, and completed exact recall for the held-out marker/path/value and source provenance. Reports: `evaluation-results/live-validation/2026-08-28T05-18-26-394Z/report.json` and `evaluation-results/live-validation/2026-08-28T05-19-37-262Z-model/report-model.json`.
 - **Watch out**: Stage 1 remains compaction-attached and does not solve durable reflection backlog or the oversized main-session projection. The installed extension remains the prior bounded-observer bundle.
+
+### [2026-08-28] V6 lifecycle replay lands reader-first
+- **Context**: Incremental reflection needs durable events between compactions, but adding a writer and orchestration before replay semantics were proven would couple data integrity to unfinished runtime behavior.
+- **Change**: Added one minimal V6 lifecycle event usable in compaction details or `hybrid-memory.lifecycle` custom entries. The canonical branch projector now validates one parent-linked sequence, canonical observation-entry frontiers, same-policy monotonicity, atomic lifecycle batches, branch forks, and fail-closed legacy payloads after V6 begins.
+- **Reason**: Reader-first deployment gives a reversible compatibility boundary: the repository can validate future journal data before any runtime path emits it, with no side ledger, snapshot, cursor file, or second projector.
+- **Verified**: 36 test files / 288 tests, TypeScript, 45-module production build, and static diagnostics pass. No runtime writer or installed extension changed.

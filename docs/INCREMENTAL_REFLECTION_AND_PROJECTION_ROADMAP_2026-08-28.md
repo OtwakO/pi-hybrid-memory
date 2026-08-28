@@ -178,7 +178,9 @@ Use the existing deterministic quality fixtures plus the real long-session proje
 
 ### Stage 3 — Add the generalized lifecycle event
 
-Introduce the smallest schema and projector change needed for independent reflection events. Validate parent sequencing, frontier monotonicity, branch/fork/restart replay, stale append rejection, atomic malformed-event rejection, V3–V5 compatibility, and approximately linear journal growth.
+Stage 3A reader-first result: `MemoryLifecycleEventV6` is one minimal shape usable as either compaction details or `hybrid-memory.lifecycle` custom-entry data. It contains only a parent lifecycle entry ID, deterministic input fingerprint, optional reflection progress (canonical observation-entry boundary plus compatibility version), reflection additions/supersessions, and exact-duplicate retirements. `buildBranchMemoryIndex()` remains the sole projector and now replays one total V6 sequence across both entry kinds, exposes only the latest lifecycle entry and reflection frontier, rejects stale parents and unknown/backward same-policy frontiers atomically, derives fork state from the selected branch, and rejects V4/V5 lifecycle authority after V6 has begun. V3–V5 input remains readable before that transition. No runtime writer, trigger, coordinator, or installed schema change is included in Stage 3A.
+
+Next Stage 3 step: switch successful compaction lifecycle writes to V6 using the same creator and parent sequence, then validate mixed V5→V6 restart/rollback behavior before adding any incremental custom-entry writer.
 
 ### Stage 4 — Run reflection incrementally
 

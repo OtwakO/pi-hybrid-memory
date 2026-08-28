@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createMemoryLifecycleDetails } from "../src/om/memory-lifecycle.js";
+import {
+  createMemoryLifecycleDetails,
+  createMemoryLifecycleEvent,
+} from "../src/om/memory-lifecycle.js";
 import type { ObservationRecord, ReflectionRecord } from "../src/types.js";
 
 const observation: ObservationRecord = {
@@ -129,6 +132,40 @@ describe("memory lifecycle details", () => {
 
     expect(legacyString).not.toBe(changedLegacyString);
     expect(normalRecord).not.toBe(legacyRecord);
+  });
+
+  it("creates one minimal V6 event for compaction or custom-entry persistence", () => {
+    const existing = reflection("bbbbbbbbbbbb", "existing");
+    const added = reflection("cccccccccccc", "added");
+
+    const result = createMemoryLifecycleEvent({
+      parentLifecycleEntryId: "life0001",
+      reflectionProgress: {
+        consideredThroughObservationEntryId: "obsentry1",
+        compatibilityVersion: "reflection-v1",
+      },
+      observations: [observation],
+      previousReflections: [existing],
+      currentReflections: [existing, added],
+      retirements: [],
+      supersessions: [],
+    });
+
+    expect(result).toMatchObject({
+      type: "observational-memory",
+      version: 6,
+      generation: { parentLifecycleEntryId: "life0001" },
+      reflectionProgress: {
+        consideredThroughObservationEntryId: "obsentry1",
+        compatibilityVersion: "reflection-v1",
+      },
+      reflectionsAdded: [added],
+      observationsRetired: [],
+      reflectionsSuperseded: [],
+    });
+    expect(result).not.toHaveProperty("observations");
+    expect(result).not.toHaveProperty("reflections");
+    expect(result.generation.inputFingerprint).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("is deterministic for unchanged memory input", () => {
