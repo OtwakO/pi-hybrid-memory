@@ -397,3 +397,9 @@
 - **Change**: `/hm-cache-info` now retains one session-local, content-free bounded reflection plan: input estimate, output limit, selected/omitted focus and historical counts, overflow flags, planning duration, and completion running/settled elapsed time.
 - **Reason**: This is enough to diagnose the measured stall boundary without adding persistent analytics, a new command, prompt logging, or a general metrics framework.
 - **Verified**: Focused telemetry/fold tests, typecheck, and static diagnostics pass.
+
+### [2026-08-28] Bounded reflection Stage 1 passes real Pi gates
+- **Context**: The bounded pending-focus reflector changed the model tool contract from canonical observation IDs to request-local handles and needed host-boundary proof before any rollout.
+- **Change**: Ran deterministic and model-assisted isolated Pi validation against repository bundle `3614d7ac21beee7c2407a71c488b6da67b747f362736d33f808179e194fd0f24`.
+- **Verified**: The deterministic gate passed compaction, restart/replay, idempotency, and unchanged installed bundle. The model-assisted gate accepted local handles, persisted canonical support for observation `mtci653r0001` in reflection `mtci68fd0001`, replayed cleanly, and completed exact recall for the held-out marker/path/value and source provenance. Reports: `evaluation-results/live-validation/2026-08-28T05-18-26-394Z/report.json` and `evaluation-results/live-validation/2026-08-28T05-19-37-262Z-model/report-model.json`.
+- **Watch out**: Stage 1 remains compaction-attached and does not solve durable reflection backlog or the oversized main-session projection. The installed extension remains the prior bounded-observer bundle.

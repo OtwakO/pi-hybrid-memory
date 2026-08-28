@@ -1,6 +1,6 @@
 # Incremental Reflection and Bounded Projection Roadmap
 
-**Status:** Approved direction; Stage 1A–1B pure seams evaluated
+**Status:** Stage 1 complete and isolated-live validated; incremental persistence not started
 
 **Scope:** Reflection request design, reflection lifecycle persistence, compaction orchestration, and the main-session memory projection.
 
@@ -159,7 +159,9 @@ Read-only measurement on the current 1,351-observation branch (1,215 committed, 
 
 Stage 1D telemetry result: the existing `/hm-cache-info` seam reports the latest bounded reflection input estimate, output limit, selected/omitted focus and historical evidence counts, overflow flags, planning duration, and whether completion is running or settled with elapsed time. It stores no prompt text, handles, observation IDs, reflection content, or persistent analytics.
 
-Remaining Stage 1 work: controlled deterministic and model-assisted validation before any installed rollout.
+Stage 1 validation result: the 36-file/283-test suite, typecheck, 45-module build, and deterministic real Pi gate pass for repository bundle `3614d7ac21beee7c2407a71c488b6da67b747f362736d33f808179e194fd0f24`. The model-assisted real Pi gate accepted the request-local handle schema, persisted canonical observation support and reflection `mtci68fd0001`, replayed after restart, and completed exact recall for marker `HM-LIVE-MODEL-7Q9X`, path `/srv/hybrid-memory/live-gate/config.json`, and value `41729`. The installed bundle remained `1f41a970d82bc5c8896a403b6015fe6563ac8474c2630a2bcc6026b67dc8b01f` throughout.
+
+Stage 1 is stable in the repository but remains a compatibility step: reflection still runs in `/compact`, has no durable consideration frontier, and the main-session projection can still exceed its configured ceiling. Stage 3 lifecycle design must not begin until the Stage 1 rollout decision is explicit.
 
 Completion gate:
 
