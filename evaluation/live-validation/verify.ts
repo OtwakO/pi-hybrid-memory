@@ -29,9 +29,18 @@ export const verifyPersistedLifecycle = async (
     throw new Error(`Expected ${expectedCompactions} compaction(s); received ${compactions.length}.`);
   }
   const latestDetails = readMemoryDetails(compactions.at(-1)?.details);
-  if (!latestDetails || latestDetails.version !== 5) throw new Error("Latest compaction is not a valid V5 lifecycle batch.");
+  if (!latestDetails || latestDetails.version !== 6) throw new Error("Latest compaction is not a valid V6 lifecycle batch.");
   const lifecycleBatches = compactions.map(compaction => readMemoryDetails(compaction.details));
-  const retirements = lifecycleBatches.flatMap(details => details?.version === 5 ? details.observationsRetired : []);
+  const retirements = lifecycleBatches.flatMap(details =>
+    details?.version === 5 || details?.version === 6 ? details.observationsRetired : []);
+  const previousLifecycleEntryId = expectedCompactions > 1
+    ? compactions.at(-2)?.id
+    : compactions.find(compaction => readMemoryDetails(compaction.details)?.version === 4)?.id;
+  if (latestDetails.generation.parentLifecycleEntryId !== previousLifecycleEntryId) {
+    throw new Error(
+      `Expected latest lifecycle parent ${previousLifecycleEntryId ?? "<root>"}; received ${latestDetails.generation.parentLifecycleEntryId ?? "<root>"}.`,
+    );
+  }
   if (retirements.length !== 1) {
     throw new Error(`Expected one retirement across the journal; received ${retirements.length}.`);
   }

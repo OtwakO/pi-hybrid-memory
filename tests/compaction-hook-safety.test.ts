@@ -320,9 +320,9 @@ describe("compaction catch-up safety integration", () => {
     expect(result).toHaveProperty("compaction");
     expect((result as any).compaction.details).toMatchObject({
       type: "observational-memory",
-      version: 5,
+      version: 6,
       generation: {
-        parentMemoryCompactionId: "comp-1",
+        parentLifecycleEntryId: "comp-1",
         inputFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
       },
       reflectionsAdded: [],

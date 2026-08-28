@@ -409,3 +409,9 @@
 - **Change**: Added one minimal V6 lifecycle event usable in compaction details or `hybrid-memory.lifecycle` custom entries. The canonical branch projector now validates one parent-linked sequence, canonical observation-entry frontiers, same-policy monotonicity, atomic lifecycle batches, branch forks, and fail-closed legacy payloads after V6 begins.
 - **Reason**: Reader-first deployment gives a reversible compatibility boundary: the repository can validate future journal data before any runtime path emits it, with no side ledger, snapshot, cursor file, or second projector.
 - **Verified**: 36 test files / 288 tests, TypeScript, 45-module production build, and static diagnostics pass. No runtime writer or installed extension changed.
+
+### [2026-08-28] Successful compactions establish the V6 lifecycle sequence
+- **Context**: The V6 reader was proven before any writer. The next reversible step was to move only the existing successful-compaction commit boundary onto the generalized sequence.
+- **Change**: Compaction now creates V6 details parented to `latestLifecycleEntryId`. It carries forward an accepted reflection frontier but never advances one; future incremental processing owns that claim.
+- **Verified**: 36 test files / 288 tests, TypeScript, build, and deterministic real Pi validation passed for bundle `10f6b387c896d2f2412f2cab05e6953cb7ddae430437f0d2573802106bc3cd3b`, including two compactions, restart/replay, and idempotent retirement. Old installed bundle inspection left the V6 session byte-identical.
+- **Watch out**: The old installed bundle emitted no incompatibility warning and displays only its older compatible projection because it does not understand V6 details. No installed extension or real session was changed.

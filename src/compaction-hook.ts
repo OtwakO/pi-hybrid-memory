@@ -22,7 +22,7 @@ import {
   observerEpochTokenLimit,
 } from "./om/observer-context.js";
 import { foldMemory } from "./om/memory-fold.js";
-import { createMemoryLifecycleDetails } from "./om/memory-lifecycle.js";
+import { createMemoryLifecycleEvent } from "./om/memory-lifecycle.js";
 import { createCompletionReflectionModel } from "./om/reflection-model.js";
 import { normalize } from "./vcc/normalizer.js";
 import { extractGoals, extractFiles, extractCommits, extractPreferences, extractOutstandingContext, formatCommits } from "./vcc/extractor.js";
@@ -394,8 +394,9 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         return { cancel: true };
       }
 
-      const lifecycleDetails = createMemoryLifecycleDetails({
-        parentMemoryCompactionId: memoryIndex.latestMemoryCompactionId,
+      const lifecycleDetails = createMemoryLifecycleEvent({
+        parentLifecycleEntryId: memoryIndex.latestLifecycleEntryId,
+        reflectionProgress: memoryIndex.reflectionProgress,
         observations: workingObservations,
         previousReflections: workingReflections,
         currentReflections: finalReflections,
