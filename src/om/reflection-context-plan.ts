@@ -2,6 +2,12 @@ import type { MemoryReflection, ObservationRecord, Relevance } from "../types.js
 import { reflectionContent } from "./compaction.js";
 import { estimateStringTokens } from "./tokens.js";
 
+export const DEFAULT_REFLECTION_HISTORY_BUDGETS = {
+  reflectionTokens: 2_000,
+  protectedObservationTokens: 8_000,
+  recentObservationTokens: 4_000,
+} as const;
+
 export interface ReflectionContextBudgets {
   reflectionTokens: number;
   focusObservationTokens: number;

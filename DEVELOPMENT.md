@@ -384,3 +384,10 @@
 - **Change**: Added a pure pre-validation seam that maps deterministic request-local handles to canonical observation IDs per candidate. Unknown, duplicate, empty, or malformed support rejects that complete candidate; other candidates remain eligible. Canonical candidates still use the existing atomic merge and strengthening validator.
 - **Reason**: This fixes the measured failure without weakening provenance, guessing IDs, dropping unsupported support, or duplicating reflection merge semantics.
 - **Verified**: Focused resolver and existing canonical validation tests pass; typecheck and static diagnostics are clean. The resolver is not wired into runtime yet.
+
+### [2026-08-28] Compaction reflector now uses a bounded pending-focus contract
+- **Context**: The old reflector sent every active observation and allowed very large output. A real call used 88,892 input and 23,448 output tokens, then lost all 13 proposals to one invalid provenance claim.
+- **Change**: `foldMemory()` now treats the branch's pending compaction observations as focus and committed observations as bounded history. It renders deterministic local evidence handles, caps proposals at four concise reflections, derives an exact output bound, allows one structural correction, resolves handles per candidate, and retains the existing canonical merge validator. An aborted reflection now cancels before VCC assembly.
+- **Reason**: This is the smallest schema-free compatibility step that directly fixes the measured request amplification and whole-proposal provenance loss while preserving one semantic merge authority.
+- **Verified**: 35 test files, typecheck, and build pass. Read-only measurement on the current 1,351-observation branch selected all 136 pending focus observations into an estimated 24,667-token request with a 1,536-token output bound. The previous production call used 88,892 input and 23,448 output tokens.
+- **Watch out**: Reflection still runs inside `/compact` in this stage and has no durable consideration frontier. Do not treat it as the final instant-compaction architecture or install it before controlled model-assisted validation.

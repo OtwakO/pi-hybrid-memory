@@ -13,6 +13,7 @@ import { estimateEntryTokens, estimateStringTokens } from "./om/tokens.js";
 import { runObserver } from "./om/observer.js";
 import { catchUpProgress } from "./om/compaction-catch-up.js";
 import { planObserverContextForSource } from "./om/observer-context-plan.js";
+import { DEFAULT_REFLECTION_HISTORY_BUDGETS } from "./om/reflection-context-plan.js";
 import { prepareObserverSourceRequest } from "./om/observer-request.js";
 import {
   OBSERVER_FIXED_TOKEN_RESERVE,
@@ -286,6 +287,12 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         }
       }
       const workingObservations = [...workingObservationMap.values()];
+      const focusObservationIds = new Set([
+        ...memoryState.pendingObs.map(observation => observation.id),
+        ...deltaObservationData.flatMap(data => data.records.map(record => record.id)),
+      ]);
+      const focusObservations = workingObservations.filter(observation =>
+        focusObservationIds.has(observation.id));
 
       // ── Step 3: Fold semantic memory and retire locally provable exact duplicates ──
       const observationTokens = workingObservations.reduce((sum, o) => sum + estimateStringTokens(o.content), 0);
@@ -306,14 +313,20 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         },
         reflections: workingReflections,
         observations: workingObservations,
+        focusObservations,
         canonicalObservationIds: new Set([
           ...memoryIndex.activeObservationIds(),
           ...(gapObservationData?.records.map(record => record.id) ?? []),
         ]),
         reflectionThresholdTokens: runtime.config.hybrid.reflectionThresholdTokens,
         targetSummaryTokens: runtime.config.hybrid.maxSummaryTokens,
+        contextBudgets: {
+          ...DEFAULT_REFLECTION_HISTORY_BUDGETS,
+          focusObservationTokens: runtime.config.hybrid.maxSummaryTokens,
+        },
         modelPort: reflectionModel,
       });
+      if (!fold.ok && fold.reason === "aborted") return { cancel: true };
       const finalReflections = fold.reflections;
       const finalObservations = fold.observations;
       if (!fold.ok && ctx.hasUI) {

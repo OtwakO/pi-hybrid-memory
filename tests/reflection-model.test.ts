@@ -70,7 +70,7 @@ describe("completion reflection model", () => {
       toolCall({
         reflections: [{
           content: "durable reflection",
-          supportingObservationIds: ["aaaaaaaaaaaa"],
+          supportingEvidenceHandles: ["aaaaaaaaaaaa"],
         }],
       }),
     ]));
@@ -83,7 +83,7 @@ describe("completion reflection model", () => {
       proposal: {
         reflections: [{
           content: "durable reflection",
-          supportingObservationIds: ["aaaaaaaaaaaa"],
+          supportingEvidenceHandles: ["aaaaaaaaaaaa"],
         }],
       },
     });
@@ -119,22 +119,26 @@ describe("completion reflection model", () => {
     expect(result).toEqual({ ok: true, proposal: { reflections: [] } });
   });
 
-  it("classifies a response without the required tool call", async () => {
-    complete.mockResolvedValue(response([{ type: "text", text: "prose only" }], "stop"));
+  it("uses one bounded correction after a missing tool call", async () => {
+    complete
+      .mockResolvedValueOnce(response([{ type: "text", text: "prose only" }], "stop"))
+      .mockResolvedValueOnce(response([toolCall({ reflections: [] })]));
 
     const result = await createCompletionReflectionModel({ complete })
       .propose(params, "system", "evidence", plan);
 
-    expect(result).toEqual({ ok: false, reason: "missing-tool-call" });
+    expect(result).toEqual({ ok: true, proposal: { reflections: [] } });
+    expect(complete).toHaveBeenCalledTimes(2);
   });
 
-  it("rejects malformed tool arguments", async () => {
+  it("fails after one bounded correction for malformed tool arguments", async () => {
     complete.mockResolvedValue(response([toolCall({ reflections: [{ content: "missing provenance" }] })]));
 
     const result = await createCompletionReflectionModel({ complete })
       .propose(params, "system", "evidence", plan);
 
     expect(result).toEqual({ ok: false, reason: "invalid-output" });
+    expect(complete).toHaveBeenCalledTimes(2);
   });
 
   it("rejects extra or multiple tool calls", async () => {

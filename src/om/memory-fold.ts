@@ -1,6 +1,8 @@
 import type { CacheTelemetry, MemoryLifecycleOutcome } from "../cache-telemetry.js";
 import type { MemoryReflection, ObservationRecord, ObservationRetirement, ReflectionSupersession } from "../types.js";
 import { REFLECTOR_PROMPT, REFLECTOR_SYSTEM } from "./prompts.js";
+import { planReflectionContext, type ReflectionContextBudgets } from "./reflection-context-plan.js";
+import { resolveReflectionHandles } from "./reflection-handle-resolution.js";
 import {
   planReflectionRequest,
   type ReflectionModelCapacity,
@@ -42,7 +44,9 @@ interface MemoryFoldInput {
   params: ReflectionModelParams & { telemetry?: CacheTelemetry };
   reflections: MemoryReflection[];
   observations: ObservationRecord[];
+  focusObservations: ObservationRecord[];
   canonicalObservationIds: ReadonlySet<string>;
+  contextBudgets: ReflectionContextBudgets;
   reflectionThresholdTokens: number;
   targetSummaryTokens: number;
   modelPort: ReflectionModelPort;
@@ -53,6 +57,7 @@ const recordFailure = (
   reason: MemoryFoldFailureReason,
   observations: readonly ObservationRecord[],
   proposedItems = 0,
+  rejectedItems = 0,
 ): void => {
   const lifecycleOutcome = reason as MemoryLifecycleOutcome;
   telemetry?.recordMemoryLifecycle("reflector", lifecycleOutcome, {
@@ -63,6 +68,7 @@ const recordFailure = (
     ),
     proposedItems,
     acceptedItems: 0,
+    rejectedItems,
   });
 };
 
@@ -111,18 +117,43 @@ export const foldMemory = async (input: MemoryFoldInput): Promise<MemoryFoldResu
     };
   }
 
+  const focusIds = new Set(input.focusObservations.map(observation => observation.id));
+  const focusObservations = observations.filter(observation => focusIds.has(observation.id));
+  if (focusObservations.length === 0) {
+    const retirement = planExactDuplicateRetirements(observations, input.canonicalObservationIds);
+    return {
+      ok: true,
+      outcome: "no-change",
+      reflections,
+      observations: retirement.activeObservations,
+      retirements: retirement.retirements,
+      supersessions: [],
+    };
+  }
+  const historicalObservations = observations.filter(observation => !focusIds.has(observation.id));
+  const contextPlan = planReflectionContext({
+    reflections,
+    focusObservations,
+    historicalObservations,
+    budgets: input.contextBudgets,
+  });
+  if (contextPlan.focusOverflow) {
+    recordFailure(input.params.telemetry, "infeasible-request", focusObservations);
+    return failedFold("infeasible-request", reflections, observations);
+  }
   const systemPrompt = REFLECTOR_SYSTEM;
-  const userPrompt = REFLECTOR_PROMPT(reflections, observations);
+  const userPrompt = REFLECTOR_PROMPT(contextPlan.text);
   const planResult = planReflectionRequest({
     model: input.params.model as ReflectionModelCapacity,
     systemPrompt,
     userPrompt,
-    existingReflections: reflections,
-    observations,
+    existingReflections: contextPlan.selectedReflections,
+    observations: contextPlan.evidence.map(item => item.observation),
     targetSummaryTokens: input.targetSummaryTokens,
   });
+  const evidenceObservations = contextPlan.evidence.map(item => item.observation);
   if (!planResult.ok) {
-    recordFailure(input.params.telemetry, planResult.reason, observations);
+    recordFailure(input.params.telemetry, planResult.reason, evidenceObservations);
     return failedFold(planResult.reason, reflections, observations);
   }
 
@@ -133,40 +164,58 @@ export const foldMemory = async (input: MemoryFoldInput): Promise<MemoryFoldResu
     planResult.plan,
   );
   if (!modelResult.ok) {
-    recordFailure(input.params.telemetry, modelResult.reason, observations);
+    recordFailure(input.params.telemetry, modelResult.reason, evidenceObservations);
     return failedFold(modelResult.reason, reflections, observations);
   }
 
+  const resolved = resolveReflectionHandles(
+    modelResult.proposal.reflections,
+    contextPlan.handleToObservationId,
+  );
+  if (resolved.proposedItems > 0 && resolved.candidates.length === 0) {
+    recordFailure(
+      input.params.telemetry,
+      "invalid-provenance",
+      evidenceObservations,
+      resolved.proposedItems,
+      resolved.rejectedItems,
+    );
+    return failedFold("invalid-provenance", reflections, observations);
+  }
   const validated = validateAndMergeReflections(
     reflections,
     observations,
-    modelResult.proposal.reflections,
+    resolved.candidates,
   );
   if (!validated.ok) {
     recordFailure(
       input.params.telemetry,
       validated.reason,
-      observations,
+      evidenceObservations,
       modelResult.proposal.reflections.length,
     );
     return failedFold(validated.reason, reflections, observations);
   }
 
-  const outcome = validated.proposedItems === 0
+  const outcome = resolved.proposedItems === 0
     ? "deliberate-empty"
     : validated.acceptedItems === 0
       ? "no-change"
       : "success";
   input.params.telemetry?.recordMemoryLifecycle("reflector", outcome, {
-    inputItems: observations.length,
-    inputTokens: observationTokens,
-    proposedItems: validated.proposedItems,
+    inputItems: evidenceObservations.length,
+    inputTokens: evidenceObservations.reduce(
+      (sum, observation) => sum + estimateStringTokens(observation.content),
+      0,
+    ),
+    proposedItems: resolved.proposedItems,
     acceptedItems: validated.acceptedItems,
+    rejectedItems: resolved.rejectedItems,
   });
   const retirement = planExactDuplicateRetirements(observations, input.canonicalObservationIds);
   return {
     ok: true,
-    outcome: validated.proposedItems === 0
+    outcome: resolved.proposedItems === 0
       ? "deliberate-empty"
       : validated.acceptedItems === 0
         ? "no-change"

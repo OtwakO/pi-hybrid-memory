@@ -153,7 +153,11 @@ Stage 1A result: a pure, runtime-disconnected planner now distinguishes a bounde
 
 Stage 1B result: request-local handles resolve candidate-by-candidate into canonical observation IDs. A malformed candidate is rejected completely without discarding unrelated valid candidates; accepted canonical candidates still pass through the existing atomic merge/strengthening validator, so there remains one final semantic merge authority.
 
-Remaining Stage 1 work: wire the planner and resolver into the small model contract, add one correction limit, and content-free stage/rejection telemetry.
+Stage 1C runtime result: the existing `foldMemory()` seam now reflects only the current pending compaction delta as focus, with bounded protected/recent history and request-local handles. The focus allowance reuses the existing `maxSummaryTokens` memory-quality budget; historical allowances remain fixed evaluation policy, not new configuration. The model contract permits at most four 1,024-character reflections, derives a smaller exact output bound (1,536 tokens on the measured branch), and gives structurally invalid output one correction opportunity. Valid handle candidates survive unrelated invalid candidates; an all-invalid proposal still reports `invalid-provenance` while compaction retains complete memory. User abort returns from compaction before discarded VCC assembly.
+
+Read-only measurement on the current 1,351-observation branch (1,215 committed, 136 pending) selected the complete pending focus plus bounded history into an estimated 24,667-token request with a 1,536-token output bound, versus the observed prior 88,892-input/23,448-output request. Stage 1 remains compaction-attached compatibility work; it does not claim durable historical backlog progress.
+
+Remaining Stage 1 work: content-free planning and stage-timing telemetry, then controlled model-assisted validation before any installed rollout.
 
 Completion gate:
 

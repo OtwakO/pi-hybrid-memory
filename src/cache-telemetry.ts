@@ -98,6 +98,7 @@ export interface MemoryLifecycleAggregate {
   inputTokens: number;
   proposedItems: number;
   acceptedItems: number;
+  rejectedItems: number;
 }
 
 export interface MemoryLifecycleCounts {
@@ -105,6 +106,7 @@ export interface MemoryLifecycleCounts {
   inputTokens?: number;
   proposedItems?: number;
   acceptedItems?: number;
+  rejectedItems?: number;
 }
 
 export interface CacheTelemetryAggregate {
@@ -178,6 +180,7 @@ const newMemoryLifecycleAggregate = (
   inputTokens: 0,
   proposedItems: 0,
   acceptedItems: 0,
+  rejectedItems: 0,
 });
 
 const newAggregate = (operation: CacheOperation): CacheTelemetryAggregate => ({
@@ -298,6 +301,7 @@ export class CacheTelemetry {
     aggregate.inputTokens += counts.inputTokens ?? 0;
     aggregate.proposedItems += counts.proposedItems ?? 0;
     aggregate.acceptedItems += counts.acceptedItems ?? 0;
+    aggregate.rejectedItems += counts.rejectedItems ?? 0;
   }
 
   reset(): void {
@@ -403,7 +407,7 @@ export const formatCacheInfo = (
         .join(", ");
       lines.push(
         `${aggregate.operation} lifecycle: ${outcomes}`,
-        `  input items ${formatTokens(aggregate.inputItems)}, input tokens ~${formatTokens(aggregate.inputTokens)}, proposed ${formatTokens(aggregate.proposedItems)}, accepted ${formatTokens(aggregate.acceptedItems)}`,
+        `  input items ${formatTokens(aggregate.inputItems)}, input tokens ~${formatTokens(aggregate.inputTokens)}, proposed ${formatTokens(aggregate.proposedItems)}, accepted ${formatTokens(aggregate.acceptedItems)}, rejected ${formatTokens(aggregate.rejectedItems)}`,
       );
     }
   }

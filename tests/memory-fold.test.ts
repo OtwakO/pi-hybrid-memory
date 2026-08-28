@@ -23,9 +23,16 @@ const input = (port: ReflectionModelPort) => ({
   params,
   reflections: [],
   observations: [observation],
+  focusObservations: [observation],
   canonicalObservationIds: new Set([observation.id]),
   reflectionThresholdTokens: 0,
   targetSummaryTokens: 16_000,
+  contextBudgets: {
+    reflectionTokens: 256,
+    focusObservationTokens: 1_000,
+    protectedObservationTokens: 1_000,
+    recentObservationTokens: 320,
+  },
   modelPort: port,
 });
 
@@ -98,7 +105,7 @@ describe("foldMemory", () => {
         ok: true,
         proposal: { reflections: [{
           content: " durable   reflection ",
-          supportingObservationIds: [secondObservation.id],
+          supportingEvidenceHandles: ["E002"],
         }] },
       })),
       reflections: [existing],
@@ -122,7 +129,7 @@ describe("foldMemory", () => {
       proposal: {
         reflections: [{
           content: "durable reflection",
-          supportingObservationIds: [observation.id],
+          supportingEvidenceHandles: ["E001"],
         }],
       },
     })));
@@ -150,7 +157,7 @@ describe("foldMemory", () => {
         ok: true,
         proposal: { reflections: [{
           content: "durable reflection",
-          supportingObservationIds: [observation.id],
+          supportingEvidenceHandles: ["E001"],
         }] },
       })),
       reflections: [existing],
@@ -163,24 +170,25 @@ describe("foldMemory", () => {
     });
   });
 
-  it("rejects unsupported provenance returned by the provider adapter", async () => {
+  it("accepts valid candidates while rejecting an unrelated unknown handle", async () => {
     const result = await foldMemory(input(modelPort({
       ok: true,
       proposal: {
-        reflections: [{
-          content: "unsupported reflection",
-          supportingObservationIds: ["bbbbbbbbbbbb"],
-        }],
+        reflections: [
+          { content: "supported reflection", supportingEvidenceHandles: ["E001"] },
+          { content: "unsupported reflection", supportingEvidenceHandles: ["E999"] },
+        ],
       },
     })));
 
-    expect(result).toEqual({
-      ok: false,
-      stage: "reflection",
-      reason: "invalid-provenance",
-      reflections: [],
+    expect(result).toMatchObject({
+      ok: true,
+      outcome: "reflected",
+      reflections: [{
+        content: "supported reflection",
+        supportingObservationIds: [observation.id],
+      }],
       observations: [observation],
-      retirements: [], supersessions: [],
     });
   });
 

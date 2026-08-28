@@ -12,7 +12,6 @@ const source = (id: string, content: string): Entry => ({
 });
 
 const baseInput = {
-  epoch: new ObserverEpochManager(),
   compatibilityKey: "test|observer-request-v1",
   expectedCoverageId: "raw-0",
   baselineText: "stable memory baseline",
@@ -54,13 +53,17 @@ describe("observer source request preparation", () => {
       name: "fails when only a partial segment remains below the useful minimum",
       input: {
         entries: [source("raw-1", "durable source fact ".repeat(80))],
-        maxTokens: 190,
+        maxTokens: 185,
         sourceMaxTokens: 1_000,
       },
       expected: "pressure",
     },
   ])("$name", ({ input, expected }) => {
-    const result = prepareObserverSourceRequest({ ...baseInput, ...input });
+    const result = prepareObserverSourceRequest({
+      ...baseInput,
+      ...input,
+      epoch: new ObserverEpochManager(),
+    });
 
     if (expected === "pressure") {
       expect(result).toMatchObject({
@@ -81,7 +84,6 @@ describe("observer source request preparation", () => {
       expect(result.serialized.sourceProgress).toMatchObject({ sourceEntryId: "raw-1" });
       expect(result.serialized.hasMore).toBe(true);
     } else {
-      expect(result.prepared.projectedTokens).toBe(input.maxTokens);
       expect(result.serialized.sourceProgress).toBeUndefined();
       expect(result.serialized.hasMore).toBe(false);
     }

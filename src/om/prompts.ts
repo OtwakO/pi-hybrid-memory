@@ -1,8 +1,4 @@
 // Stable system prompts for observation and reflection.
-import type { MemoryReflection, ObservationRecord } from "../types.js";
-
-export type Reflection = MemoryReflection;
-export type Observation = ObservationRecord;
 
 export const OBSERVER_SYSTEM = `You are an archival memory observer. You extract durable observations from a raw conversation log. These observations may be the assistant's only memory after raw messages are compacted, so preserve important meaning accurately without turning routine activity into durable memory.
 
@@ -33,25 +29,15 @@ Reflection rules:
 - Preserve authoritative user assertions over later questions or assistant speculation. Express genuine corrections and state changes as supersession rather than retaining conflicting facts as equally current.
 - Preserve exact terminology, paths, identifiers, errors, metrics, decisions, constraints, completions, and rationale when they are part of the durable meaning.
 - Do not lightly paraphrase one observation into a reflection. A reflection should combine evidence, preserve a genuinely durable single fact, or capture a conclusion whose utility outlives the immediate task.
-- Every supporting observation id must actually support meaning preserved with equivalent fidelity; inflated support can make later pruning unsafe.`;
+- Every supporting evidence handle must actually support meaning preserved with equivalent fidelity; inflated support can make later pruning unsafe.
+- Cite only request-local evidence handles exactly as rendered. Never invent, alter, or emit canonical memory ids.`;
 
-export const REFLECTOR_PROMPT = (
-  reflections: Reflection[],
-  observations: Observation[],
-): string => {
-  const refLines = reflections.map((r) => {
-    if (typeof r === "string") return `- [existing] ${r}`;
-    return `- [existing] [${r.id}] ${r.content}`;
-  });
-
-  const obsLines = observations.map((o) => `- [${o.id}] [${o.relevance}] ${o.content}`);
-
-  return [
+export const REFLECTOR_PROMPT = (boundedContextText: string): string => [
     "Synthesize the observations below into reflections.",
     "",
     "Rules:",
     "- Each reflection should capture one durable insight that applies beyond the immediate conversation.",
-    "- Each reflection must list the observation ids that support it.",
+    "- Each reflection must list the request-local evidence handles that support it.",
     "- Merge related observations into a single reflection when they support the same insight.",
     "- Do not repeat existing reflections.",
     "- If an observation contradicts or supersedes an existing reflection, preserve which state is current and what it replaced.",
@@ -59,8 +45,5 @@ export const REFLECTOR_PROMPT = (
     "- Call submit_reflections with an empty reflections array when nothing qualifies.",
     "- Do not emit the reflection contract as prose or JSON text.",
     "",
-    refLines.length > 0 ? `Existing reflections:\n${refLines.join("\n")}` : "",
-    "",
-    `Observations to synthesize:\n${obsLines.join("\n")}`,
+    boundedContextText,
   ].filter(Boolean).join("\n");
-};

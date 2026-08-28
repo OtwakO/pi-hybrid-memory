@@ -392,7 +392,7 @@ describe("compaction catch-up safety integration", () => {
 
     await fixture.getHandler()(fixture.event, fixture.ctx);
 
-    expect(fixture.complete).toHaveBeenCalledOnce();
+    expect(fixture.complete).toHaveBeenCalledTimes(2);
     const [, context, options] = fixture.complete.mock.calls[0];
     expect(context.tools[0].name).toBe("submit_reflections");
     expect(options).toMatchObject({
@@ -401,6 +401,30 @@ describe("compaction catch-up safety integration", () => {
     });
     expect(options).not.toHaveProperty("toolChoice");
     expect(options).not.toHaveProperty("reasoningEffort");
+  });
+
+  it("cancels immediately after an aborted reflection without assembling VCC", async () => {
+    const fixture = setup(branch());
+    fixture.runtime.config.hybrid.reflectionThresholdTokens = 0;
+    runObserverMock.mockImplementation(async (params: any) => ({
+      ok: true,
+      records: [],
+      transcriptSuffix: [...params.prompts, assistantMessage("examined")],
+    }));
+    foldMemoryMock.mockImplementationOnce(async (input: any) => ({
+      ok: false,
+      stage: "reflection",
+      reason: "aborted",
+      reflections: input.reflections,
+      observations: input.observations,
+      retirements: [],
+      supersessions: [],
+    }));
+
+    const result = await fixture.getHandler()(fixture.event, fixture.ctx);
+
+    expect(result).toEqual({ cancel: true });
+    expect(mergePipelinesMock).not.toHaveBeenCalled();
   });
 
   it("cancels if the active branch changes while memory folding is in progress", async () => {

@@ -23,16 +23,14 @@ describe("planReflectionRequest", () => {
     expect(result).toMatchObject({
       ok: true,
       plan: {
-        maxOutputTokens: 5_408,
+        maxOutputTokens: 896,
         maxReflections: 2,
-        maxReflectionContentChars: 2_048,
-        providerOutputReserveTokens: 4_000,
-        estimatedWorstCaseContractTokens: 1_408,
+        maxReflectionContentChars: 1_024,
       },
     });
   });
 
-  it("limits the total reflection set to half of the summary target", () => {
+  it("fails when existing reflections already consume the reflection summary allowance", () => {
     const result = planReflectionRequest({
       model: { contextWindow: 128_000, maxTokens: 32_000 },
       systemPrompt: "system",

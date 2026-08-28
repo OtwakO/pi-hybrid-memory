@@ -29,20 +29,14 @@ describe("memory prompt hardening", () => {
     expect(REFLECTOR_SYSTEM).toContain("inflated support");
   });
 
-  it("keeps dynamic memory data after stable prompt instructions", () => {
+  it("keeps bounded dynamic evidence after stable prompt instructions", () => {
     const reflector = REFLECTOR_PROMPT(
-      [{ id: "aaaaaaaaaaaa", content: "existing durable fact", supportingObservationIds: [], createdAt: 1 }],
-      [{
-        id: "bbbbbbbbbbbb",
-        timestamp: "2026-01-01 00:00",
-        content: "new evidence",
-        relevance: "high",
-        sourceEntryIds: ["1234abcd"],
-      }],
+      "CURRENT REFLECTIONS:\nexisting durable fact\n\nEVIDENCE:\n- [E001] [high] new evidence",
     );
-    expect(reflector.indexOf("Rules:")).toBeLessThan(reflector.indexOf("Existing reflections:"));
+    expect(reflector.indexOf("Rules:")).toBeLessThan(reflector.indexOf("CURRENT REFLECTIONS:"));
     expect(reflector).toContain("calling submit_reflections exactly once");
     expect(reflector).toContain("empty reflections array");
-    expect(reflector.indexOf("Existing reflections:")).toBeLessThan(reflector.indexOf("Observations to synthesize:"));
+    expect(reflector.indexOf("CURRENT REFLECTIONS:")).toBeLessThan(reflector.indexOf("EVIDENCE:"));
+    expect(reflector).toContain("E001");
   });
 });

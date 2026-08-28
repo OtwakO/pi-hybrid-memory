@@ -16,7 +16,7 @@ const DEFAULT_REFLECTION_TIMEOUT_MS = 5 * 60_000;
 const reflectionProposalSchema = (plan: ReflectionRequestPlan) => Type.Object({
   reflections: Type.Array(Type.Object({
     content: Type.String({ minLength: 1, maxLength: plan.maxReflectionContentChars }),
-    supportingObservationIds: Type.Array(Type.String({ minLength: 1 }), {
+    supportingEvidenceHandles: Type.Array(Type.String({ minLength: 1 }), {
       minItems: 1,
       uniqueItems: true,
     }),
@@ -79,12 +79,12 @@ const isReflectionProposal = (
   for (const reflection of object.reflections) {
     if (!reflection || typeof reflection !== "object" || Array.isArray(reflection)) return false;
     const item = reflection as Record<string, unknown>;
-    if (Object.keys(item).some(key => key !== "content" && key !== "supportingObservationIds")) return false;
+    if (Object.keys(item).some(key => key !== "content" && key !== "supportingEvidenceHandles")) return false;
     if (typeof item.content !== "string") return false;
     if (item.content.length < 1 || item.content.length > plan.maxReflectionContentChars) return false;
-    if (!Array.isArray(item.supportingObservationIds) || item.supportingObservationIds.length < 1) return false;
-    if (item.supportingObservationIds.some(id => typeof id !== "string" || id.length < 1)) return false;
-    if (new Set(item.supportingObservationIds).size !== item.supportingObservationIds.length) return false;
+    if (!Array.isArray(item.supportingEvidenceHandles) || item.supportingEvidenceHandles.length < 1) return false;
+    if (item.supportingEvidenceHandles.some(id => typeof id !== "string" || id.length < 1)) return false;
+    if (new Set(item.supportingEvidenceHandles).size !== item.supportingEvidenceHandles.length) return false;
   }
   return true;
 };
@@ -128,65 +128,82 @@ export const createCompletionReflectionModel = (
       ? AbortSignal.any([params.signal, timeoutSignal])
       : timeoutSignal;
     const schema = reflectionProposalSchema(plan);
-    const context: Context = {
-      systemPrompt,
-      messages: [{ role: "user", content: userPrompt, timestamp: Date.now() }],
-      tools: [{
-        name: "submit_reflections",
-        description:
-          "Submit the complete set of new durable reflections for this fold. " +
-          "Use an empty reflections array when no new reflection is justified.",
-        parameters: schema,
-        constrainedSampling: { type: "json_schema", strict: "prefer" },
-      }],
-    };
+    const messages: Context["messages"] = [{ role: "user", content: userPrompt, timestamp: Date.now() }];
 
-    let message: AssistantMessage;
-    try {
-      message = await raceWithAbort(options.complete(model, context, {
-        signal,
-        maxTokens: plan.maxOutputTokens,
-        maxRetries: 0,
-        maxRetryDelayMs: 0,
-        timeoutMs,
-        cacheRetention: params.cacheOptions?.cacheRetention,
-        sessionId: params.cacheOptions?.sessionId,
-      }), signal);
-    } catch {
-      const reason: ReflectionModelFailureReason = params.signal?.aborted
-        ? "aborted"
-        : timeoutSignal.aborted
-          ? "timeout"
-          : "error";
+    for (let turn = 0; turn < 2; turn++) {
+      let message: AssistantMessage;
+      try {
+        message = await raceWithAbort(options.complete(model, {
+          systemPrompt,
+          messages: structuredClone(messages),
+          tools: [{
+            name: "submit_reflections",
+            description:
+              "Submit the complete set of new durable reflections for this bounded evidence window. " +
+              "Use an empty reflections array when no new reflection is justified.",
+            parameters: schema,
+            constrainedSampling: { type: "json_schema", strict: "prefer" },
+          }],
+        }, {
+          signal,
+          maxTokens: plan.maxOutputTokens,
+          maxRetries: 0,
+          maxRetryDelayMs: 0,
+          timeoutMs,
+          cacheRetention: params.cacheOptions?.cacheRetention,
+          sessionId: params.cacheOptions?.sessionId,
+        }), signal);
+      } catch {
+        const reason: ReflectionModelFailureReason = params.signal?.aborted
+          ? "aborted"
+          : timeoutSignal.aborted
+            ? "timeout"
+            : "error";
+        params.telemetry?.record(
+          "reflector",
+          model,
+          reason === "aborted" ? "aborted" : "error",
+        );
+        return { ok: false, reason };
+      }
+
       params.telemetry?.record(
         "reflector",
         model,
-        reason === "aborted" ? "aborted" : "error",
+        completionOutcome(message),
+        message.usage,
       );
-      return { ok: false, reason };
+
+      if (message.stopReason === "length") return { ok: false, reason: "truncated-output" };
+      if (message.stopReason === "aborted") {
+        return { ok: false, reason: params.signal?.aborted ? "aborted" : "error" };
+      }
+      if (message.stopReason === "error") return { ok: false, reason: "error" };
+
+      const calls = toolCalls(message);
+      if (
+        calls.length === 1
+        && calls[0].name === "submit_reflections"
+        && isReflectionProposal(calls[0].arguments, plan)
+      ) {
+        return { ok: true, proposal: structuredClone(calls[0].arguments) };
+      }
+
+      if (turn === 1) {
+        return {
+          ok: false,
+          reason: calls.length === 0 ? "missing-tool-call" : "invalid-output",
+        };
+      }
+      messages[0] = {
+        role: "user",
+        content:
+          `${userPrompt}\n\nCorrection required: call submit_reflections exactly once with valid arguments. ` +
+          "Cite only the request-local evidence handles shown in the bounded evidence set.",
+        timestamp: Date.now(),
+      };
     }
 
-    params.telemetry?.record(
-      "reflector",
-      model,
-      completionOutcome(message),
-      message.usage,
-    );
-
-    if (message.stopReason === "length") return { ok: false, reason: "truncated-output" };
-    if (message.stopReason === "aborted") {
-      return { ok: false, reason: params.signal?.aborted ? "aborted" : "error" };
-    }
-    if (message.stopReason === "error") return { ok: false, reason: "error" };
-
-    const calls = toolCalls(message);
-    if (calls.length === 0) return { ok: false, reason: "missing-tool-call" };
-    if (calls.length !== 1 || calls[0].name !== "submit_reflections") {
-      return { ok: false, reason: "invalid-output" };
-    }
-    if (!isReflectionProposal(calls[0].arguments, plan)) {
-      return { ok: false, reason: "invalid-output" };
-    }
-    return { ok: true, proposal: structuredClone(calls[0].arguments) };
+    return { ok: false, reason: "invalid-output" };
   },
 });

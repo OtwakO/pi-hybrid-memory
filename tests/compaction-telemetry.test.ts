@@ -26,6 +26,14 @@ const fold = (
   params: { model, telemetry },
   reflections: [],
   observations: [observation],
+  focusObservations: [observation],
+  canonicalObservationIds: new Set([observation.id]),
+  contextBudgets: {
+    reflectionTokens: 256,
+    focusObservationTokens: 1_000,
+    protectedObservationTokens: 1_000,
+    recentObservationTokens: 320,
+  },
   reflectionThresholdTokens: 0,
   targetSummaryTokens: 16_000,
   modelPort,
@@ -40,7 +48,7 @@ describe("memory-fold lifecycle telemetry", () => {
         proposal: {
           reflections: [{
             content: "durable reflection",
-            supportingObservationIds: [observation.id],
+            supportingEvidenceHandles: ["E001"],
           }],
         },
       }),
@@ -53,6 +61,7 @@ describe("memory-fold lifecycle telemetry", () => {
       inputItems: 1,
       proposedItems: 1,
       acceptedItems: 1,
+      rejectedItems: 0,
     });
   });
 
@@ -68,6 +77,14 @@ describe("memory-fold lifecycle telemetry", () => {
         supportingObservationIds: [observation.id],
       }],
       observations: [observation],
+      focusObservations: [observation],
+      canonicalObservationIds: new Set([observation.id]),
+      contextBudgets: {
+        reflectionTokens: 256,
+        focusObservationTokens: 1_000,
+        protectedObservationTokens: 1_000,
+        recentObservationTokens: 320,
+      },
       reflectionThresholdTokens: 0,
       targetSummaryTokens: 16_000,
       modelPort: {
@@ -75,7 +92,7 @@ describe("memory-fold lifecycle telemetry", () => {
           ok: true,
           proposal: { reflections: [{
             content: "durable reflection",
-            supportingObservationIds: [observation.id],
+            supportingEvidenceHandles: ["E001"],
           }] },
         }),
       },
@@ -87,7 +104,7 @@ describe("memory-fold lifecycle telemetry", () => {
         proposal: {
           reflections: [{
             content: "unsupported",
-            supportingObservationIds: ["bbbbbbbbbbbb"],
+            supportingEvidenceHandles: ["E999"],
           }],
         },
       }),
@@ -104,6 +121,7 @@ describe("memory-fold lifecycle telemetry", () => {
       inputItems: 4,
       proposedItems: 2,
       acceptedItems: 0,
+      rejectedItems: 1,
     });
   });
 });
