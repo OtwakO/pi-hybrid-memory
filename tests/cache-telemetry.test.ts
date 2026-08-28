@@ -164,6 +164,19 @@ describe("CacheTelemetry", () => {
     expect(output).toContain("planning 210ms; completion settled in 3.3s");
   });
 
+  it("reports the latest content-free incremental reflection outcome", () => {
+    const telemetry = new CacheTelemetry();
+
+    telemetry.recordIncrementalReflectionOutcome({
+      outcome: "persisted",
+      foldOutcome: "deliberate-empty",
+    });
+
+    expect(formatCacheInfo(telemetry)).toContain(
+      "latest outcome: persisted (deliberate-empty)",
+    );
+  });
+
   it("records below-threshold reflection skips without an LLM call", () => {
     const telemetry = new CacheTelemetry();
 

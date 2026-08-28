@@ -90,6 +90,13 @@ export interface ObserverEpochAggregate {
   resetReasons: Record<string, number>;
 }
 
+export interface IncrementalReflectionOutcomeMetadata {
+  outcome: "no-work" | "blocked" | "deferred" | "failed" | "stale" | "persisted";
+  foldOutcome?: "empty-window" | "reflected" | "deliberate-empty" | "no-change";
+  reason?: string;
+  blockedObservationCount?: number;
+}
+
 export interface ReflectionPlanMetadata {
   planningMs: number;
   estimatedInputTokens: number;
@@ -212,6 +219,7 @@ export class CacheTelemetry {
   private readonly recent: CacheTelemetryCall[] = [];
   private observerEpochTotals = newObserverEpochAggregate();
   private latestReflectionPlan?: ReflectionPlanMetadata;
+  private latestIncrementalReflectionOutcome?: IncrementalReflectionOutcomeMetadata;
   private reflectionCompletionStartedAt?: number;
   private readonly memoryLifecycleTotals = new Map<MemoryLifecycleOperation, MemoryLifecycleAggregate>([
     ["reflector", newMemoryLifecycleAggregate("reflector")],
@@ -334,6 +342,16 @@ export class CacheTelemetry {
     return this.latestReflectionPlan ? { ...this.latestReflectionPlan } : undefined;
   }
 
+  recordIncrementalReflectionOutcome(outcome: IncrementalReflectionOutcomeMetadata): void {
+    this.latestIncrementalReflectionOutcome = structuredClone(outcome);
+  }
+
+  incrementalReflectionOutcome(): IncrementalReflectionOutcomeMetadata | undefined {
+    return this.latestIncrementalReflectionOutcome
+      ? structuredClone(this.latestIncrementalReflectionOutcome)
+      : undefined;
+  }
+
   recordMemoryLifecycle(
     operation: MemoryLifecycleOperation,
     outcome: MemoryLifecycleOutcome,
@@ -355,6 +373,7 @@ export class CacheTelemetry {
     this.totals.set("reflector", newAggregate("reflector"));
     this.observerEpochTotals = newObserverEpochAggregate();
     this.latestReflectionPlan = undefined;
+    this.latestIncrementalReflectionOutcome = undefined;
     this.reflectionCompletionStartedAt = undefined;
     this.memoryLifecycleTotals.set("reflector", newMemoryLifecycleAggregate("reflector"));
   }
@@ -418,11 +437,13 @@ export const formatCacheInfo = (
     .filter(aggregate => aggregate.attempts > 0);
   const observerEpochAggregate = telemetry.observerEpochAggregate();
   const reflectionPlan = telemetry.reflectionPlan();
+  const incrementalOutcome = telemetry.incrementalReflectionOutcome();
   if (
     calls.length === 0
     && lifecycleAggregates.length === 0
     && observerEpochAggregate.baselinePressureEvents === 0
     && !reflectionPlan
+    && !incrementalOutcome
   ) {
     lines.push("", "No observer or reflector activity recorded in this session.");
     return lines.join("\n");
@@ -449,6 +470,19 @@ export const formatCacheInfo = (
         `  selected observations: stable ${formatTokens(context.stableObservationCount)}, source-related ${formatTokens(context.sourceRelatedObservationCount)}; omitted ${formatTokens(context.omittedObservationCount)}${context.protectedOverflow ? "; protected overflow" : ""}`,
       );
     }
+  }
+
+  if (incrementalOutcome) {
+    const detail = incrementalOutcome.outcome === "persisted"
+      ? incrementalOutcome.foldOutcome
+      : incrementalOutcome.outcome === "blocked"
+        ? `${incrementalOutcome.blockedObservationCount ?? 0} active observation(s)`
+        : incrementalOutcome.reason ?? "none";
+    lines.push(
+      "",
+      "── Incremental reflection ──",
+      `latest outcome: ${incrementalOutcome.outcome}${detail ? ` (${detail})` : ""}`,
+    );
   }
 
   if (reflectionPlan) {

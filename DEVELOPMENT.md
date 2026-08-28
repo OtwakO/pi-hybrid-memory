@@ -439,3 +439,9 @@
 - **Change**: Successful proactive observation appends now start one reflection-specific task. The task coordinator runs one active window and retains at most one latest rerun when more durable observation progress arrives during inference; lifecycle navigation cancels active and queued work.
 - **Reason**: A simple skip-on-active policy would lose the newer trigger after the first result became stale under exact-leaf fencing. One coalesced rerun preserves progress without an unbounded queue, loop, or compaction coupling.
 - **Verified**: 41 test files / 307 tests, TypeScript, 50-module build, and static diagnostics pass. No installed extension, real session, or provider call changed.
+
+### [2026-08-28] Incremental reflection status has one authoritative source
+- **Context**: The new runtime path needed backlog and failure visibility without creating a second cursor calculation or logging evidence into generic cache telemetry.
+- **Change**: `/hm-status` derives compatible frontier, observation-entry backlog, next window, blocked state, and active task state from the canonical projector and pure planner. `/hm-cache-info` stores one content-free normalized outcome only.
+- **Reason**: Branch-local IDs are useful in authoritative status but unnecessary and coupling-prone in cache telemetry, so the telemetry seam owns its own minimal metadata shape.
+- **Verified**: Focused status/cache/trigger tests and TypeScript pass; the preceding full gate passed 42 files / 310 tests and a 51-module build before the metadata-only narrowing.

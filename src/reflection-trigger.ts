@@ -69,6 +69,14 @@ export const startIncrementalReflection = (
           }),
         },
       });
+      runtime.cacheTelemetry.recordIncrementalReflectionOutcome({
+        outcome: result.outcome,
+        ...(result.outcome === "persisted" ? { foldOutcome: result.foldOutcome } : {}),
+        ...(result.outcome === "blocked"
+          ? { blockedObservationCount: result.observationCount }
+          : {}),
+        ...("reason" in result ? { reason: result.reason } : {}),
+      });
       if (result.outcome === "blocked" && ctx.hasUI) {
         ctx.ui.notify(
           `Hybrid memory: incremental reflection is blocked by observation entry ${result.observationEntryId} (${result.observationCount} active observation(s)) that exceeds the bounded focus budget. Evidence remains active and recallable.`,

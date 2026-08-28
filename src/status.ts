@@ -7,6 +7,8 @@ import {
 import { buildBranchMemoryIndex } from "./om/branch-memory-index.js";
 import { countByRelevance, formatRelevanceHistogram } from "./om/relevance.js";
 import { buildMemoryMetrics, describeReflectionGate } from "./memory-metrics.js";
+import { buildIncrementalReflectionStatus } from "./om/incremental-reflection-status.js";
+import { incrementalReflectionCompatibilityVersion } from "./reflection-trigger.js";
 import type { Runtime } from "./runtime.js";
 
 export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void {
@@ -29,6 +31,18 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
       const contextUsage = ctx.getContextUsage();
       const refThreshold = runtime.config.hybrid.reflectionThresholdTokens;
       const reflectionGate = describeReflectionGate(memoryMetrics, refThreshold);
+      const resolvedReflectionModel = runtime.resolveModel(ctx);
+      const incrementalStatus = resolvedReflectionModel.ok
+        ? buildIncrementalReflectionStatus({
+            entries,
+            index: memoryIndex,
+            compatibilityVersion: incrementalReflectionCompatibilityVersion(resolvedReflectionModel.model),
+            focusObservationTokens: runtime.config.hybrid.maxSummaryTokens,
+          })
+        : undefined;
+      const incrementalCompatibilityUnavailable = resolvedReflectionModel.ok
+        ? undefined
+        : resolvedReflectionModel.reason;
 
       const obsPct = Math.min(100, Math.round((sinceBound / obsThreshold) * 100));
       const compPct = contextUsage?.tokens === null || contextUsage?.tokens === undefined
@@ -62,6 +76,19 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
         `Next compaction:  ${nextCompaction}`,
         `Next reflection:  ~${memoryMetrics.observationPoolTokens.toLocaleString()} / ${refThreshold.toLocaleString()} tokens (${refPct}%)`,
         "",
+        "── Incremental reflection ──",
+        ...(incrementalStatus
+          ? [
+              `Frontier: ${incrementalStatus.compatibleFrontierEntryId ?? "none for current policy"}`,
+              `Journal: ${incrementalStatus.consideredObservationEntries.toLocaleString()} / ${incrementalStatus.totalObservationEntries.toLocaleString()} observation entries considered; ${incrementalStatus.remainingObservationEntries.toLocaleString()} remaining`,
+              incrementalStatus.nextWindow.kind === "work"
+                ? `Next window: ${incrementalStatus.nextWindow.observationEntryCount} entry(s), ${incrementalStatus.nextWindow.focusObservationCount} active observation(s), through ${incrementalStatus.nextWindow.targetObservationEntryId}`
+                : incrementalStatus.nextWindow.kind === "blocked"
+                  ? `Next window: blocked at ${incrementalStatus.nextWindow.observationEntryId} (${incrementalStatus.nextWindow.observationCount} active observation(s))`
+                  : "Next window: none",
+            ]
+          : [`Compatibility unavailable: ${incrementalCompatibilityUnavailable}`]),
+        "",
         "── VCC Settings ──",
         `Transcript lines: ${runtime.config.hybrid.transcriptLines}`,
         `Max files: ${runtime.config.hybrid.maxFiles}`,
@@ -82,10 +109,11 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
         lines.push(`Compaction model: ${runtime.config.hybrid.compactionModel.provider}/${runtime.config.hybrid.compactionModel.id}`);
       }
 
-      if (runtime.observerTask.active || runtime.compactHookInFlight || runtime.autoCompactionInFlight) {
+      if (runtime.observerTask.active || runtime.reflectionTask.active || runtime.compactHookInFlight || runtime.autoCompactionInFlight) {
         lines.push("");
         lines.push("── In flight ──");
         if (runtime.observerTask.active) lines.push("Observer: running");
+        if (runtime.reflectionTask.active) lines.push("Incremental reflection: running");
         if (runtime.compactHookInFlight) lines.push("Compaction: running");
         if (runtime.autoCompactionInFlight) lines.push("Automatic compaction: requested");
       }

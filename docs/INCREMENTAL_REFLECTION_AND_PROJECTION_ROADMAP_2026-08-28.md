@@ -190,7 +190,9 @@ Stage 4A processor result: `processNextReflectionWindow()` composes canonical re
 
 Stage 4B trigger result: successful proactive observer appends start one session-local incremental reflection task; empty observer results that make no durable progress do not. Reflection is never started by compaction and `/compact` never awaits the task. The reflection-specific coordinator permits one active run plus one latest coalesced rerun when additional durable observer progress arrives during inference, preventing a stale first result from stranding the newest window without creating an unbounded queue or catch-up loop. Session switch/fork/tree navigation/shutdown aborts the active task and clears the queued rerun. The processor's exact-leaf/lifecycle fence remains the persistence authority.
 
-Next Stage 4 step: expose reflection active state, compatible frontier, canonical observation-entry backlog, blocked-window state, and latest normalized processor outcome through existing status/cache telemetry seams. Then run deterministic host validation and one model-assisted incremental append/restart/recall gate before removing reflection from compaction.
+Stage 4C status result: `/hm-status` derives active task state, compatible frontier, canonical observation-entry totals/backlog, and next work/blocked state from the sole branch projector plus the pure window planner. `/hm-cache-info` retains only one session-local content-free normalized processor outcome (outcome, optional fold outcome/reason, blocked observation count); it imports no processor type and stores no entry IDs, observation IDs, prompts, or reflection content.
+
+Next Stage 4 step: run deterministic host validation and one model-assisted incremental append/restart/recall gate against the complete V6 trigger path. Do not install or remove compaction reflection until those gates pass and the real long-session projection is measured read-only.
 
 ### Stage 4 — Run reflection incrementally
 
