@@ -457,3 +457,10 @@
 - **Change**: Replayed the 65 MB and 8 MB NovelReader sessions with repository code only; no provider, append, configuration, or installed-extension change.
 - **Verified**: The long branch has 718 remaining observation entries and a first 249-entry/241-observation/~14,748-token window (replay ~767 ms, plan ~1.60 s); the newer branch has a 32-entry/160-observation/~15,094-token first window. Both are unblocked with no replay issues.
 - **Watch out**: The long branch still has zero reflections, ~103,855 active observation tokens, and a ~53,711-token latest summary, so Stage 5 latency work does not remove the need for a hard-bounded main projection.
+
+### [2026-08-28] Covered compaction is now local-only
+- **Context**: Incremental reflection was durable and validated, so compaction-attached semantic folding was duplicate latency and could still require a model when no observation gap existed.
+- **Change**: Removed `foldMemory()` and reflector model construction from the compaction hook. Covered compaction carries current reflections unchanged and runs deterministic exact-duplicate retirement locally; model resolution now occurs only inside observer gap catch-up.
+- **Reason**: This completes the steady-state latency contract without sacrificing the proven deterministic lifecycle feature or introducing another retirement authority.
+- **Verified**: 42 test files / 309 tests, TypeScript, 51-module build, deterministic real Pi gate with zero expected model calls, and model-assisted proactive-reflection/covered-compaction/restart/recall pass for bundle `7c95932439af8bd4de72b1a61da6497222c5cdc2d4e7f5f6f26aa50e1db05a1f`.
+- **Watch out**: The main projection is still not hard-bounded; the real long-session summary remains ~53,711 tokens under a 16,000-token setting. Installed extension remains unchanged.

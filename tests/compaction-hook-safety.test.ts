@@ -2,18 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { assistantMessage } from "./fixtures/messages.js";
 
 const runObserverMock = vi.hoisted(() => vi.fn());
-const foldMemoryMock = vi.hoisted(() => vi.fn());
 const mergePipelinesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/om/observer.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/om/observer.js")>();
   return { ...actual, runObserver: runObserverMock };
-});
-
-vi.mock("../src/om/memory-fold.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/om/memory-fold.js")>();
-  foldMemoryMock.mockImplementation(actual.foldMemory);
-  return { ...actual, foldMemory: foldMemoryMock };
 });
 
 vi.mock("../src/merge/pipeline.js", async (importOriginal) => {
@@ -151,7 +144,6 @@ const setup = (entries: Entry[]) => {
 describe("compaction catch-up safety integration", () => {
   beforeEach(() => {
     runObserverMock.mockReset();
-    foldMemoryMock.mockClear();
     mergePipelinesMock.mockClear();
   });
 
@@ -186,7 +178,6 @@ describe("compaction catch-up safety integration", () => {
     const result = await fixture.getHandler()(fixture.event, fixture.ctx);
 
     expect(result).toEqual({ cancel: true });
-    expect(foldMemoryMock).not.toHaveBeenCalled();
   });
 
   it("cancels if unrelated branch navigation occurs while awaiting an in-flight observer", async () => {
@@ -199,7 +190,6 @@ describe("compaction catch-up safety integration", () => {
     const result = await fixture.getHandler()(fixture.event, fixture.ctx);
 
     expect(result).toEqual({ cancel: true });
-    expect(foldMemoryMock).not.toHaveBeenCalled();
   });
 
   it("cancels without persisting if the active branch changes during catch-up", async () => {
@@ -236,18 +226,10 @@ describe("compaction catch-up safety integration", () => {
     ];
     const fixture = setup(entries);
     fixture.event.preparation.firstKeptEntryId = "new-kept";
-    foldMemoryMock.mockImplementationOnce(async (input: any) => ({
-      ok: true,
-      outcome: "below-threshold",
-      reflections: input.reflections,
-      observations: input.observations,
-      retirements: [],
-      supersessions: [],
-    }));
 
     await fixture.getHandler()(fixture.event, fixture.ctx);
 
-    expect(foldMemoryMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mergePipelinesMock).toHaveBeenCalledWith(expect.objectContaining({
       observations: expect.arrayContaining([expect.objectContaining({ id: beforeNative.id })]),
     }));
   });
@@ -303,7 +285,6 @@ describe("compaction catch-up safety integration", () => {
         sourceProgress: expect.objectContaining({ sourceEntryId: "raw-1" }),
       }),
     );
-    expect(foldMemoryMock).not.toHaveBeenCalled();
     expect(mergePipelinesMock).not.toHaveBeenCalled();
   });
 
@@ -360,93 +341,44 @@ describe("compaction catch-up safety integration", () => {
     expect(fixture.appendEntry).toHaveBeenCalledOnce();
   });
 
-  it("supplies memory folding with a current ModelRegistry completion adapter", async () => {
-    const fixture = setup(branch());
-    fixture.runtime.config.hybrid.reflectionThresholdTokens = 0;
-    runObserverMock.mockImplementation(async (params: any) => ({
-      ok: true,
-      records: [],
-      transcriptSuffix: [...params.prompts, assistantMessage("examined")],
-    }));
-    foldMemoryMock.mockImplementationOnce(async (input: any) => {
-      await input.modelPort.propose(input.params, "system", "evidence", {
-        maxOutputTokens: 4_096,
-        maxReflections: 4,
-        maxReflectionContentChars: 2_048,
-        estimatedInputTokens: 100,
-        providerOutputReserveTokens: 1_000,
-        estimatedWorstCaseContractTokens: 1_000,
-        estimatedWorstCaseOutputTokens: 2_000,
-      });
-      return {
-        ok: false,
-        stage: "reflection",
-        reason: "missing-tool-call",
-        reflections: input.reflections,
-        observations: input.observations,
-        retirements: [],
-        supersessions: [],
-      };
-    });
-    fixture.complete.mockResolvedValue(assistantMessage("no tool call"));
-
-    await fixture.getHandler()(fixture.event, fixture.ctx);
-
-    expect(fixture.complete).toHaveBeenCalledTimes(2);
-    const [, context, options] = fixture.complete.mock.calls[0];
-    expect(context.tools[0].name).toBe("submit_reflections");
-    expect(options).toMatchObject({
-      maxRetries: 0,
-      timeoutMs: 300_000,
-    });
-    expect(options).not.toHaveProperty("toolChoice");
-    expect(options).not.toHaveProperty("reasoningEffort");
-  });
-
-  it("cancels immediately after an aborted reflection without assembling VCC", async () => {
-    const fixture = setup(branch());
-    fixture.runtime.config.hybrid.reflectionThresholdTokens = 0;
-    runObserverMock.mockImplementation(async (params: any) => ({
-      ok: true,
-      records: [],
-      transcriptSuffix: [...params.prompts, assistantMessage("examined")],
-    }));
-    foldMemoryMock.mockImplementationOnce(async (input: any) => ({
-      ok: false,
-      stage: "reflection",
-      reason: "aborted",
-      reflections: input.reflections,
-      observations: input.observations,
-      retirements: [],
-      supersessions: [],
-    }));
-
-    const result = await fixture.getHandler()(fixture.event, fixture.ctx);
-
-    expect(result).toEqual({ cancel: true });
-    expect(mergePipelinesMock).not.toHaveBeenCalled();
-  });
-
-  it("cancels if the active branch changes while memory folding is in progress", async () => {
+  it("compacts covered memory locally without an active model", async () => {
     const entries = branch();
+    entries.splice(3, 1);
     const fixture = setup(entries);
-    fixture.runtime.config.hybrid.reflectionThresholdTokens = 0;
-    foldMemoryMock.mockImplementationOnce(async (input: any) => {
-      fixture.setLeafId("other-branch-leaf");
-      return {
-        ok: true,
-        outcome: "reflected",
-        reflections: input.reflections,
-        observations: input.observations,
-        retirements: [],
-        supersessions: [],
-      };
-    });
+    fixture.ctx.model = undefined;
 
     const result = await fixture.getHandler()(fixture.event, fixture.ctx);
 
-    expect(result).toEqual({ cancel: true });
-    expect(mergePipelinesMock).not.toHaveBeenCalled();
+    expect(result).toHaveProperty("compaction");
+    expect(fixture.complete).not.toHaveBeenCalled();
+  });
+
+  it("performs zero reflector completions while preserving exact-duplicate retirement", async () => {
+    const entries = branch();
+    const duplicate = observation("bbbbbbbbbbbb", "prior committed fact");
+    entries.splice(3, 0, observationEntry("obs-duplicate", "raw-0", "raw-0", [duplicate]));
+    const fixture = setup(entries);
+    runObserverMock.mockImplementation(async (params: any) => ({
+      ok: true,
+      records: [],
+      transcriptSuffix: [...params.prompts, assistantMessage("examined")],
+    }));
+
+    const result = await fixture.getHandler()(fixture.event, fixture.ctx);
+
+    expect(result).toHaveProperty("compaction");
+    expect(fixture.complete).not.toHaveBeenCalled();
+    expect((result as any).compaction.details).toMatchObject({
+      type: "observational-memory",
+      version: 6,
+      reflectionsAdded: [],
+      reflectionsSuperseded: [],
+      observationsRetired: [{
+        observationId: duplicate.id,
+        reason: "exact-duplicate",
+        preservedByObservationIds: ["aaaaaaaaaaaa"],
+      }],
+    });
   });
 
   it("keeps the live epoch invalidated if final assembly fails after catch-up persistence", async () => {

@@ -13,7 +13,6 @@ import { estimateEntryTokens, estimateStringTokens } from "./om/tokens.js";
 import { runObserver } from "./om/observer.js";
 import { catchUpProgress } from "./om/compaction-catch-up.js";
 import { planObserverContextForSource } from "./om/observer-context-plan.js";
-import { DEFAULT_REFLECTION_HISTORY_BUDGETS } from "./om/reflection-context-plan.js";
 import { prepareObserverSourceRequest } from "./om/observer-request.js";
 import {
   OBSERVER_FIXED_TOKEN_RESERVE,
@@ -21,9 +20,8 @@ import {
   observerCompatibilityKey,
   observerEpochTokenLimit,
 } from "./om/observer-context.js";
-import { foldMemory } from "./om/memory-fold.js";
 import { createMemoryLifecycleEvent } from "./om/memory-lifecycle.js";
-import { createCompletionReflectionModel } from "./om/reflection-model.js";
+import { planExactDuplicateRetirements } from "./om/observation-retirement.js";
 import { normalize } from "./vcc/normalizer.js";
 import { extractGoals, extractFiles, extractCommits, extractPreferences, extractOutstandingContext, formatCommits } from "./vcc/extractor.js";
 import { buildBriefSections, stringifyBrief, capBrief } from "./vcc/transcript.js";
@@ -57,15 +55,6 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       const { firstKeptEntryId } = preparation;
       const tokensBefore = preparation.tokensBefore;
 
-      const resolved = runtime.resolveModel(ctx);
-      if (!resolved.ok) {
-        if (ctx.hasUI) ctx.ui.notify(
-          `Hybrid memory: cannot compact — ${resolved.reason}. Fix the model/API key and try /compact manually.`,
-          "error",
-        );
-        return { cancel: true };
-      }
-      runtime.resolveFailureNotified = false;
 
       let entries = branchEntries as Entry[];
       let compactionFence = captureSessionBranchFence(ctx.sessionManager);
@@ -104,6 +93,16 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       const isBootstrap = memoryState.reflections.length === 0 && memoryState.committedObs.length === 0;
 
       if (gap.length > 0 && !isBootstrap) {
+        const resolved = runtime.resolveModel(ctx);
+        if (!resolved.ok) {
+          if (ctx.hasUI) ctx.ui.notify(
+            `Hybrid memory: cannot cover the observation gap — ${resolved.reason}. Fix the model/API key and try /compact manually.`,
+            "error",
+          );
+          return { cancel: true };
+        }
+        runtime.resolveFailureNotified = false;
+
         // Normal mode: one compaction attempt may advance at most one durable
         // observer segment. Remaining backlog is resumed by later proactive work
         // or a later explicit compaction instead of an unbounded provider loop.
@@ -287,54 +286,16 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         }
       }
       const workingObservations = [...workingObservationMap.values()];
-      const focusObservationIds = new Set([
-        ...memoryState.pendingObs.map(observation => observation.id),
-        ...deltaObservationData.flatMap(data => data.records.map(record => record.id)),
-      ]);
-      const focusObservations = workingObservations.filter(observation =>
-        focusObservationIds.has(observation.id));
-
-      // ── Step 3: Fold semantic memory and retire locally provable exact duplicates ──
-      const observationTokens = workingObservations.reduce((sum, o) => sum + estimateStringTokens(o.content), 0);
-      if (observationTokens >= runtime.config.hybrid.reflectionThresholdTokens && ctx.hasUI) {
-        ctx.ui.notify("Hybrid memory: running reflector before deterministic duplicate retirement...", "info");
-      }
-      const reflectionModel = createCompletionReflectionModel({
-        complete: (model, context, options) => ctx.modelRegistry.complete(model, context, options),
-      });
-      const fold = await foldMemory({
-        params: {
-          model: resolved.model,
-          signal,
-          telemetry: runtime.cacheTelemetry,
-          cacheOptions: runtime.piSessionId
-            ? operationCacheOptions(runtime.piSessionId, "reflector")
-            : undefined,
-        },
-        reflections: workingReflections,
-        observations: workingObservations,
-        focusObservations,
-        canonicalObservationIds: new Set([
+      // ── Step 3: Retire only locally provable exact duplicates ──
+      const retirement = planExactDuplicateRetirements(
+        workingObservations,
+        new Set([
           ...memoryIndex.activeObservationIds(),
           ...(gapObservationData?.records.map(record => record.id) ?? []),
         ]),
-        reflectionThresholdTokens: runtime.config.hybrid.reflectionThresholdTokens,
-        targetSummaryTokens: runtime.config.hybrid.maxSummaryTokens,
-        contextBudgets: {
-          ...DEFAULT_REFLECTION_HISTORY_BUDGETS,
-          focusObservationTokens: runtime.config.hybrid.maxSummaryTokens,
-        },
-        modelPort: reflectionModel,
-      });
-      if (!fold.ok && fold.reason === "aborted") return { cancel: true };
-      const finalReflections = fold.reflections;
-      const finalObservations = fold.observations;
-      if (!fold.ok && ctx.hasUI) {
-        ctx.ui.notify(
-          `Hybrid memory: reflection failed (${fold.reason}); retained the complete pre-fold memory set`,
-          "warning",
-        );
-      }
+      );
+      const finalReflections = workingReflections;
+      const finalObservations = retirement.activeObservations;
 
       // ── Step 4: Build VCC summary ──
       if (ctx.hasUI) ctx.ui.notify("Hybrid memory: building structural VCC summary...", "info");
@@ -382,7 +343,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       });
 
       if (ctx.hasUI) ctx.ui.notify(
-        `Hybrid memory: compaction assembled — ${finalObservations.length} active observations${fold.retirements.length > 0 ? `, ${fold.retirements.length} exact duplicate(s) retired` : ""}, ${finalReflections.length} reflections, ~${merged.tokenCount.toLocaleString()} token summary${merged.protectedOverflow ? " (protected memory exceeds configured ceiling)" : merged.trimmed ? " (trimmed to fit budget)" : ""}`,
+        `Hybrid memory: compaction assembled — ${finalObservations.length} active observations${retirement.retirements.length > 0 ? `, ${retirement.retirements.length} exact duplicate(s) retired` : ""}, ${finalReflections.length} reflections, ~${merged.tokenCount.toLocaleString()} token summary${merged.protectedOverflow ? " (protected memory exceeds configured ceiling)" : merged.trimmed ? " (trimmed to fit budget)" : ""}`,
         merged.protectedOverflow ? "warning" : "info",
       );
 
@@ -400,8 +361,8 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
         observations: workingObservations,
         previousReflections: workingReflections,
         currentReflections: finalReflections,
-        retirements: fold.retirements,
-        supersessions: fold.supersessions,
+        retirements: retirement.retirements,
+        supersessions: [],
       });
 
       runtime.observerEpoch.invalidate("compaction");

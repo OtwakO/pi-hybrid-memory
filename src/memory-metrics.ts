@@ -67,7 +67,7 @@ export const describeReflectionGate = (
   if (metrics.observationPoolTokens < thresholdTokens) {
     return { eligible: false, label: `not yet eligible (${progress})` };
   }
-  return { eligible: true, label: `eligible at next compaction (${progress})` };
+  return { eligible: true, label: `eligible for incremental reflection (${progress})` };
 };
 
 export const buildMemoryPickerOptions = (input: MemoryPickerInput): MemoryPickerOption[] => {

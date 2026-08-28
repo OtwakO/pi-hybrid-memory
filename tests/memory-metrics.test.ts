@@ -77,7 +77,7 @@ describe("memory display metrics", () => {
     const status = describeReflectionGate(metrics, 10);
 
     expect(status.eligible).toBe(true);
-    expect(status.label).toContain("eligible at next compaction");
+    expect(status.label).toContain("eligible for incremental reflection");
     expect(status.label).not.toContain("not yet eligible");
   });
 
