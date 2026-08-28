@@ -391,3 +391,9 @@
 - **Reason**: This is the smallest schema-free compatibility step that directly fixes the measured request amplification and whole-proposal provenance loss while preserving one semantic merge authority.
 - **Verified**: 35 test files, typecheck, and build pass. Read-only measurement on the current 1,351-observation branch selected all 136 pending focus observations into an estimated 24,667-token request with a 1,536-token output bound. The previous production call used 88,892 input and 23,448 output tokens.
 - **Watch out**: Reflection still runs inside `/compact` in this stage and has no durable consideration frontier. Do not treat it as the final instant-compaction architecture or install it before controlled model-assisted validation.
+
+### [2026-08-28] Reflection timing is observable without prompt logging
+- **Context**: Existing telemetry recorded reflector usage only after completion settled, so a slow `/compact` could not distinguish local planning from an in-flight model completion.
+- **Change**: `/hm-cache-info` now retains one session-local, content-free bounded reflection plan: input estimate, output limit, selected/omitted focus and historical counts, overflow flags, planning duration, and completion running/settled elapsed time.
+- **Reason**: This is enough to diagnose the measured stall boundary without adding persistent analytics, a new command, prompt logging, or a general metrics framework.
+- **Verified**: Focused telemetry/fold tests, typecheck, and static diagnostics pass.

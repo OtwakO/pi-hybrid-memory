@@ -141,6 +141,29 @@ describe("CacheTelemetry", () => {
     });
   });
 
+  it("reports content-free bounded reflection planning and completion timing", () => {
+    const telemetry = new CacheTelemetry();
+
+    telemetry.recordReflectionPlan({
+      planningMs: 210,
+      estimatedInputTokens: 24_667,
+      maxOutputTokens: 1_536,
+      focusObservationCount: 136,
+      historicalObservationCount: 146,
+      omittedFocusObservationCount: 0,
+      omittedHistoricalObservationCount: 1_069,
+      focusOverflow: false,
+      protectedOverflow: true,
+    });
+    telemetry.markReflectionCompletionStarted(1_000);
+    telemetry.markReflectionCompletionSettled(4_250);
+
+    const output = formatCacheInfo(telemetry);
+    expect(output).toContain("latest bounded reflection: ~24,667 input / 1,536 max output tokens");
+    expect(output).toContain("evidence: focus 136, historical 146; omitted focus 0, historical 1,069; protected overflow");
+    expect(output).toContain("planning 210ms; completion settled in 3.3s");
+  });
+
   it("records below-threshold reflection skips without an LLM call", () => {
     const telemetry = new CacheTelemetry();
 

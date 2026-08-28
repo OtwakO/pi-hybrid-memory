@@ -131,6 +131,7 @@ export const foldMemory = async (input: MemoryFoldInput): Promise<MemoryFoldResu
     };
   }
   const historicalObservations = observations.filter(observation => !focusIds.has(observation.id));
+  const planningStartedAt = performance.now();
   const contextPlan = planReflectionContext({
     reflections,
     focusObservations,
@@ -157,12 +158,29 @@ export const foldMemory = async (input: MemoryFoldInput): Promise<MemoryFoldResu
     return failedFold(planResult.reason, reflections, observations);
   }
 
-  const modelResult = await input.modelPort.propose(
-    input.params,
-    systemPrompt,
-    userPrompt,
-    planResult.plan,
-  );
+  input.params.telemetry?.recordReflectionPlan({
+    planningMs: performance.now() - planningStartedAt,
+    estimatedInputTokens: planResult.plan.estimatedInputTokens,
+    maxOutputTokens: planResult.plan.maxOutputTokens,
+    focusObservationCount: contextPlan.evidence.filter(item => focusIds.has(item.observation.id)).length,
+    historicalObservationCount: contextPlan.evidence.filter(item => !focusIds.has(item.observation.id)).length,
+    omittedFocusObservationCount: contextPlan.omitted.focusObservations,
+    omittedHistoricalObservationCount: contextPlan.omitted.historicalObservations,
+    focusOverflow: contextPlan.focusOverflow,
+    protectedOverflow: contextPlan.protectedOverflow,
+  });
+  input.params.telemetry?.markReflectionCompletionStarted();
+  let modelResult;
+  try {
+    modelResult = await input.modelPort.propose(
+      input.params,
+      systemPrompt,
+      userPrompt,
+      planResult.plan,
+    );
+  } finally {
+    input.params.telemetry?.markReflectionCompletionSettled();
+  }
   if (!modelResult.ok) {
     recordFailure(input.params.telemetry, modelResult.reason, evidenceObservations);
     return failedFold(modelResult.reason, reflections, observations);

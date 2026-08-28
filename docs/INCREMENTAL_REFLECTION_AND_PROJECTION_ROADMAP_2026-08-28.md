@@ -157,7 +157,9 @@ Stage 1C runtime result: the existing `foldMemory()` seam now reflects only the 
 
 Read-only measurement on the current 1,351-observation branch (1,215 committed, 136 pending) selected the complete pending focus plus bounded history into an estimated 24,667-token request with a 1,536-token output bound, versus the observed prior 88,892-input/23,448-output request. Stage 1 remains compaction-attached compatibility work; it does not claim durable historical backlog progress.
 
-Remaining Stage 1 work: content-free planning and stage-timing telemetry, then controlled model-assisted validation before any installed rollout.
+Stage 1D telemetry result: the existing `/hm-cache-info` seam reports the latest bounded reflection input estimate, output limit, selected/omitted focus and historical evidence counts, overflow flags, planning duration, and whether completion is running or settled with elapsed time. It stores no prompt text, handles, observation IDs, reflection content, or persistent analytics.
+
+Remaining Stage 1 work: controlled deterministic and model-assisted validation before any installed rollout.
 
 Completion gate:
 

@@ -90,6 +90,20 @@ export interface ObserverEpochAggregate {
   resetReasons: Record<string, number>;
 }
 
+export interface ReflectionPlanMetadata {
+  planningMs: number;
+  estimatedInputTokens: number;
+  maxOutputTokens: number;
+  focusObservationCount: number;
+  historicalObservationCount: number;
+  omittedFocusObservationCount: number;
+  omittedHistoricalObservationCount: number;
+  focusOverflow: boolean;
+  protectedOverflow: boolean;
+  completionState?: "running" | "settled";
+  completionElapsedMs?: number;
+}
+
 export interface MemoryLifecycleAggregate {
   operation: MemoryLifecycleOperation;
   attempts: number;
@@ -197,6 +211,8 @@ const newAggregate = (operation: CacheOperation): CacheTelemetryAggregate => ({
 export class CacheTelemetry {
   private readonly recent: CacheTelemetryCall[] = [];
   private observerEpochTotals = newObserverEpochAggregate();
+  private latestReflectionPlan?: ReflectionPlanMetadata;
+  private reflectionCompletionStartedAt?: number;
   private readonly memoryLifecycleTotals = new Map<MemoryLifecycleOperation, MemoryLifecycleAggregate>([
     ["reflector", newMemoryLifecycleAggregate("reflector")],
   ]);
@@ -289,6 +305,35 @@ export class CacheTelemetry {
     if (context) epoch.latestContext = { ...context };
   }
 
+  recordReflectionPlan(plan: ReflectionPlanMetadata): void {
+    this.latestReflectionPlan = { ...plan };
+    this.reflectionCompletionStartedAt = undefined;
+  }
+
+  markReflectionCompletionStarted(timestamp = Date.now()): void {
+    if (!this.latestReflectionPlan) return;
+    this.reflectionCompletionStartedAt = timestamp;
+    this.latestReflectionPlan = {
+      ...this.latestReflectionPlan,
+      completionState: "running",
+      completionElapsedMs: undefined,
+    };
+  }
+
+  markReflectionCompletionSettled(timestamp = Date.now()): void {
+    if (!this.latestReflectionPlan || this.reflectionCompletionStartedAt === undefined) return;
+    this.latestReflectionPlan = {
+      ...this.latestReflectionPlan,
+      completionState: "settled",
+      completionElapsedMs: Math.max(0, timestamp - this.reflectionCompletionStartedAt),
+    };
+    this.reflectionCompletionStartedAt = undefined;
+  }
+
+  reflectionPlan(): ReflectionPlanMetadata | undefined {
+    return this.latestReflectionPlan ? { ...this.latestReflectionPlan } : undefined;
+  }
+
   recordMemoryLifecycle(
     operation: MemoryLifecycleOperation,
     outcome: MemoryLifecycleOutcome,
@@ -309,6 +354,8 @@ export class CacheTelemetry {
     this.totals.set("observer", newAggregate("observer"));
     this.totals.set("reflector", newAggregate("reflector"));
     this.observerEpochTotals = newObserverEpochAggregate();
+    this.latestReflectionPlan = undefined;
+    this.reflectionCompletionStartedAt = undefined;
     this.memoryLifecycleTotals.set("reflector", newMemoryLifecycleAggregate("reflector"));
   }
 
@@ -370,7 +417,13 @@ export const formatCacheInfo = (
     .map(operation => telemetry.memoryLifecycleAggregate(operation))
     .filter(aggregate => aggregate.attempts > 0);
   const observerEpochAggregate = telemetry.observerEpochAggregate();
-  if (calls.length === 0 && lifecycleAggregates.length === 0 && observerEpochAggregate.baselinePressureEvents === 0) {
+  const reflectionPlan = telemetry.reflectionPlan();
+  if (
+    calls.length === 0
+    && lifecycleAggregates.length === 0
+    && observerEpochAggregate.baselinePressureEvents === 0
+    && !reflectionPlan
+  ) {
     lines.push("", "No observer or reflector activity recorded in this session.");
     return lines.join("\n");
   }
@@ -396,6 +449,21 @@ export const formatCacheInfo = (
         `  selected observations: stable ${formatTokens(context.stableObservationCount)}, source-related ${formatTokens(context.sourceRelatedObservationCount)}; omitted ${formatTokens(context.omittedObservationCount)}${context.protectedOverflow ? "; protected overflow" : ""}`,
       );
     }
+  }
+
+  if (reflectionPlan) {
+    const completion = reflectionPlan.completionState === "running"
+      ? "completion running"
+      : reflectionPlan.completionElapsedMs === undefined
+        ? "completion not started"
+        : `completion settled in ${(reflectionPlan.completionElapsedMs / 1_000).toFixed(1)}s`;
+    lines.push(
+      "",
+      "── Bounded reflection ──",
+      `latest bounded reflection: ~${formatTokens(reflectionPlan.estimatedInputTokens)} input / ${formatTokens(reflectionPlan.maxOutputTokens)} max output tokens`,
+      `  evidence: focus ${formatTokens(reflectionPlan.focusObservationCount)}, historical ${formatTokens(reflectionPlan.historicalObservationCount)}; omitted focus ${formatTokens(reflectionPlan.omittedFocusObservationCount)}, historical ${formatTokens(reflectionPlan.omittedHistoricalObservationCount)}${reflectionPlan.focusOverflow ? "; focus overflow" : ""}${reflectionPlan.protectedOverflow ? "; protected overflow" : ""}`,
+      `  planning ${formatTokens(Math.round(reflectionPlan.planningMs))}ms; ${completion}`,
+    );
   }
 
   if (lifecycleAggregates.length > 0) {
