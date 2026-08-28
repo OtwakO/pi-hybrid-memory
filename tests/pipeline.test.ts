@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { normalize } from "../src/vcc/normalizer.js";
 import { extractGoals, extractFiles, extractCommits, extractPreferences, extractOutstandingContext } from "../src/vcc/extractor.js";
+import { extractVccSummary } from '../src/vcc/summary.js';
 import { buildBriefSections, stringifyBrief, capBrief } from "../src/vcc/transcript.js";
 import { formatFileActivity, formatVccSections } from "../src/vcc/formatter.js";
 import { mergeVccSummaries } from "../src/vcc/merger.js";
@@ -411,6 +412,7 @@ describe("mergePipelines", () => {
 
     expect(result.trimmed).toBe(true);
     expect(result.protectedOverflow).toBe(true);
+    expect(result.tokenCount).toBeLessThanOrEqual(500);
     // Projection trimming does not own persisted memory lifecycle.
     const lowObsIds = observations.filter(o => o.relevance === "low").map(o => o.id);
     expect(lowObsIds.some(id => result.summary.includes(id))).toBe(false);
@@ -459,9 +461,77 @@ describe("mergePipelines", () => {
     });
 
     expect(result.tokenCount).toBeLessThanOrEqual(100);
-    expect(result.summary).not.toContain("low-old");
-    expect(result.summary).not.toContain("medium-old");
-    expect(result.summary).toContain("high-new");
+    expect(result.summary).not.toContain("[low] low ");
+    expect(result.summary).not.toContain("[medium] medium ");
+    expect(result.summary).toContain("[high] high-value fact");
+  });
+
+  it("avoids double-rendering support only when a reflection exactly preserves it under pressure", () => {
+    const preserved = {
+      id: "preserved001",
+      content: "Canonical path /srv/app/config.json must remain unchanged.",
+      timestamp: "now",
+      relevance: "critical" as const,
+    };
+    const result = mergePipelines({
+      observations: [
+        preserved,
+        { id: "recent000001", content: "Recent operational detail", timestamp: "later", relevance: "high" as const },
+      ],
+      reflections: [{
+        id: "reflect00001",
+        content: `Durable rule: ${preserved.content}`,
+        supportingObservationIds: [preserved.id],
+      }],
+      vccSummary: `[Session Goal]\n- Keep current work\n\n---\n\n[user]\n${"stale detail ".repeat(200)}`,
+      settings: { maxSummaryTokens: 140 },
+    });
+
+    expect(result.tokenCount).toBeLessThanOrEqual(140);
+    expect(result.summary).toContain("reflect00001");
+    expect(result.summary.match(/Canonical path/g)).toHaveLength(1);
+    expect(result.summary).toContain("preserved001");
+    expect(result.summary).toContain("hm_recall");
+    expect(extractVccSummary(result.summary)).toBeTruthy();
+  });
+
+  it("hard-caps reflection-only overflow with recall disclosure", () => {
+    const reflections = Array.from({ length: 40 }, (_, index) => ({
+      id: `refl${index.toString().padStart(8, "0")}`,
+      content: `Reflection ${index}: ${"durable context ".repeat(40)}`,
+      supportingObservationIds: [],
+    }));
+
+    const result = mergePipelines({
+      observations: [],
+      reflections,
+      vccSummary: "",
+      settings: { maxSummaryTokens: 180 },
+    });
+
+    expect(result.tokenCount).toBeLessThanOrEqual(180);
+    expect(result.trimmed).toBe(true);
+    expect(result.protectedOverflow).toBe(true);
+    expect(result.summary).toContain("hm_recall");
+  });
+
+  it("keeps a pathological tiny projection within its hard ceiling", () => {
+    const result = mergePipelines({
+      observations: [{
+        id: "critical0001",
+        content: "critical ".repeat(200),
+        timestamp: "now",
+        relevance: "critical" as const,
+      }],
+      reflections: [],
+      vccSummary: `[Future Section]\n${"protected structure ".repeat(200)}`,
+      settings: { maxSummaryTokens: 30 },
+    });
+
+    expect(result.tokenCount).toBeLessThanOrEqual(30);
+    expect(result.trimmed).toBe(true);
+    expect(result.protectedOverflow).toBe(true);
+    expect(result.summary).toContain("Projection");
   });
 
   it("does not trim when under budget", () => {

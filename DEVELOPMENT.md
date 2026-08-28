@@ -464,3 +464,10 @@
 - **Reason**: This completes the steady-state latency contract without sacrificing the proven deterministic lifecycle feature or introducing another retirement authority.
 - **Verified**: 42 test files / 309 tests, TypeScript, 51-module build, deterministic real Pi gate with zero expected model calls, and model-assisted proactive-reflection/covered-compaction/restart/recall pass for bundle `7c95932439af8bd4de72b1a61da6497222c5cdc2d4e7f5f6f26aa50e1db05a1f`.
 - **Watch out**: The main projection is still not hard-bounded; the real long-session summary remains ~53,711 tokens under a 16,000-token setting. Installed extension remains unchanged.
+
+### [2026-08-28] Main-session projection now has a hard ceiling
+- **Context**: The real long session stored a ~53,711-token compaction summary despite `maxSummaryTokens: 16,000` because critical observations, reflections, and protected structural state were permanently untrimmable.
+- **Change**: Deepened the existing deterministic projection budget so every output stays within the configured ceiling. Lower-priority history yields first; supporting observations are de-duplicated only when a current provenance-backed reflection exactly contains their normalized content; final pressure may omit any projection material with bounded recall-ID disclosure. Fully omitted structural state leaves a parseable pressure marker for the next compaction.
+- **Reason**: Durable evidence and model-visible projection must be decoupled. A fixed prompt cannot display unbounded active history, but omission must never mutate memory or hide how to recover it.
+- **Verified**: 42 test files / 312 tests, TypeScript, 51-module build, deterministic and model-assisted isolated Pi gates for bundle `942c7bdb13a9f6a2ae6e41b2db497dba32916a447a3fb227b256b857ae4ebc95`. Read-only real-session replay projected 53,711 stored tokens to 15,995/16,000 with zero lifecycle issues and parseable structural pressure state.
+- **Watch out**: `protectedOverflow` now means protected projection material was omitted under pressure; it no longer indicates an over-ceiling result. Installed extension remains unchanged until controlled rollout.

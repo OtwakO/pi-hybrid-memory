@@ -1,6 +1,6 @@
 # Incremental Reflection and Bounded Projection Roadmap
 
-**Status:** Stage 1 complete and isolated-live validated; incremental persistence not started
+**Status:** Stages 1–6 complete and isolated-live validated; controlled rollout pending
 
 **Scope:** Reflection request design, reflection lifecycle persistence, compaction orchestration, and the main-session memory projection.
 
@@ -200,7 +200,11 @@ Stage 5 result: reflection inference is removed from `/compact`. A fully covered
 
 Stage 5 passed 42 files / 309 tests, TypeScript, the 51-module build, deterministic real Pi validation with `modelCallsExpected: 0`, and the model-assisted proactive-reflection/covered-compaction/restart/recall gate for bundle `7c95932439af8bd4de72b1a61da6497222c5cdc2d4e7f5f6f26aa50e1db05a1f`. Reflection `mtdgswcf0001` persisted in lifecycle entry `01a82a07` before compaction `e149928a` and remained recallable with exact provenance. Installed bundle remains unchanged.
 
-Next: Stage 6 hard-bounded main-session projection. The measured real summary remains ~53,711 tokens under a 16,000-token setting, so the reflection/compaction latency milestone is complete but the overall redesign is not yet ready for rollout.
+Stage 6 result: `applySummaryBudget()` now enforces `tokenCount <= maxSummaryTokens` unconditionally. Under pressure it deterministically trims transcript and lower-priority structural/history evidence first, omits an observation as reflection-redundant only when a current provenance-backed reflection both cites its exact ID and contains its complete normalized content, and finally permits critical/reflection/structural omission rather than overflow. Omitted durable memory is disclosed with bounded stable recall IDs; durable journal state is never changed. Pressure-trimmed structural state retains a parseable marker for the next compaction, and pathological tiny budgets receive a character-safe bounded pressure notice.
+
+Stage 6 passed 42 files / 312 tests, TypeScript, the 51-module build, deterministic and model-assisted isolated Pi gates for bundle `942c7bdb13a9f6a2ae6e41b2db497dba32916a447a3fb227b256b857ae4ebc95`. Read-only replay of the real long session reduced the same ~53,711-token stored summary projection to 15,995 tokens under the configured 16,000-token hard ceiling with zero replay issues and a parseable structural pressure marker. Exact proactive observation, incremental reflection, covered compaction, restart, provenance, and recall remained valid. Installed bundle remains unchanged.
+
+Next: Stage 7 controlled rollout. Back up the installed bundle and a controlled target session, install atomically, restart Pi, and verify real-session bounded projection, incremental reflection progress, covered local-only compaction, replay, recall, telemetry, fork behavior, and rollback inspection.
 
 ### Stage 4 — Run reflection incrementally
 

@@ -100,23 +100,21 @@ session_before_compact fires
     Produces: VCC block (sections + transcript)
         │
         ▼
-[3] Check OM gate: is observation pool ≥ reflectionThresholdTokens?
-    YES → call the session-owned ModelRegistry completion boundary with the sole
-           provider-neutral submit_reflections tool, prompt-directed tool use,
-           no retries, a five-minute caller deadline, and pre-call capacity validation
-    NO  → skip, use existing reflections as-is (zero LLM cost)
-    The total carried reflection set may occupy at most 50% of maxSummaryTokens.
-    Missing tool completion, infeasible capacity, failed/aborted/truncated/
-    invalid-provenance output → retain the exact pre-fold memory set.
-    Observation retirement remains disabled until an auditable retirement contract is approved.
+[3] Replay durable incremental reflection state
+    No reflector completion runs inside covered `/compact`.
+    Reflection inference is triggered after durable proactive observation progress,
+    uses bounded evidence handles, and persists through the generalized V6 lifecycle.
+    Compaction carries current reflections unchanged and performs only deterministic
+    exact-duplicate observation retirement locally.
         │
         ▼
-[4] Assemble OM block
-    mechanically concatenate: current reflections + current observations
+[4] Assemble bounded OM projection
+    select current reflections + active observations under the hard summary ceiling
         │
         ▼
 [5] Merge VCC block + OM block
-    apply trim priority only if merged summary exceeds growth ceiling
+    apply deterministic projection priority and omission disclosure;
+    never exceed maxSummaryTokens
         │
         ▼
 [6] Register merged summary as compactionSummary
@@ -216,18 +214,15 @@ The budget system exists for one reason only: **to prevent unbounded growth acro
 
 **Trim priority (drop in this order, only when over ceiling):**
 
-1. Brief transcript oldest lines (roll the window back — this is the largest and most expendable section)
-2. `low` relevance observations (oldest first)
-3. `medium` relevance observations (oldest first)
-4. VCC `[Outstanding Context]` lines (oldest first)
-5. VCC `[Files And Changes]` lines (oldest first, keep most recent N)
-6. `high` relevance observations (oldest first)
-7. VCC `[Session Goal]` scope change lines (keep original goal always)
-8. `[Commits]` oldest entries
-9. `[User Preferences]` lines (oldest first)
-10. **Never trim:** `critical` observations, `## Reflections` lines, original `[Session Goal]` first line
+1. Brief transcript oldest lines.
+2. Supporting observations exactly preserved by a current provenance-backed reflection.
+3. `low` relevance observations (oldest first).
+4. `medium` relevance observations (oldest first).
+5. `[Files And Changes]`, `[Commits]`, `[User Preferences]`, then `[Session Goal]` lines (oldest first).
+6. `high` relevance observations (oldest first).
+7. Final pressure phase: `[Outstanding Context]`, critical observations, oldest reflections, unfamiliar structural sections, then any remaining structural lines may be omitted rather than exceeding the ceiling.
 
-**Implementation:** `merge/budget.ts` parses observations and VCC sections into trimmable projection units, re-renders after each priority removal, and stops under the ceiling whenever trimmable content is sufficient. Projection trimming does not mutate `MemoryDetailsV4.observations`; durable observation retirement is owned exclusively by the fold policy. If protected visible content alone exceeds the ceiling, compaction preserves it and reports a protected-overflow warning rather than silently dropping critical observations, reflections, the original session goal, or unfamiliar future structural sections. Section-size reporting in `/hm-status` remains future work.
+**Implementation:** `merge/budget.ts` parses observations and VCC sections into deterministic projection units, re-renders after each priority removal, and always returns `tokenCount <= maxSummaryTokens`. A provenance-backed reflection replaces a supporting observation in the projection only when it cites the exact observation ID and contains the observation's complete normalized content; citation alone is insufficient. Omitted durable memory remains active and exactly recallable, with bounded stable IDs disclosed through a `Projection Omissions` section. If all structural state is omitted, a parseable pressure marker preserves continuity for the next compaction. `protectedOverflow` is a pressure diagnostic meaning protected material was omitted, never permission to exceed the ceiling.
 
 ---
 

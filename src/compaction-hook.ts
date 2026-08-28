@@ -343,7 +343,7 @@ export function registerCompactionHook(pi: ExtensionAPI, runtime: Runtime): void
       });
 
       if (ctx.hasUI) ctx.ui.notify(
-        `Hybrid memory: compaction assembled — ${finalObservations.length} active observations${retirement.retirements.length > 0 ? `, ${retirement.retirements.length} exact duplicate(s) retired` : ""}, ${finalReflections.length} reflections, ~${merged.tokenCount.toLocaleString()} token summary${merged.protectedOverflow ? " (protected memory exceeds configured ceiling)" : merged.trimmed ? " (trimmed to fit budget)" : ""}`,
+        `Hybrid memory: compaction assembled — ${finalObservations.length} active observations${retirement.retirements.length > 0 ? `, ${retirement.retirements.length} exact duplicate(s) retired` : ""}, ${finalReflections.length} reflections, ~${merged.tokenCount.toLocaleString()} token summary${merged.protectedOverflow ? " (protected projection material omitted to fit hard ceiling)" : merged.trimmed ? " (trimmed to fit budget)" : ""}`,
         merged.protectedOverflow ? "warning" : "info",
       );
 

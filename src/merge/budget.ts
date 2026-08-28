@@ -106,12 +106,69 @@ const compose = (
   vccSummary: string,
   memoryHeader: string,
   vccHeader: string,
+  omissionNotice: string,
 ): string => {
   const parts: string[] = [];
   const omSummary = renderSummary(reflections, observations);
   if (omSummary) parts.push(memoryHeader + omSummary);
   if (vccSummary) parts.push(vccHeader + vccSummary);
+  if (omissionNotice) parts.push(omissionNotice);
   return parts.join("\n\n---\n\n");
+};
+
+const normalizedContent = (content: string): string => content.trim().replace(/\s+/g, " ");
+
+const exactlyPreservedObservationIds = (
+  reflections: MemoryReflection[],
+  observations: ObservationRecord[],
+): Set<string> => {
+  const observationsById = new Map(observations.map(observation => [observation.id, observation]));
+  const preserved = new Set<string>();
+  for (const reflection of reflections) {
+    if (typeof reflection === "string" || reflection.legacy) continue;
+    const content = normalizedContent(reflection.content);
+    for (const observationId of reflection.supportingObservationIds) {
+      const observation = observationsById.get(observationId);
+      if (observation && content.includes(normalizedContent(observation.content))) {
+        preserved.add(observationId);
+      }
+    }
+  }
+  return preserved;
+};
+
+const boundedIds = (ids: string[]): string => {
+  const shown = ids.slice(-6);
+  return `${shown.join(", ")}${ids.length > shown.length ? `, +${ids.length - shown.length} more` : ""}`;
+};
+
+const omissionNotice = (
+  observationIds: string[],
+  reflectionIds: string[],
+  legacyReflections: number,
+  structuralItems: number,
+): string => {
+  const parts: string[] = [];
+  if (observationIds.length > 0) {
+    parts.push(`observations ${observationIds.length} [${boundedIds(observationIds)}]`);
+  }
+  if (reflectionIds.length > 0) {
+    parts.push(`reflections ${reflectionIds.length} [${boundedIds(reflectionIds)}]`);
+  }
+  if (legacyReflections > 0) parts.push(`legacy reflections ${legacyReflections}`);
+  if (structuralItems > 0) parts.push(`session state ${structuralItems}`);
+  if (parts.length === 0) return "";
+  return `## Projection Omissions\nOmitted ${parts.join("; ")}. Durable memory is unchanged; recall listed IDs with \`hm_recall\`.`;
+};
+
+const hardCapNotice = (maxTokens: number): string => {
+  const maxCharacters = Math.max(0, Math.floor(maxTokens) * 4);
+  const notice = "## Projection Pressure\nProjection content was omitted to fit the configured hard ceiling. Durable memory remains available through hm_recall.";
+  if (notice.length <= maxCharacters) return notice;
+  let capped = notice.slice(0, maxCharacters);
+  const finalCodeUnit = capped.charCodeAt(capped.length - 1);
+  if (finalCodeUnit >= 0xd800 && finalCodeUnit <= 0xdbff) capped = capped.slice(0, -1);
+  return capped;
 };
 
 const dropOldestTranscriptLine = (state: VccState): boolean => {
@@ -127,62 +184,120 @@ const dropOldestTranscriptLine = (state: VccState): boolean => {
   return false;
 };
 
-const dropOldestObservation = (
-  observations: ObservationRecord[],
-  relevance: Relevance,
-): boolean => {
-  const index = observations.findIndex((observation) => observation.relevance === relevance);
-  if (index < 0) return false;
-  observations.splice(index, 1);
-  return true;
-};
 
 const dropOldestSectionLine = (
   state: VccState,
   section: SectionName,
-  protectFirst = false,
 ): boolean => {
   const lines = state.sections.get(section) ?? [];
-  const removableIndex = protectFirst ? 1 : 0;
-  if (lines.length <= removableIndex) return false;
-  lines.splice(removableIndex, 1);
+  if (lines.length === 0) return false;
+  lines.shift();
   return true;
 };
 
 export const applySummaryBudget = (input: BudgetInput): BudgetResult => {
   const observations = [...input.observations];
+  const reflections = [...input.reflections];
   const vcc = parseVcc(input.vccSummary);
+  const omittedObservationIds: string[] = [];
+  const omittedReflectionIds: string[] = [];
+  let omittedLegacyReflections = 0;
+  let omittedStructuralItems = 0;
   let trimmed = false;
+  let protectedOverflow = false;
 
   const render = () => {
-    const vccSummary = renderVcc(vcc);
+    const renderedVcc = renderVcc(vcc);
+    const vccSummary = renderedVcc || (input.vccSummary && omittedStructuralItems > 0
+      ? `[Projection Pressure]\n- ${omittedStructuralItems} prior session-state items omitted by hard ceiling.`
+      : "");
+    const compactHeader = (header: string): string => `${header.split("\n", 1)[0]}\n`;
+    const notice = omissionNotice(
+      omittedObservationIds,
+      omittedReflectionIds,
+      omittedLegacyReflections,
+      omittedStructuralItems,
+    );
     const summary = compose(
-      input.reflections,
+      reflections,
       observations,
       vccSummary,
-      input.memoryHeader,
+      trimmed ? compactHeader(input.memoryHeader) : input.memoryHeader,
       input.vccHeader,
+      notice,
     );
     return { vccSummary, summary, tokenCount: estimateStringTokens(summary) };
   };
 
   let current = render();
-  const trimWhileOver = (drop: () => boolean) => {
+  const trimWhileOver = (drop: () => boolean, trimsProtected = false) => {
     while (current.tokenCount > input.maxTokens && drop()) {
       trimmed = true;
+      if (trimsProtected) protectedOverflow = true;
       current = render();
     }
   };
+  const dropStructural = (drop: () => boolean): boolean => {
+    if (!drop()) return false;
+    omittedStructuralItems++;
+    return true;
+  };
+  const dropObservation = (relevance: Relevance): boolean => {
+    const index = observations.findIndex(observation => observation.relevance === relevance);
+    if (index < 0) return false;
+    omittedObservationIds.push(observations[index].id);
+    observations.splice(index, 1);
+    return true;
+  };
 
-  trimWhileOver(() => dropOldestTranscriptLine(vcc));
-  trimWhileOver(() => dropOldestObservation(observations, "low"));
-  trimWhileOver(() => dropOldestObservation(observations, "medium"));
-  trimWhileOver(() => dropOldestSectionLine(vcc, "Outstanding Context"));
-  trimWhileOver(() => dropOldestSectionLine(vcc, "Files And Changes"));
-  trimWhileOver(() => dropOldestObservation(observations, "high"));
-  trimWhileOver(() => dropOldestSectionLine(vcc, "Session Goal", true));
-  trimWhileOver(() => dropOldestSectionLine(vcc, "Commits"));
-  trimWhileOver(() => dropOldestSectionLine(vcc, "User Preferences"));
+  trimWhileOver(() => dropStructural(() => dropOldestTranscriptLine(vcc)));
+
+  const exactlyPreserved = exactlyPreservedObservationIds(reflections, observations);
+  trimWhileOver(() => {
+    const index = observations.findIndex(observation => exactlyPreserved.has(observation.id));
+    if (index < 0) return false;
+    omittedObservationIds.push(observations[index].id);
+    observations.splice(index, 1);
+    return true;
+  }, true);
+
+  trimWhileOver(() => dropObservation("low"));
+  trimWhileOver(() => dropObservation("medium"));
+  trimWhileOver(() => dropStructural(() => dropOldestSectionLine(vcc, "Files And Changes")));
+  trimWhileOver(() => dropStructural(() => dropOldestSectionLine(vcc, "Commits")));
+  trimWhileOver(() => dropStructural(() => dropOldestSectionLine(vcc, "User Preferences")));
+  trimWhileOver(() => dropStructural(() => dropOldestSectionLine(vcc, "Session Goal")));
+  trimWhileOver(() => dropObservation("high"));
+
+  trimWhileOver(() => dropStructural(() => dropOldestSectionLine(vcc, "Outstanding Context")), true);
+  trimWhileOver(() => dropObservation("critical"), true);
+  trimWhileOver(() => {
+    if (reflections.length === 0) return false;
+    const reflection = reflections.shift()!;
+    if (typeof reflection === "string") omittedLegacyReflections++;
+    else omittedReflectionIds.push(reflection.id);
+    return true;
+  }, true);
+  trimWhileOver(() => {
+    if (vcc.passthroughSections.length === 0) return false;
+    vcc.passthroughSections.shift();
+    omittedStructuralItems++;
+    return true;
+  }, true);
+  for (const section of SECTION_ORDER) {
+    trimWhileOver(() => dropStructural(() => dropOldestSectionLine(vcc, section)), true);
+  }
+
+  if (current.tokenCount > input.maxTokens) {
+    trimmed = true;
+    protectedOverflow = true;
+    const summary = hardCapNotice(input.maxTokens);
+    current = {
+      vccSummary: "",
+      summary,
+      tokenCount: estimateStringTokens(summary),
+    };
+  }
 
   return {
     observations,
@@ -190,6 +305,6 @@ export const applySummaryBudget = (input: BudgetInput): BudgetResult => {
     summary: current.summary,
     tokenCount: current.tokenCount,
     trimmed,
-    protectedOverflow: current.tokenCount > input.maxTokens,
+    protectedOverflow,
   };
 };
