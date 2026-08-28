@@ -421,3 +421,9 @@
 - **Change**: Added `appendIncrementalLifecycle()`, which validates the candidate by synthetic replay through `buildBranchMemoryIndex()` and appends one V6 custom entry only when session ID, exact leaf, and parent lifecycle head still match the captured fence.
 - **Reason**: Exact-leaf fencing is intentionally stricter than observer fencing because the reflector writes nothing before its final append; any leaf movement is external activity and stale work is safer to discard than merge.
 - **Verified**: 37 test files / 292 tests, TypeScript, build, and static diagnostics pass. The module is not runtime-wired yet.
+
+### [2026-08-28] Reflection frontier advances only across fully rendered evidence windows
+- **Context**: A journal cursor must not claim observations were considered if the bounded reflector omitted them from focus.
+- **Change**: Added a pure processor planner that selects contiguous canonical observation entries after the compatible frontier and reuses `planReflectionContext()` as the fit authority.
+- **Reason**: Reusing the renderer keeps frontier semantics and actual model evidence identical. Oversized first entries block explicitly instead of being split, skipped, or falsely covered.
+- **Verified**: 38 test files / 297 tests, TypeScript, build, and static diagnostics pass. No runtime trigger or provider call was added.

@@ -57,6 +57,7 @@ export interface BranchMemoryIndex {
   observationById(id: string): ObservationRecord | undefined;
   observationLifecycle(id: string): ObservationLifecycle | undefined;
   activeObservationIds(): Set<string>;
+  observationEntryIds(): Set<string>;
   reflectionById(id: string): ReflectionRecord | undefined;
   reflectionLifecycle(id: string): ReflectionLifecycle | undefined;
   sourceEntryById(id: string): Entry | undefined;
@@ -425,6 +426,7 @@ export const buildBranchMemoryIndex = (
         : { state: "active" };
     },
     activeObservationIds: () => new Set(activeObservationOrder),
+    observationEntryIds: () => new Set(observationEntryIndexes.keys()),
     reflectionById,
     reflectionLifecycle: id => {
       if (!reflectionHistory.has(id)) return undefined;

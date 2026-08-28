@@ -184,7 +184,9 @@ Stage 3B writer result: successful compactions now emit the same V6 event and pa
 
 Stage 3C append result: `appendIncrementalLifecycle()` is one synchronous append seam around the canonical projector. It captures session, exact origin leaf, and parent lifecycle head before asynchronous work; at commit it rejects session changes, any leaf movement, lifecycle-head advancement, or a candidate that the projector would not accept, then appends exactly one `hybrid-memory.lifecycle` V6 entry. It contains no model, threshold, telemetry, cooldown, trigger, or scheduler logic. The exact-leaf rule deliberately discards work if another turn arrives rather than risk cross-branch persistence.
 
-Next Stage 3 step: add a pure deterministic processor plan that selects the next observation-entry window after the compatible frontier and returns either no work or one bounded fold input plus its target frontier. Only after that seam is green should one runtime trigger invoke the model and call the append seam.
+Stage 3D planning result: `planNextReflectionWindow()` derives state only from the canonical branch projector, walks canonical observation entries after the compatible frontier, advances across deliberate-empty or fully retired entries, and chooses the largest contiguous prefix whose active observations all fit the existing reflection focus renderer. A policy-version change restarts consideration from the first journal entry. An oversized first entry returns an explicit blocked result and does not advance the frontier; no partial-entry claim or silent skip is allowed.
+
+Next Stage 4 step: add one incremental reflection processor that composes the existing bounded `foldMemory()` seam with the Stage 3C append seam. Keep it directly callable and deterministic under injected model/session dependencies; do not register a proactive trigger until its success, deliberate-empty, transient-failure, stale-result, and blocked-window semantics are proven.
 
 ### Stage 4 — Run reflection incrementally
 
