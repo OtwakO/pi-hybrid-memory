@@ -451,3 +451,9 @@
 - **Change**: Updated the isolated fixture to trigger proactive observation, wait on the durable journal for a V6 custom lifecycle entry, verify reflection before compaction, then verify compaction parent continuity and restart/recall.
 - **Verified**: Bundle `e5b61ce36f6d91d5f2bea9a26e91fc9bbfadd3399204fe8d03cf710ab12a4013` passed deterministic and model-assisted gates. Observation `mtdg7e5s0001` and reflection `mtdg88w60001` persisted in lifecycle entry `32f81807`; compaction `6474e629` added no reflection and parented correctly; recall preserved exact fixture values and source `ec817339`.
 - **Watch out**: Stage 4 does not yet remove the compatibility reflector call from `/compact`; the gate proves reflection existed before compaction, not zero compaction provider calls. Installed extension and real sessions remained unchanged.
+
+### [2026-08-28] Real legacy sessions have bounded incremental starting windows
+- **Context**: Before removing compaction reflection, Stage 4 needed read-only proof that existing V5 journals can start incremental processing without migration or an oversized first-entry block.
+- **Change**: Replayed the 65 MB and 8 MB NovelReader sessions with repository code only; no provider, append, configuration, or installed-extension change.
+- **Verified**: The long branch has 718 remaining observation entries and a first 249-entry/241-observation/~14,748-token window (replay ~767 ms, plan ~1.60 s); the newer branch has a 32-entry/160-observation/~15,094-token first window. Both are unblocked with no replay issues.
+- **Watch out**: The long branch still has zero reflections, ~103,855 active observation tokens, and a ~53,711-token latest summary, so Stage 5 latency work does not remove the need for a hard-bounded main projection.
