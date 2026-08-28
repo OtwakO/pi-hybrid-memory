@@ -1,4 +1,5 @@
 import { buildBranchMemoryIndex } from "./branch-memory-index.js";
+import type { BranchMemoryIndex } from "./branch-memory-index.js";
 import { createMemoryLifecycleEvent } from "./memory-lifecycle.js";
 import { MEMORY_LIFECYCLE_CUSTOM_TYPE } from "../types.js";
 import type {
@@ -35,11 +36,11 @@ export type LifecycleAppendResult =
 
 export const captureLifecycleAppendFence = (
   session: LifecycleAppendSession,
-  entries = session.getBranch(),
+  index: BranchMemoryIndex,
 ): LifecycleAppendFence => ({
   sessionId: session.getSessionId(),
   originLeafId: session.getLeafId(),
-  parentLifecycleEntryId: buildBranchMemoryIndex(entries).latestLifecycleEntryId,
+  parentLifecycleEntryId: index.latestLifecycleEntryId,
 });
 
 export const appendIncrementalLifecycle = (input: {
@@ -57,11 +58,14 @@ export const appendIncrementalLifecycle = (input: {
     return { ok: false, reason: "session-changed" };
   }
 
-  if (input.session.getLeafId() !== input.fence.originLeafId) {
+  const entries = input.session.getBranch();
+  if (
+    input.session.getLeafId() !== input.fence.originLeafId
+    || !input.fence.originLeafId
+    || !entries.some(entry => entry.id === input.fence.originLeafId)
+  ) {
     return { ok: false, reason: "branch-changed" };
   }
-
-  const entries = input.session.getBranch();
 
   const index = buildBranchMemoryIndex(entries);
   if (index.latestLifecycleEntryId !== input.fence.parentLifecycleEntryId) {

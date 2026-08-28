@@ -427,3 +427,9 @@
 - **Change**: Added a pure processor planner that selects contiguous canonical observation entries after the compatible frontier and reuses `planReflectionContext()` as the fit authority.
 - **Reason**: Reusing the renderer keeps frontier semantics and actual model evidence identical. Oversized first entries block explicitly instead of being split, skipped, or falsely covered.
 - **Verified**: 38 test files / 297 tests, TypeScript, build, and static diagnostics pass. No runtime trigger or provider call was added.
+
+### [2026-08-28] Incremental reflection processor composes existing deep seams
+- **Context**: Replay, bounded focus planning, semantic folding, and journal append were individually proven; orchestration still needed one cohesive interface before any event trigger.
+- **Change**: Added `processNextReflectionWindow()`, which performs one replay/plan/fold/append transaction under injected session and model dependencies and returns normalized no-work, blocked, deferred, failed, stale, or persisted outcomes.
+- **Reason**: The processor adds no scheduler or retry framework. Empty windows advance locally, successful semantic outcomes persist once, and every failure/stale result leaves the journal untouched.
+- **Verified**: 39 test files / 302 tests, TypeScript, build, and static diagnostics pass. No runtime trigger or provider call was added.

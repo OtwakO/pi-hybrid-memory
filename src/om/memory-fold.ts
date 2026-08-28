@@ -40,7 +40,7 @@ export type MemoryFoldResult =
       supersessions: ReflectionSupersession[];
     };
 
-interface MemoryFoldInput {
+export interface MemoryFoldInput {
   params: ReflectionModelParams & { telemetry?: CacheTelemetry };
   reflections: MemoryReflection[];
   observations: ObservationRecord[];

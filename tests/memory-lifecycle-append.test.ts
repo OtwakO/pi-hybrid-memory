@@ -87,7 +87,10 @@ const setup = (initialEntries: Entry[]) => {
 const appendInput = (fixture: ReturnType<typeof setup>) => ({
   session: fixture.session,
   appendEntry: fixture.appendEntry,
-  fence: captureLifecycleAppendFence(fixture.session, fixture.entries),
+  fence: captureLifecycleAppendFence(
+    fixture.session,
+    buildBranchMemoryIndex(fixture.entries),
+  ),
   reflectionProgress: {
     consideredThroughObservationEntryId: "obsentry1",
     compatibilityVersion: "reflection-v1",
@@ -123,10 +126,14 @@ describe("incremental lifecycle append", () => {
   });
 
   it("rejects a result when another lifecycle event advanced the parent", () => {
-    const fixture = setup([source("source01"), observationEntry(), lifecycle("life0001")]);
+    const fixture = setup([
+      source("source01"),
+      observationEntry(),
+      lifecycle("life0001"),
+      source("stableleaf"),
+    ]);
     const input = appendInput(fixture);
-    fixture.entries.splice(2, 1, lifecycle("life0002", "life0001"));
-    fixture.setLeafId("life0001");
+    fixture.entries.splice(3, 0, lifecycle("life0002", "life0001"));
 
     expect(appendIncrementalLifecycle(input)).toEqual({
       ok: false,
