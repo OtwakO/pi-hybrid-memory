@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-const cancelMock = vi.hoisted(() => vi.fn());
+const cancelObserverMock = vi.hoisted(() => vi.fn());
+const cancelReflectionMock = vi.hoisted(() => vi.fn());
 const invalidateMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/runtime.js", () => ({
   Runtime: class {
-    observerTask = { cancel: cancelMock };
+    observerTask = { cancel: cancelObserverMock };
+    reflectionTask = { cancel: cancelReflectionMock };
     cacheTelemetry = {};
     observerEpoch = { invalidate: invalidateMock };
     setPiSessionId = vi.fn();
@@ -19,9 +21,10 @@ vi.mock("../src/memory.js", () => ({ registerMemoryCommand: vi.fn() }));
 vi.mock("../src/tools/recall.js", () => ({ registerRecallTool: vi.fn() }));
 vi.mock("../src/cache-telemetry.js", () => ({ registerCacheInfoCommand: vi.fn() }));
 
-describe("extension observer lifecycle adapters", () => {
-  it("cancels the active observer before every branch or session departure", async () => {
-    cancelMock.mockReset();
+describe("extension memory task lifecycle adapters", () => {
+  it("cancels active observer and reflection work before every branch or session departure", async () => {
+    cancelObserverMock.mockReset();
+    cancelReflectionMock.mockReset();
     invalidateMock.mockReset();
     const handlers = new Map<string, () => void>();
     const pi = {
@@ -35,12 +38,14 @@ describe("extension observer lifecycle adapters", () => {
     handlers.get("session_before_tree")?.();
     handlers.get("session_shutdown")?.();
 
-    expect(cancelMock.mock.calls).toEqual([
+    const expectedCancellations = [
       ["session-switch"],
       ["session-fork"],
       ["tree-navigation"],
       ["session-shutdown"],
-    ]);
+    ];
+    expect(cancelObserverMock.mock.calls).toEqual(expectedCancellations);
+    expect(cancelReflectionMock.mock.calls).toEqual(expectedCancellations);
     expect(invalidateMock.mock.calls).toEqual([
       ["session-change"],
       ["session-change"],

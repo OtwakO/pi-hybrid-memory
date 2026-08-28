@@ -31,6 +31,7 @@ export default function extension(pi: ExtensionAPI): void {
     cancellation: "session-switch" | "session-fork" | "tree-navigation" | "session-shutdown",
   ) => {
     runtime.observerTask.cancel(cancellation);
+    runtime.reflectionTask.cancel(cancellation);
     runtime.observerEpoch.invalidate("session-change");
   };
   pi.on("session_before_switch", () => leaveObserverEpoch("session-switch"));

@@ -21,6 +21,7 @@ import {
   observerEpochTokenLimit,
 } from "./om/observer-context.js";
 import type { Runtime } from "./runtime.js";
+import { startIncrementalReflection } from "./reflection-trigger.js";
 
 export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): void {
   pi.on("turn_end", (_event, ctx) => {
@@ -190,6 +191,11 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
               runtime.observerEpoch.commitValidated(prepared, result.transcriptSuffix, observedUpToId);
             });
             runtime.clearEmptyObserverBackoff();
+            startIncrementalReflection(
+              (customType, data) => pi.appendEntry(customType, data),
+              runtime,
+              ctx,
+            );
             if (ctx.hasUI && ctx.ui) ctx.ui.notify(
               "Hybrid memory: observer found nothing in this bounded chunk; coverage advanced and more backlog remains",
               "info",
@@ -221,6 +227,11 @@ export function registerObserverTrigger(pi: ExtensionAPI, runtime: Runtime): voi
           pi.appendEntry(OBSERVATION_CUSTOM_TYPE, data);
           runtime.observerEpoch.commitValidated(prepared, result.transcriptSuffix, observedUpToId);
         });
+        startIncrementalReflection(
+          (customType, lifecycleData) => pi.appendEntry(customType, lifecycleData),
+          runtime,
+          ctx,
+        );
         if (ctx.hasUI && ctx.ui) ctx.ui.notify(
           `Hybrid memory: ${result.records.length} observation(s) recorded (~${observationTokens.toLocaleString()} tokens)${serialized.hasMore ? "; more backlog remains" : ""}`,
           "info",

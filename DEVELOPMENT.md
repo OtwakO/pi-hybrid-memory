@@ -433,3 +433,9 @@
 - **Change**: Added `processNextReflectionWindow()`, which performs one replay/plan/fold/append transaction under injected session and model dependencies and returns normalized no-work, blocked, deferred, failed, stale, or persisted outcomes.
 - **Reason**: The processor adds no scheduler or retry framework. Empty windows advance locally, successful semantic outcomes persist once, and every failure/stale result leaves the journal untouched.
 - **Verified**: 39 test files / 302 tests, TypeScript, build, and static diagnostics pass. No runtime trigger or provider call was added.
+
+### [2026-08-28] Durable observation progress triggers bounded incremental reflection
+- **Context**: The directly callable processor needed one runtime lifecycle without reintroducing compaction waits or a generalized scheduler.
+- **Change**: Successful proactive observation appends now start one reflection-specific task. The task coordinator runs one active window and retains at most one latest rerun when more durable observation progress arrives during inference; lifecycle navigation cancels active and queued work.
+- **Reason**: A simple skip-on-active policy would lose the newer trigger after the first result became stale under exact-leaf fencing. One coalesced rerun preserves progress without an unbounded queue, loop, or compaction coupling.
+- **Verified**: 41 test files / 307 tests, TypeScript, 50-module build, and static diagnostics pass. No installed extension, real session, or provider call changed.

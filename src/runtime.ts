@@ -6,6 +6,7 @@ import { DEFAULT_EXTENSION_CONFIG, DEFAULT_HYBRID_SETTINGS, loadConfig } from ".
 import { CacheTelemetry } from "./cache-telemetry.js";
 import { ObserverEpochManager } from "./om/observer-epoch.js";
 import { ObserverTaskCoordinator } from "./observer-task.js";
+import { ReflectionTaskCoordinator } from "./reflection-task.js";
 
 type ConfigLoader = typeof loadConfig;
 
@@ -22,6 +23,7 @@ export class Runtime {
   readonly cacheTelemetry = new CacheTelemetry();
   readonly observerEpoch = new ObserverEpochManager();
   readonly observerTask = new ObserverTaskCoordinator();
+  readonly reflectionTask = new ReflectionTaskCoordinator();
   piSessionId: string | null = null;
 
   // In-flight state

@@ -7,11 +7,16 @@ import { Runtime } from "../src/runtime.js";
 import { OBSERVATION_CUSTOM_TYPE, type Entry, type ObservationEntryData } from "../src/types.js";
 
 const runObserverMock = vi.hoisted(() => vi.fn());
+const startIncrementalReflectionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/om/observer.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/om/observer.js")>();
   return { ...actual, runObserver: runObserverMock };
 });
+
+vi.mock("../src/reflection-trigger.js", () => ({
+  startIncrementalReflection: startIncrementalReflectionMock,
+}));
 
 const source = (id: string, content: string): Entry => ({
   type: "message",
@@ -116,7 +121,10 @@ const pendingObserver = () => {
 };
 
 describe("proactive observer lifecycle transaction", () => {
-  beforeEach(() => runObserverMock.mockReset());
+  beforeEach(() => {
+    runObserverMock.mockReset();
+    startIncrementalReflectionMock.mockReset();
+  });
 
   it("passes the composed turn signal and persists after same-branch growth", async () => {
     const pending = pendingObserver();
@@ -135,6 +143,7 @@ describe("proactive observer lifecycle transaction", () => {
     expect(runObserverMock).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(runObserverMock.mock.calls[0][0].signal).not.toBe(turn.signal);
     expect(fixture.appendEntry).toHaveBeenCalledOnce();
+    expect(startIncrementalReflectionMock).toHaveBeenCalledOnce();
     expect(fixture.runtime.observerEpoch.stats().coverageEndId).toBe("raw-1");
   });
 
@@ -181,6 +190,21 @@ describe("proactive observer lifecycle transaction", () => {
 
     expect(fixture.appendEntry).not.toHaveBeenCalled();
     expect(fixture.runtime.observerEpoch.stats().active).toBe(false);
+  });
+
+  it("does not start reflection when an empty result makes no durable progress", async () => {
+    const fixture = setup();
+    runObserverMock.mockImplementation(async (params: { prompts: Message[] }) => ({
+      ok: true,
+      records: [],
+      transcriptSuffix: [...params.prompts, assistantMessage("examined")],
+    }));
+
+    await fixture.trigger();
+    await fixture.runtime.observerTask.promise;
+
+    expect(fixture.appendEntry).not.toHaveBeenCalled();
+    expect(startIncrementalReflectionMock).not.toHaveBeenCalled();
   });
 
   it("does not commit epoch state when durable persistence throws", async () => {
