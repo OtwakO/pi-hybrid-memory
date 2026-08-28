@@ -29,7 +29,7 @@ export const seedModelLiveFixture = async (root: string): Promise<ModelLiveFixtu
   }, null, 2));
   await writeFile(join(cwd, ".pi", "pi-hybrid-memory-config.json"), JSON.stringify({
     overrideDefaultCompaction: true,
-    observationThresholdTokens: 1_000_000,
+    observationThresholdTokens: 1,
     reflectionThresholdTokens: 1,
     compactionThresholdTokens: 1_000_000,
     compactionThresholdPercentage: null,

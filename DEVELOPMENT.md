@@ -445,3 +445,9 @@
 - **Change**: `/hm-status` derives compatible frontier, observation-entry backlog, next window, blocked state, and active task state from the canonical projector and pure planner. `/hm-cache-info` stores one content-free normalized outcome only.
 - **Reason**: Branch-local IDs are useful in authoritative status but unnecessary and coupling-prone in cache telemetry, so the telemetry seam owns its own minimal metadata shape.
 - **Verified**: Focused status/cache/trigger tests and TypeScript pass; the preceding full gate passed 42 files / 310 tests and a 51-module build before the metadata-only narrowing.
+
+### [2026-08-28] Incremental reflection passes real Pi model and replay boundaries
+- **Context**: The prior model gate created reflection during compaction and could not prove the new proactive V6 path.
+- **Change**: Updated the isolated fixture to trigger proactive observation, wait on the durable journal for a V6 custom lifecycle entry, verify reflection before compaction, then verify compaction parent continuity and restart/recall.
+- **Verified**: Bundle `e5b61ce36f6d91d5f2bea9a26e91fc9bbfadd3399204fe8d03cf710ab12a4013` passed deterministic and model-assisted gates. Observation `mtdg7e5s0001` and reflection `mtdg88w60001` persisted in lifecycle entry `32f81807`; compaction `6474e629` added no reflection and parented correctly; recall preserved exact fixture values and source `ec817339`.
+- **Watch out**: Stage 4 does not yet remove the compatibility reflector call from `/compact`; the gate proves reflection existed before compaction, not zero compaction provider calls. Installed extension and real sessions remained unchanged.

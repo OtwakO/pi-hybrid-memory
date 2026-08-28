@@ -192,7 +192,9 @@ Stage 4B trigger result: successful proactive observer appends start one session
 
 Stage 4C status result: `/hm-status` derives active task state, compatible frontier, canonical observation-entry totals/backlog, and next work/blocked state from the sole branch projector plus the pure window planner. `/hm-cache-info` retains only one session-local content-free normalized processor outcome (outcome, optional fold outcome/reason, blocked observation count); it imports no processor type and stores no entry IDs, observation IDs, prompts, or reflection content.
 
-Next Stage 4 step: run deterministic host validation and one model-assisted incremental append/restart/recall gate against the complete V6 trigger path. Do not install or remove compaction reflection until those gates pass and the real long-session projection is measured read-only.
+Stage 4D validation result: repository bundle `e5b61ce36f6d91d5f2bea9a26e91fc9bbfadd3399204fe8d03cf710ab12a4013` passed the deterministic real Pi V6 compaction/restart/replay/rollback-inspection gate and the model-assisted incremental gate. The model gate persisted observation `mtdg7e5s0001` and reflection `mtdg88w60001` in V6 custom lifecycle entry `32f81807` before compaction; later compaction `6474e629` parented to that entry and added no new reflection; restart and exact recall preserved marker/path/value/constraint and source `ec817339`. The installed bundle remained `1f41a970…b01f` and no real session changed.
+
+Stage 4 is complete and isolated-live validated. Next: measure the current long-session projection read-only, then remove reflection inference from compaction behind its own rollback boundary. Covered `/compact` may still execute the compatibility reflector until Stage 5 lands, so zero compaction provider calls are not yet claimed.
 
 ### Stage 4 — Run reflection incrementally
 
