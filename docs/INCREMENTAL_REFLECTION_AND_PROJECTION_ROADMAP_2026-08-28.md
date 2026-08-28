@@ -182,7 +182,9 @@ Stage 3A reader-first result: `MemoryLifecycleEventV6` is one minimal shape usab
 
 Stage 3B writer result: successful compactions now emit the same V6 event and parent it to the projector's latest lifecycle entry. Compaction carries forward an already accepted reflection frontier but does not invent or advance one; only the future incremental processor may claim new consideration progress. The deterministic real Pi gate passed two V6 compactions, restart/replay, idempotent exact-duplicate retirement, and old installed-bundle inspection for repository bundle `10f6b387c896d2f2412f2cab05e6953cb7ddae430437f0d2573802106bc3cd3b`. The old installed bundle emitted no warning because it does not understand V6 details, but it left the session byte-identical and therefore safely displayed only its older compatible projection.
 
-Next Stage 3 step: add the smallest independent V6 custom-entry append module and stale-result fence, exercised through a deterministic journal-processor seam before any proactive trigger or provider call.
+Stage 3C append result: `appendIncrementalLifecycle()` is one synchronous append seam around the canonical projector. It captures session, exact origin leaf, and parent lifecycle head before asynchronous work; at commit it rejects session changes, any leaf movement, lifecycle-head advancement, or a candidate that the projector would not accept, then appends exactly one `hybrid-memory.lifecycle` V6 entry. It contains no model, threshold, telemetry, cooldown, trigger, or scheduler logic. The exact-leaf rule deliberately discards work if another turn arrives rather than risk cross-branch persistence.
+
+Next Stage 3 step: add a pure deterministic processor plan that selects the next observation-entry window after the compatible frontier and returns either no work or one bounded fold input plus its target frontier. Only after that seam is green should one runtime trigger invoke the model and call the append seam.
 
 ### Stage 4 — Run reflection incrementally
 

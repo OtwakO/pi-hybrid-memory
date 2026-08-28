@@ -415,3 +415,9 @@
 - **Change**: Compaction now creates V6 details parented to `latestLifecycleEntryId`. It carries forward an accepted reflection frontier but never advances one; future incremental processing owns that claim.
 - **Verified**: 36 test files / 288 tests, TypeScript, build, and deterministic real Pi validation passed for bundle `10f6b387c896d2f2412f2cab05e6953cb7ddae430437f0d2573802106bc3cd3b`, including two compactions, restart/replay, and idempotent retirement. Old installed bundle inspection left the V6 session byte-identical.
 - **Watch out**: The old installed bundle emitted no incompatibility warning and displays only its older compatible projection because it does not understand V6 details. No installed extension or real session was changed.
+
+### [2026-08-28] Incremental lifecycle append has one strict commit seam
+- **Context**: Reflection inference will finish after awaits, so persistence needs branch/session/lifecycle fencing without duplicating projector validation in a future trigger.
+- **Change**: Added `appendIncrementalLifecycle()`, which validates the candidate by synthetic replay through `buildBranchMemoryIndex()` and appends one V6 custom entry only when session ID, exact leaf, and parent lifecycle head still match the captured fence.
+- **Reason**: Exact-leaf fencing is intentionally stricter than observer fencing because the reflector writes nothing before its final append; any leaf movement is external activity and stale work is safer to discard than merge.
+- **Verified**: 37 test files / 292 tests, TypeScript, build, and static diagnostics pass. The module is not runtime-wired yet.
