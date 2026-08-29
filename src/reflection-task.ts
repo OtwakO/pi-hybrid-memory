@@ -9,7 +9,7 @@ export type ReflectionTaskResult =
   | { status: "cancelled"; reason: ReflectionTaskCancellationReason }
   | { status: "failed"; error: unknown };
 
-type ReflectionTaskRun = (signal: AbortSignal) => Promise<void>;
+type ReflectionTaskRun = (signal: AbortSignal) => Promise<boolean | void>;
 
 export class ReflectionTaskCoordinator {
   private controller: AbortController | null = null;
@@ -33,8 +33,9 @@ export class ReflectionTaskCoordinator {
     const controller = new AbortController();
     this.controller = controller;
     const task = (async (): Promise<ReflectionTaskResult> => {
+      let permitQueuedRun = true;
       try {
-        await run(controller.signal);
+        permitQueuedRun = await run(controller.signal) !== false;
         if (controller.signal.aborted) {
           return {
             status: "cancelled",
@@ -43,6 +44,7 @@ export class ReflectionTaskCoordinator {
         }
         return { status: "completed" };
       } catch (error) {
+        permitQueuedRun = false;
         if (controller.signal.aborted) {
           return {
             status: "cancelled",
@@ -56,7 +58,7 @@ export class ReflectionTaskCoordinator {
           this.activePromise = null;
           const queuedRun = this.queuedRun;
           this.queuedRun = null;
-          if (queuedRun) void this.start(queuedRun);
+          if (permitQueuedRun && queuedRun) void this.start(queuedRun);
         }
       }
     })();

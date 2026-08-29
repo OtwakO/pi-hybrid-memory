@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ObserverEpochManager } from "./om/observer-epoch.js";
 
 export type CacheOperation = "observer" | "reflector";
-export type CacheCallOutcome = "success" | "error" | "aborted" | "truncated";
+export type CacheCallOutcome = "success" | "error" | "timeout" | "aborted" | "truncated";
 export type MemoryLifecycleOperation = "reflector";
 export type MemoryLifecycleOutcome =
   | "below-threshold"
@@ -17,6 +17,9 @@ export type MemoryLifecycleOutcome =
   | "infeasible-request"
   | "timeout"
   | "error"
+  | "correction-truncated-output"
+  | "correction-timeout"
+  | "correction-error"
   | "aborted";
 
 interface TokenUsage {

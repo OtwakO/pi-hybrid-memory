@@ -41,6 +41,9 @@ export type ReflectionModelFailureReason =
   | "invalid-output"
   | "timeout"
   | "error"
+  | "correction-truncated-output"
+  | "correction-timeout"
+  | "correction-error"
   | "aborted";
 
 export type ReflectionModelResult =
@@ -99,6 +102,11 @@ const completionOutcome = (message: AssistantMessage): "success" | "error" | "ab
   return "success";
 };
 
+const phaseFailure = (
+  turn: number,
+  failure: "timeout" | "error" | "truncated-output",
+): ReflectionModelFailureReason => turn === 0 ? failure : `correction-${failure}`;
+
 const raceWithAbort = <T>(operation: Promise<T>, signal: AbortSignal): Promise<T> => {
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise<T>((resolve, reject) => {
@@ -155,29 +163,43 @@ export const createCompletionReflectionModel = (
       } catch {
         const reason: ReflectionModelFailureReason = params.signal?.aborted
           ? "aborted"
-          : timeoutSignal.aborted
-            ? "timeout"
-            : "error";
+          : phaseFailure(turn, timeoutSignal.aborted ? "timeout" : "error");
         params.telemetry?.record(
           "reflector",
           model,
-          reason === "aborted" ? "aborted" : "error",
+          reason === "aborted"
+            ? "aborted"
+            : reason === "timeout" || reason === "correction-timeout"
+              ? "timeout"
+              : "error",
         );
         return { ok: false, reason };
       }
 
+      const callOutcome = message.stopReason === "aborted"
+        && timeoutSignal.aborted
+        && !params.signal?.aborted
+        ? "timeout"
+        : completionOutcome(message);
       params.telemetry?.record(
         "reflector",
         model,
-        completionOutcome(message),
+        callOutcome,
         message.usage,
       );
 
-      if (message.stopReason === "length") return { ok: false, reason: "truncated-output" };
-      if (message.stopReason === "aborted") {
-        return { ok: false, reason: params.signal?.aborted ? "aborted" : "error" };
+      if (message.stopReason === "length") {
+        return { ok: false, reason: phaseFailure(turn, "truncated-output") };
       }
-      if (message.stopReason === "error") return { ok: false, reason: "error" };
+      if (message.stopReason === "aborted") {
+        const reason: ReflectionModelFailureReason = params.signal?.aborted
+          ? "aborted"
+          : phaseFailure(turn, timeoutSignal.aborted ? "timeout" : "error");
+        return { ok: false, reason };
+      }
+      if (message.stopReason === "error") {
+        return { ok: false, reason: phaseFailure(turn, "error") };
+      }
 
       const calls = toolCalls(message);
       if (

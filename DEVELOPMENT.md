@@ -484,3 +484,10 @@
 - **Reason**: Keep output shape bounded at the validated tool boundary without incorrectly coupling the model's internal inference budget to the serialized contract size.
 - **Verified**: Focused reflector model, budget, fold, trigger, and telemetry tests plus TypeScript.
 - **Watch out**: This does not reduce reflector context or remove the deadline. Actual-usage telemetry must determine whether timeouts were caused by the generation cap or by a separate stream-finalization issue.
+
+### [2026-08-29] Reflector failures no longer hide phase or trigger implicit retries
+- **Context**: Actual telemetry showed lifecycle `timeout`, recent-call `error`, and a new completion already running. Audit confirmed Pi retries were disabled, but correction failures lost their phase and the reflection coordinator unconditionally launched a coalesced rerun after terminal failure.
+- **Change**: Added explicit correction timeout/error/truncation outcomes, classified deadline aborts consistently as timeout in call and lifecycle telemetry, and made terminal `failed`/`blocked` outcomes discard the queued coalesced rerun. Successful, stale, deferred, and no-work outcomes retain the single latest rerun needed for newer durable progress.
+- **Reason**: A malformed first response followed by a correction failure must remain distinguishable, and a progress coalescer must not become an implicit provider retry for the same unadvanced frontier.
+- **Verified**: Focused failure-state tests cover rejected, resolved-abort, never-settling, correction, cancellation, and queued-rerun paths; full repository gate passes 42 files / 319 tests, TypeScript, and build.
+- **Watch out**: A later independent durable observation event may start reflection again, intentionally. There is still no provider retry, cooldown, or persistent backoff state.

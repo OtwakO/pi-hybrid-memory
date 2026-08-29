@@ -6,6 +6,7 @@ import {
   type ReflectionComplete,
 } from "../src/om/reflection-model.js";
 import type { ReflectionRequestPlan } from "../src/om/reflection-budget.js";
+import { CacheTelemetry } from "../src/cache-telemetry.js";
 
 const plan: ReflectionRequestPlan = {
   maxOutputTokens: 4_096,
@@ -175,6 +176,82 @@ describe("completion reflection model", () => {
     expect(result).toEqual({ ok: false, reason: "aborted" });
   });
 
+  it("classifies a resolved deadline abort as timeout", async () => {
+    vi.useFakeTimers();
+    complete.mockImplementation((_model, _context, options) => new Promise(resolve => {
+      options.signal?.addEventListener(
+        "abort",
+        () => resolve(response([], "aborted")),
+        { once: true },
+      );
+    }));
+
+    const pending = createCompletionReflectionModel({ complete, timeoutMs: 1_000 })
+      .propose(params, "system", "evidence", plan);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toEqual({ ok: false, reason: "timeout" });
+    vi.useRealTimers();
+  });
+
+  it("records a resolved deadline abort as a timeout call", async () => {
+    vi.useFakeTimers();
+    const telemetry = new CacheTelemetry();
+    complete.mockImplementation((_model, _context, options) => new Promise(resolve => {
+      options.signal?.addEventListener(
+        "abort",
+        () => resolve(response([], "aborted")),
+        { once: true },
+      );
+    }));
+
+    const pending = createCompletionReflectionModel({ complete, timeoutMs: 1_000 })
+      .propose({ ...params, telemetry }, "system", "evidence", plan);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await pending;
+
+    expect(telemetry.calls().at(-1)?.outcome).toBe("timeout");
+    vi.useRealTimers();
+  });
+
+  it("reports when the single correction turn times out", async () => {
+    vi.useFakeTimers();
+    complete
+      .mockResolvedValueOnce(response([{ type: "text", text: "prose only" }], "stop"))
+      .mockImplementationOnce(() => new Promise(() => {}));
+
+    const pending = createCompletionReflectionModel({ complete, timeoutMs: 1_000 })
+      .propose(params, "system", "evidence", plan);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toEqual({ ok: false, reason: "correction-timeout" });
+    expect(complete).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("reports correction provider errors without masking the prior invalid response", async () => {
+    complete
+      .mockResolvedValueOnce(response([{ type: "text", text: "prose only" }], "stop"))
+      .mockRejectedValueOnce(new Error("correction transport failed"));
+
+    const result = await createCompletionReflectionModel({ complete })
+      .propose(params, "system", "evidence", plan);
+
+    expect(result).toEqual({ ok: false, reason: "correction-error" });
+    expect(complete).toHaveBeenCalledTimes(2);
+  });
+
+  it("classifies a returned correction error at the correction phase", async () => {
+    complete
+      .mockResolvedValueOnce(response([{ type: "text", text: "prose only" }], "stop"))
+      .mockResolvedValueOnce(response([], "error"));
+
+    const result = await createCompletionReflectionModel({ complete })
+      .propose(params, "system", "evidence", plan);
+
+    expect(result).toEqual({ ok: false, reason: "correction-error" });
+  });
+
   it("propagates the deadline abort to the provider completion", async () => {
     vi.useFakeTimers();
     let providerSignal: AbortSignal | undefined;
@@ -185,12 +262,14 @@ describe("completion reflection model", () => {
       });
     });
 
+    const telemetry = new CacheTelemetry();
     const pending = createCompletionReflectionModel({ complete, timeoutMs: 1_000 })
-      .propose(params, "system", "evidence", plan);
+      .propose({ ...params, telemetry }, "system", "evidence", plan);
     await vi.advanceTimersByTimeAsync(1_000);
 
     await expect(pending).resolves.toEqual({ ok: false, reason: "timeout" });
     expect(providerSignal?.aborted).toBe(true);
+    expect(telemetry.calls().at(-1)?.outcome).toBe("timeout");
     vi.useRealTimers();
   });
 

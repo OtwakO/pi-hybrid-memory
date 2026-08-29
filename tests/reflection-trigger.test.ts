@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Runtime } from "../src/runtime.js";
 import {
@@ -14,39 +14,46 @@ vi.mock("../src/om/incremental-reflection-processor.js", () => ({
 }));
 
 describe("incremental reflection trigger", () => {
+  beforeEach(() => {
+    processNextReflectionWindowMock.mockReset();
+  });
+
+  const model = {
+    provider: "test-provider",
+    api: "openai-completions",
+    id: "test-model",
+    contextWindow: 100_000,
+    maxTokens: 8_000,
+  };
+
+  const context = (runtime: Runtime, entries: Entry[] = []) => ({
+    hasUI: false,
+    ui: { notify: vi.fn() },
+    model: model as never,
+    modelRegistry: { find: vi.fn(), complete: vi.fn() },
+    sessionManager: {
+      getSessionId: () => "session-a",
+      getLeafId: () => "leaf-a",
+      getBranch: () => entries,
+    },
+  });
+
   it("starts one bounded processor transaction with the configured model policy", async () => {
-    const model = {
-      provider: "test-provider",
-      api: "openai-completions",
-      id: "test-model",
-      contextWindow: 100_000,
-      maxTokens: 8_000,
-    };
     const runtime = new Runtime();
     runtime.piSessionId = "session-a";
     runtime.config.hybrid.maxSummaryTokens = 12_000;
     runtime.config.hybrid.reflectionThresholdTokens = 3_000;
     const entries: Entry[] = [];
-    const sessionManager = {
-      getSessionId: () => "session-a",
-      getLeafId: () => "leaf-a",
-      getBranch: () => entries,
-    };
+    const ctx = context(runtime, entries);
     processNextReflectionWindowMock.mockResolvedValueOnce({ outcome: "no-work" });
     const appendEntry = vi.fn();
 
-    startIncrementalReflection(appendEntry, runtime, {
-      hasUI: false,
-      ui: { notify: vi.fn() },
-      model: model as never,
-      modelRegistry: { find: vi.fn(), complete: vi.fn() },
-      sessionManager,
-    });
+    startIncrementalReflection(appendEntry, runtime, ctx);
     await runtime.reflectionTask.promise;
 
     expect(processNextReflectionWindowMock).toHaveBeenCalledOnce();
     expect(processNextReflectionWindowMock).toHaveBeenCalledWith(expect.objectContaining({
-      session: sessionManager,
+      session: ctx.sessionManager,
       appendEntry,
       compatibilityVersion: incrementalReflectionCompatibilityVersion(model as never),
       focusObservationTokens: 12_000,
@@ -61,5 +68,25 @@ describe("incremental reflection trigger", () => {
         targetSummaryTokens: 12_000,
       }),
     }));
+  });
+
+  it("does not immediately retry a failed frontier when progress was coalesced", async () => {
+    const runtime = new Runtime();
+    runtime.piSessionId = "session-a";
+    const ctx = context(runtime);
+    let release!: () => void;
+    processNextReflectionWindowMock.mockImplementationOnce(() => new Promise(resolve => {
+      release = () => resolve({ outcome: "failed", reason: "timeout" });
+    }));
+    const appendEntry = vi.fn();
+
+    startIncrementalReflection(appendEntry, runtime, ctx);
+    startIncrementalReflection(appendEntry, runtime, ctx);
+    release();
+    await runtime.reflectionTask.promise;
+    await Promise.resolve();
+
+    expect(processNextReflectionWindowMock).toHaveBeenCalledTimes(1);
+    expect(runtime.reflectionTask.active).toBe(false);
   });
 });

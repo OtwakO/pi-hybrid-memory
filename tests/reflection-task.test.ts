@@ -38,6 +38,26 @@ describe("ReflectionTaskCoordinator", () => {
     expect(coordinator.active).toBe(false);
   });
 
+  it("can suppress a queued rerun after a terminal inference failure", async () => {
+    const coordinator = new ReflectionTaskCoordinator();
+    const release = deferred<void>();
+    const runs: string[] = [];
+    const first = coordinator.start(async () => {
+      runs.push("first");
+      await release.promise;
+      return false;
+    });
+    void coordinator.start(async () => {
+      runs.push("queued");
+    });
+
+    release.resolve();
+    expect(await first).toEqual({ status: "completed" });
+    await Promise.resolve();
+    expect(runs).toEqual(["first"]);
+    expect(coordinator.active).toBe(false);
+  });
+
   it("cancels the active task on lifecycle changes", async () => {
     const coordinator = new ReflectionTaskCoordinator();
     const task = coordinator.start(async signal => {

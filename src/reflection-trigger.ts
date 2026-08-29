@@ -40,7 +40,7 @@ export const startIncrementalReflection = (
   void runtime.reflectionTask.start(async signal => {
     try {
       const resolved = runtime.resolveModel(ctx);
-      if (!resolved.ok) return;
+      if (!resolved.ok) return false;
       const model = resolved.model;
       const result = await processNextReflectionWindow({
         session: ctx.sessionManager,
@@ -83,11 +83,13 @@ export const startIncrementalReflection = (
           "warning",
         );
       }
+      return result.outcome !== "failed" && result.outcome !== "blocked";
     } catch (error) {
       if (!signal.aborted && ctx.hasUI) {
         const message = error instanceof Error ? error.message : String(error);
         ctx.ui.notify(`Hybrid memory: incremental reflection task failed — ${message}`, "warning");
       }
+      return false;
     }
   });
 };
