@@ -1,6 +1,6 @@
 # Incremental Reflection and Bounded Projection Roadmap
 
-**Status:** Stages 1–6 complete and isolated-live validated; controlled rollout pending
+**Status:** Stages 1–6 complete, isolated-live validated, and installed; fresh-Pi actual-usage validation in progress
 
 **Scope:** Reflection request design, reflection lifecycle persistence, compaction orchestration, and the main-session memory projection.
 
@@ -202,9 +202,9 @@ Stage 5 passed 42 files / 309 tests, TypeScript, the 51-module build, determinis
 
 Stage 6 result: `applySummaryBudget()` now enforces `tokenCount <= maxSummaryTokens` unconditionally. Under pressure it deterministically trims transcript and lower-priority structural/history evidence first, omits an observation as reflection-redundant only when a current provenance-backed reflection both cites its exact ID and contains its complete normalized content, and finally permits critical/reflection/structural omission rather than overflow. Omitted durable memory is disclosed with bounded stable recall IDs; durable journal state is never changed. Pressure-trimmed structural state retains a parseable marker for the next compaction, and pathological tiny budgets receive a character-safe bounded pressure notice.
 
-Stage 6 passed 42 files / 312 tests, TypeScript, the 51-module build, deterministic and model-assisted isolated Pi gates for bundle `942c7bdb13a9f6a2ae6e41b2db497dba32916a447a3fb227b256b857ae4ebc95`. Read-only replay of the real long session reduced the same ~53,711-token stored summary projection to 15,995 tokens under the configured 16,000-token hard ceiling with zero replay issues and a parseable structural pressure marker. Exact proactive observation, incremental reflection, covered compaction, restart, provenance, and recall remained valid. Installed bundle remains unchanged.
+Stage 6 passed 42 files / 312 tests, TypeScript, the 51-module build, deterministic and model-assisted isolated Pi gates for bundle `942c7bdb13a9f6a2ae6e41b2db497dba32916a447a3fb227b256b857ae4ebc95`. Read-only replay of the real long session reduced the same ~53,711-token stored summary projection to 15,995 tokens under the configured 16,000-token hard ceiling with zero replay issues and a parseable structural pressure marker. Exact proactive observation, incremental reflection, covered compaction, restart, provenance, and recall remained valid.
 
-Next: Stage 7 controlled rollout. Back up the installed bundle and a controlled target session, install atomically, restart Pi, and verify real-session bounded projection, incremental reflection progress, covered local-only compaction, replay, recall, telemetry, fork behavior, and rollback inspection.
+Stage 7 installation result: bundle `942c7bdb…c95` was atomically installed at `~/.pi/agent/extensions/pi-hybrid-memory/index.js`; the previous installed bundle `1f41a970…b01f` was preserved as `index.js.backup-20260829T054116Z`. Repository and installed hashes match exactly, and no session JSONL or configuration file was modified during installation. A full Pi restart is required before testing. Fresh-Pi actual-usage validation of the real long session, telemetry, fork behavior, and rollback inspection remains pending.
 
 ### Stage 4 — Run reflection incrementally
 

@@ -471,3 +471,9 @@
 - **Reason**: Durable evidence and model-visible projection must be decoupled. A fixed prompt cannot display unbounded active history, but omission must never mutate memory or hide how to recover it.
 - **Verified**: 42 test files / 312 tests, TypeScript, 51-module build, deterministic and model-assisted isolated Pi gates for bundle `942c7bdb13a9f6a2ae6e41b2db497dba32916a447a3fb227b256b857ae4ebc95`. Read-only real-session replay projected 53,711 stored tokens to 15,995/16,000 with zero lifecycle issues and parseable structural pressure state.
 - **Watch out**: `protectedOverflow` now means protected projection material was omitted under pressure; it no longer indicates an over-ceiling result. Installed extension remains unchanged until controlled rollout.
+
+### [2026-08-29] Installed the completed incremental reflection bundle
+- **Context**: Stages 1–6 passed repository, real-session replay, and isolated Pi gates and were ready for user testing.
+- **Change**: Atomically installed bundle `942c7bdb13a9f6a2ae6e41b2db497dba32916a447a3fb227b256b857ae4ebc95` at `~/.pi/agent/extensions/pi-hybrid-memory/index.js`; preserved the prior `1f41a970d82bc5c8896a403b6015fe6563ac8474c2630a2bcc6026b67dc8b01f` bundle as `index.js.backup-20260829T054116Z`.
+- **Verified**: Installed and repository hashes match exactly. No session JSONL or configuration file changed during installation.
+- **Watch out**: Pi must restart fully before the new extension loads. Fresh-Pi actual-usage validation is still in progress; rollback uses the recorded backup bundle.
