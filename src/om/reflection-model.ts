@@ -146,7 +146,6 @@ export const createCompletionReflectionModel = (
           }],
         }, {
           signal,
-          maxTokens: plan.maxOutputTokens,
           maxRetries: 0,
           maxRetryDelayMs: 0,
           timeoutMs,

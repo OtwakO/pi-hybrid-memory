@@ -99,12 +99,12 @@ describe("completion reflection model", () => {
       }],
     });
     expect(options).toMatchObject({
-      maxTokens: plan.maxOutputTokens,
       maxRetries: 0,
       timeoutMs: 300_000,
       cacheRetention: "long",
       sessionId: "session-reflector",
     });
+    expect(options).not.toHaveProperty("maxTokens");
     expect(options).not.toHaveProperty("toolChoice");
     expect(options).not.toHaveProperty("reasoningEffort");
     expect(options.signal).toBeInstanceOf(AbortSignal);

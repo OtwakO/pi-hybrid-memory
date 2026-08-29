@@ -494,7 +494,7 @@ export const formatCacheInfo = (
     lines.push(
       "",
       "── Bounded reflection ──",
-      `latest bounded reflection: ~${formatTokens(reflectionPlan.estimatedInputTokens)} input / ${formatTokens(reflectionPlan.maxOutputTokens)} max output tokens`,
+      `latest bounded reflection: ~${formatTokens(reflectionPlan.estimatedInputTokens)} input / ~${formatTokens(reflectionPlan.maxOutputTokens)} contract tokens`,
       `  evidence: focus ${formatTokens(reflectionPlan.focusObservationCount)}, historical ${formatTokens(reflectionPlan.historicalObservationCount)}; omitted focus ${formatTokens(reflectionPlan.omittedFocusObservationCount)}, historical ${formatTokens(reflectionPlan.omittedHistoricalObservationCount)}${reflectionPlan.focusOverflow ? "; focus overflow" : ""}${reflectionPlan.protectedOverflow ? "; protected overflow" : ""}`,
       `  planning ${formatTokens(Math.round(reflectionPlan.planningMs))}ms; ${completion}`,
     );

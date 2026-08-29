@@ -477,3 +477,10 @@
 - **Change**: Atomically installed bundle `942c7bdb13a9f6a2ae6e41b2db497dba32916a447a3fb227b256b857ae4ebc95` at `~/.pi/agent/extensions/pi-hybrid-memory/index.js`; preserved the prior `1f41a970d82bc5c8896a403b6015fe6563ac8474c2630a2bcc6026b67dc8b01f` bundle as `index.js.backup-20260829T054116Z`.
 - **Verified**: Installed and repository hashes match exactly. No session JSONL or configuration file changed during installation.
 - **Watch out**: Pi must restart fully before the new extension loads. Fresh-Pi actual-usage validation is still in progress; rollback uses the recorded backup bundle.
+
+### [2026-08-29] Reflector inference no longer sends a generation token cap
+- **Context**: Real incremental reflection calls planned a ~1,536-token tool contract but successful provider usage reported ~12,000–15,000 output tokens, while other calls reached the exact five-minute deadline. A generation cap is a truncation boundary, not a reliable conciseness instruction, and can prevent a reasoning model from reaching its required tool call.
+- **Change**: Removed `maxTokens` from reflector completion options only. The bounded evidence planner, context feasibility check, maximum four-reflection schema, 1,024-character content bound, one correction turn, and five-minute deadline remain unchanged. Telemetry now labels the value as estimated contract tokens rather than a provider output limit.
+- **Reason**: Keep output shape bounded at the validated tool boundary without incorrectly coupling the model's internal inference budget to the serialized contract size.
+- **Verified**: Focused reflector model, budget, fold, trigger, and telemetry tests plus TypeScript.
+- **Watch out**: This does not reduce reflector context or remove the deadline. Actual-usage telemetry must determine whether timeouts were caused by the generation cap or by a separate stream-finalization issue.
