@@ -101,11 +101,11 @@ describe("completion reflection model", () => {
     });
     expect(options).toMatchObject({
       maxRetries: 0,
-      timeoutMs: 300_000,
       cacheRetention: "long",
       sessionId: "session-reflector",
     });
     expect(options).not.toHaveProperty("maxTokens");
+    expect(options).not.toHaveProperty("timeoutMs");
     expect(options).not.toHaveProperty("toolChoice");
     expect(options).not.toHaveProperty("reasoningEffort");
     expect(options.signal).toBeInstanceOf(AbortSignal);
@@ -227,6 +227,58 @@ describe("completion reflection model", () => {
     await expect(pending).resolves.toEqual({ ok: false, reason: "correction-timeout" });
     expect(complete).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
+  });
+
+  it("records correction stage and initial failure disposition", async () => {
+    const telemetry = new CacheTelemetry();
+    complete
+      .mockResolvedValueOnce(response([{ type: "text", text: "prose only" }], "stop"))
+      .mockResolvedValueOnce({
+        ...response([], "error"),
+        errorMessage: "Stream ended without finish_reason",
+      });
+
+    await createCompletionReflectionModel({ complete })
+      .propose({ ...params, telemetry }, "system", "evidence", plan);
+
+    expect(telemetry.reflectionCompletionDiagnostic()).toMatchObject({
+      stage: "correction",
+      initialDisposition: "missing-tool-call",
+      terminalCategory: "stream-finalization",
+      correctionUsed: true,
+      elapsedMs: expect.any(Number),
+    });
+  });
+
+  it("distinguishes rejected completion from stream finalization", async () => {
+    const telemetry = new CacheTelemetry();
+    complete.mockRejectedValueOnce(new Error("connection reset"));
+
+    await createCompletionReflectionModel({ complete })
+      .propose({ ...params, telemetry }, "system", "evidence", plan);
+
+    expect(telemetry.reflectionCompletionDiagnostic()).toMatchObject({
+      stage: "initial",
+      terminalCategory: "rejected-completion",
+      correctionUsed: false,
+    });
+  });
+
+  it("distinguishes provider finish errors from stream finalization", async () => {
+    const telemetry = new CacheTelemetry();
+    complete.mockResolvedValueOnce({
+      ...response([], "error"),
+      errorMessage: "Provider finish_reason: content_filter",
+    });
+
+    await createCompletionReflectionModel({ complete })
+      .propose({ ...params, telemetry }, "system", "evidence", plan);
+
+    expect(telemetry.reflectionCompletionDiagnostic()).toMatchObject({
+      stage: "initial",
+      terminalCategory: "provider-finish-error",
+      correctionUsed: false,
+    });
   });
 
   it("reports correction provider errors without masking the prior invalid response", async () => {

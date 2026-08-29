@@ -114,6 +114,28 @@ export interface ReflectionPlanMetadata {
   completionElapsedMs?: number;
 }
 
+export type ReflectionInitialDisposition = "missing-tool-call" | "invalid-output";
+export type ReflectionTerminalCategory =
+  | "success"
+  | "deadline"
+  | "stream-finalization"
+  | "provider-finish-error"
+  | "rejected-completion"
+  | "truncation"
+  | "caller-abort"
+  | "missing-tool-call"
+  | "invalid-output";
+
+export interface ReflectionCompletionDiagnostic {
+  stage: "initial" | "correction";
+  initialDisposition?: ReflectionInitialDisposition;
+  terminalCategory: ReflectionTerminalCategory;
+  correctionUsed: boolean;
+  elapsedMs: number;
+  initialElapsedMs?: number;
+  automaticRerunSuppressed?: boolean;
+}
+
 export interface MemoryLifecycleAggregate {
   operation: MemoryLifecycleOperation;
   attempts: number;
@@ -223,6 +245,7 @@ export class CacheTelemetry {
   private observerEpochTotals = newObserverEpochAggregate();
   private latestReflectionPlan?: ReflectionPlanMetadata;
   private latestIncrementalReflectionOutcome?: IncrementalReflectionOutcomeMetadata;
+  private latestReflectionCompletionDiagnostic?: ReflectionCompletionDiagnostic;
   private reflectionCompletionStartedAt?: number;
   private readonly memoryLifecycleTotals = new Map<MemoryLifecycleOperation, MemoryLifecycleAggregate>([
     ["reflector", newMemoryLifecycleAggregate("reflector")],
@@ -318,6 +341,7 @@ export class CacheTelemetry {
 
   recordReflectionPlan(plan: ReflectionPlanMetadata): void {
     this.latestReflectionPlan = { ...plan };
+    this.latestReflectionCompletionDiagnostic = undefined;
     this.reflectionCompletionStartedAt = undefined;
   }
 
@@ -355,6 +379,24 @@ export class CacheTelemetry {
       : undefined;
   }
 
+  recordReflectionCompletionDiagnostic(diagnostic: ReflectionCompletionDiagnostic): void {
+    this.latestReflectionCompletionDiagnostic = { ...diagnostic };
+  }
+
+  markReflectionAutomaticRerunSuppressed(): void {
+    if (!this.latestReflectionCompletionDiagnostic) return;
+    this.latestReflectionCompletionDiagnostic = {
+      ...this.latestReflectionCompletionDiagnostic,
+      automaticRerunSuppressed: true,
+    };
+  }
+
+  reflectionCompletionDiagnostic(): ReflectionCompletionDiagnostic | undefined {
+    return this.latestReflectionCompletionDiagnostic
+      ? { ...this.latestReflectionCompletionDiagnostic }
+      : undefined;
+  }
+
   recordMemoryLifecycle(
     operation: MemoryLifecycleOperation,
     outcome: MemoryLifecycleOutcome,
@@ -377,6 +419,7 @@ export class CacheTelemetry {
     this.observerEpochTotals = newObserverEpochAggregate();
     this.latestReflectionPlan = undefined;
     this.latestIncrementalReflectionOutcome = undefined;
+    this.latestReflectionCompletionDiagnostic = undefined;
     this.reflectionCompletionStartedAt = undefined;
     this.memoryLifecycleTotals.set("reflector", newMemoryLifecycleAggregate("reflector"));
   }
@@ -414,6 +457,19 @@ const formatRatio = (usage: TokenUsage): string => {
   const cacheableInput = usage.input + usage.cacheRead;
   return cacheableInput > 0 ? `${((usage.cacheRead / cacheableInput) * 100).toFixed(1)}%` : "unknown";
 };
+const reflectionTerminalDescription = (category: ReflectionTerminalCategory): string => ({
+  success: "valid tool submission",
+  deadline: "extension deadline expired before Pi completion settled",
+  "stream-finalization": "provider stream ended without a terminal finish reason",
+  "provider-finish-error": "provider returned an explicit error finish reason",
+  "rejected-completion": "Pi completion rejected before the extension deadline",
+  truncation: "completion ended at an output boundary",
+  "caller-abort": "session lifecycle cancelled the completion",
+  "missing-tool-call": "correction completed without the required tool call",
+  "invalid-output": "correction completed with invalid tool arguments",
+})[category];
+const formatSeconds = (milliseconds: number | undefined): string =>
+  milliseconds === undefined ? "unknown" : `${(milliseconds / 1_000).toFixed(1)}s`;
 
 export const formatCacheInfo = (
   telemetry: CacheTelemetry,
@@ -440,12 +496,14 @@ export const formatCacheInfo = (
     .filter(aggregate => aggregate.attempts > 0);
   const observerEpochAggregate = telemetry.observerEpochAggregate();
   const reflectionPlan = telemetry.reflectionPlan();
+  const reflectionDiagnostic = telemetry.reflectionCompletionDiagnostic();
   const incrementalOutcome = telemetry.incrementalReflectionOutcome();
   if (
     calls.length === 0
     && lifecycleAggregates.length === 0
     && observerEpochAggregate.baselinePressureEvents === 0
     && !reflectionPlan
+    && !reflectionDiagnostic
     && !incrementalOutcome
   ) {
     lines.push("", "No observer or reflector activity recorded in this session.");
@@ -485,6 +543,26 @@ export const formatCacheInfo = (
       "",
       "── Incremental reflection ──",
       `latest outcome: ${incrementalOutcome.outcome}${detail ? ` (${detail})` : ""}`,
+    );
+  }
+
+  if (reflectionDiagnostic) {
+    const initial = reflectionDiagnostic.initialDisposition === "missing-tool-call"
+      ? "missing tool call"
+      : reflectionDiagnostic.initialDisposition === "invalid-output"
+        ? "invalid tool output"
+        : "valid on first response";
+    const correctionElapsedMs = reflectionDiagnostic.correctionUsed
+      && reflectionDiagnostic.initialElapsedMs !== undefined
+      ? Math.max(0, reflectionDiagnostic.elapsedMs - reflectionDiagnostic.initialElapsedMs)
+      : undefined;
+    lines.push(
+      "",
+      "── Reflector transaction ──",
+      `stage ${reflectionDiagnostic.stage}; initial ${initial}`,
+      `terminal ${reflectionTerminalDescription(reflectionDiagnostic.terminalCategory)}`,
+      `elapsed ${formatSeconds(reflectionDiagnostic.elapsedMs)} total; initial ${formatSeconds(reflectionDiagnostic.initialElapsedMs)}; correction ${formatSeconds(correctionElapsedMs)}`,
+      `${reflectionDiagnostic.correctionUsed ? "correction used" : "no correction"}; ${reflectionDiagnostic.automaticRerunSuppressed ? "automatic rerun suppressed" : "normal progress policy"}`,
     );
   }
 

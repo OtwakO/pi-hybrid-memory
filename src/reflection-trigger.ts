@@ -83,7 +83,9 @@ export const startIncrementalReflection = (
           "warning",
         );
       }
-      return result.outcome !== "failed" && result.outcome !== "blocked";
+      const permitAutomaticRerun = result.outcome !== "failed" && result.outcome !== "blocked";
+      if (!permitAutomaticRerun) runtime.cacheTelemetry.markReflectionAutomaticRerunSuppressed();
+      return permitAutomaticRerun;
     } catch (error) {
       if (!signal.aborted && ctx.hasUI) {
         const message = error instanceof Error ? error.message : String(error);

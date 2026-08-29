@@ -7,7 +7,11 @@ import type {
   ToolCall,
 } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
-import type { CacheTelemetry } from "../cache-telemetry.js";
+import type {
+  CacheTelemetry,
+  ReflectionInitialDisposition,
+  ReflectionTerminalCategory,
+} from "../cache-telemetry.js";
 import type { CacheOptions } from "../cache-options.js";
 import type { ReflectionRequestPlan } from "./reflection-budget.js";
 
@@ -107,6 +111,23 @@ const phaseFailure = (
   failure: "timeout" | "error" | "truncated-output",
 ): ReflectionModelFailureReason => turn === 0 ? failure : `correction-${failure}`;
 
+const rejectedCompletionCategory = (error: unknown): ReflectionTerminalCategory => {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/stream ended|without (?:a )?finish[_ -]?reason|missing finish[_ -]?reason|terminal event/i.test(message)) {
+    return "stream-finalization";
+  }
+  return "rejected-completion";
+};
+
+const messageFailureCategory = (message: AssistantMessage): ReflectionTerminalCategory => {
+  if (message.stopReason === "length") return "truncation";
+  if (message.stopReason !== "error") return "success";
+  if (/stream ended|without (?:a )?finish[_ -]?reason|missing finish[_ -]?reason|terminal event/i.test(message.errorMessage ?? "")) {
+    return "stream-finalization";
+  }
+  return "provider-finish-error";
+};
+
 const raceWithAbort = <T>(operation: Promise<T>, signal: AbortSignal): Promise<T> => {
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise<T>((resolve, reject) => {
@@ -137,6 +158,20 @@ export const createCompletionReflectionModel = (
       : timeoutSignal;
     const schema = reflectionProposalSchema(plan);
     const messages: Context["messages"] = [{ role: "user", content: userPrompt, timestamp: Date.now() }];
+    const transactionStartedAt = performance.now();
+    let initialDisposition: ReflectionInitialDisposition | undefined;
+    let initialElapsedMs: number | undefined;
+    const recordDiagnostic = (
+      turn: number,
+      terminalCategory: ReflectionTerminalCategory,
+    ): void => params.telemetry?.recordReflectionCompletionDiagnostic({
+      stage: turn === 0 ? "initial" : "correction",
+      initialDisposition,
+      terminalCategory,
+      correctionUsed: turn > 0,
+      elapsedMs: Math.max(0, performance.now() - transactionStartedAt),
+      initialElapsedMs,
+    });
 
     for (let turn = 0; turn < 2; turn++) {
       let message: AssistantMessage;
@@ -156,14 +191,21 @@ export const createCompletionReflectionModel = (
           signal,
           maxRetries: 0,
           maxRetryDelayMs: 0,
-          timeoutMs,
           cacheRetention: params.cacheOptions?.cacheRetention,
           sessionId: params.cacheOptions?.sessionId,
         }), signal);
-      } catch {
+      } catch (error) {
         const reason: ReflectionModelFailureReason = params.signal?.aborted
           ? "aborted"
           : phaseFailure(turn, timeoutSignal.aborted ? "timeout" : "error");
+        recordDiagnostic(
+          turn,
+          params.signal?.aborted
+            ? "caller-abort"
+            : timeoutSignal.aborted
+              ? "deadline"
+              : rejectedCompletionCategory(error),
+        );
         params.telemetry?.record(
           "reflector",
           model,
@@ -189,15 +231,21 @@ export const createCompletionReflectionModel = (
       );
 
       if (message.stopReason === "length") {
+        recordDiagnostic(turn, "truncation");
         return { ok: false, reason: phaseFailure(turn, "truncated-output") };
       }
       if (message.stopReason === "aborted") {
         const reason: ReflectionModelFailureReason = params.signal?.aborted
           ? "aborted"
           : phaseFailure(turn, timeoutSignal.aborted ? "timeout" : "error");
+        recordDiagnostic(
+          turn,
+          params.signal?.aborted ? "caller-abort" : timeoutSignal.aborted ? "deadline" : "rejected-completion",
+        );
         return { ok: false, reason };
       }
       if (message.stopReason === "error") {
+        recordDiagnostic(turn, messageFailureCategory(message));
         return { ok: false, reason: phaseFailure(turn, "error") };
       }
 
@@ -207,15 +255,19 @@ export const createCompletionReflectionModel = (
         && calls[0].name === "submit_reflections"
         && isReflectionProposal(calls[0].arguments, plan)
       ) {
+        recordDiagnostic(turn, "success");
         return { ok: true, proposal: structuredClone(calls[0].arguments) };
       }
 
+      const disposition: ReflectionInitialDisposition = calls.length === 0
+        ? "missing-tool-call"
+        : "invalid-output";
       if (turn === 1) {
-        return {
-          ok: false,
-          reason: calls.length === 0 ? "missing-tool-call" : "invalid-output",
-        };
+        recordDiagnostic(turn, disposition);
+        return { ok: false, reason: disposition };
       }
+      initialDisposition = disposition;
+      initialElapsedMs = Math.max(0, performance.now() - transactionStartedAt);
       messages[0] = {
         role: "user",
         content:

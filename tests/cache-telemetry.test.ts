@@ -177,6 +177,48 @@ describe("CacheTelemetry", () => {
     );
   });
 
+  it("clears the prior transaction diagnostic when a new reflection plan starts", () => {
+    const telemetry = new CacheTelemetry();
+    telemetry.recordReflectionCompletionDiagnostic({
+      stage: "initial",
+      terminalCategory: "deadline",
+      correctionUsed: false,
+      elapsedMs: 300_000,
+      automaticRerunSuppressed: true,
+    });
+    telemetry.recordReflectionPlan({
+      planningMs: 5,
+      estimatedInputTokens: 1_000,
+      maxOutputTokens: 500,
+      focusObservationCount: 4,
+      historicalObservationCount: 2,
+      omittedFocusObservationCount: 0,
+      omittedHistoricalObservationCount: 1,
+      focusOverflow: false,
+      protectedOverflow: false,
+    });
+
+    expect(telemetry.reflectionCompletionDiagnostic()).toBeUndefined();
+  });
+
+  it("renders content-free reflector transaction diagnostics", () => {
+    const telemetry = new CacheTelemetry();
+    telemetry.recordReflectionCompletionDiagnostic({
+      stage: "correction",
+      initialDisposition: "invalid-output",
+      terminalCategory: "stream-finalization",
+      correctionUsed: true,
+      elapsedMs: 12_345,
+      automaticRerunSuppressed: true,
+    });
+
+    const output = formatCacheInfo(telemetry);
+    expect(output).toContain("stage correction; initial invalid tool output");
+    expect(output).toContain("terminal provider stream ended without a terminal finish reason");
+    expect(output).toContain("elapsed 12.3s total; initial unknown; correction unknown");
+    expect(output).toContain("correction used; automatic rerun suppressed");
+  });
+
   it("records below-threshold reflection skips without an LLM call", () => {
     const telemetry = new CacheTelemetry();
 
