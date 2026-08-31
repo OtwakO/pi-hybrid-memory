@@ -42,17 +42,11 @@ describe("memory display metrics", () => {
   });
 
   it("reports when reflections are empty because the observation pool is below the gate", () => {
-    const metrics = buildMemoryMetrics({
-      reflections: [],
-      committedObs: [observation("aaaaaaaaaaaa", "committed fact")],
-      pendingObs: [observation("bbbbbbbbbbbb", "pending fact")],
-    });
-
-    const status = describeReflectionGate(metrics, 30_000);
+    const status = describeReflectionGate(2, 30_000);
 
     expect(status.eligible).toBe(false);
-    expect(status.label).toContain("not yet eligible");
-    expect(status.label).toContain(`/ ${30_000 .toLocaleString()} tokens`);
+    expect(status.label).toContain("waiting");
+    expect(status.label).toContain(`/ ${30_000 .toLocaleString()} unconsidered tokens`);
 
     const reflectionOption = buildMemoryPickerOptions({
       observations: [],
@@ -63,22 +57,22 @@ describe("memory display metrics", () => {
     }).find(option => option.category === "reflections");
 
     expect(reflectionOption?.detail).toContain("0 entries");
-    expect(reflectionOption?.detail).toContain("not yet eligible");
+    expect(reflectionOption?.detail).toContain("waiting");
   });
 
   it("does not imply that an eligible empty reflection set is merely below threshold", () => {
-    const longContent = Array.from({ length: 200 }, () => "durable fact").join(" ");
-    const metrics = buildMemoryMetrics({
-      reflections: [] as MemoryReflection[],
-      committedObs: [observation("aaaaaaaaaaaa", longContent)],
-      pendingObs: [],
-    });
-
-    const status = describeReflectionGate(metrics, 10);
+    const status = describeReflectionGate(20, 10);
 
     expect(status.eligible).toBe(true);
     expect(status.label).toContain("eligible for incremental reflection");
-    expect(status.label).not.toContain("not yet eligible");
+    expect(status.label).not.toContain("waiting");
+  });
+
+  it("reports a caught-up frontier without claiming reflection eligibility", () => {
+    expect(describeReflectionGate(0, 30_000, true)).toEqual({
+      eligible: false,
+      label: "caught up",
+    });
   });
 
   it("returns an explicit no-compaction context state", () => {

@@ -7,8 +7,9 @@ import type { Entry, ObservationRecord, MemoryReflection, ReflectionRecord } fro
 import { buildBranchMemoryIndex } from "./om/branch-memory-index.js";
 import { reflectionContent, renderSummary, deriveCoverageTags, type ObservationCoverageTag } from "./om/compaction.js";
 import { estimateStringTokens } from "./om/tokens.js";
+import { buildIncrementalReflectionStatus } from "./om/incremental-reflection-status.js";
+import { incrementalReflectionCompatibilityVersion } from "./reflection-trigger.js";
 import {
-  buildMemoryMetrics,
   buildMemoryPickerOptions,
   describeContextSummary,
   describeReflectionGate,
@@ -577,10 +578,25 @@ export function registerMemoryCommand(pi: ExtensionAPI, runtime: Runtime): void 
       // Build OM context summary using the exact renderSummary that compaction uses
       const allObservations = [...memoryState.committedObs, ...memoryState.pendingObs];
       const coverageTags = deriveCoverageTags(refs, allObservations);
-      const reflectionGate = describeReflectionGate(
-        buildMemoryMetrics(memoryState),
-        runtime.config.hybrid.reflectionThresholdTokens,
-      );
+      const resolvedReflectionModel = runtime.resolveModel(ctx);
+      const incrementalStatus = resolvedReflectionModel.ok
+        ? buildIncrementalReflectionStatus({
+            entries,
+            index: memoryIndex,
+            compatibilityVersion: incrementalReflectionCompatibilityVersion(resolvedReflectionModel.model),
+            focusObservationTokens: runtime.config.hybrid.maxSummaryTokens,
+          })
+        : undefined;
+      const incrementalCompatibilityUnavailable = resolvedReflectionModel.ok
+        ? undefined
+        : resolvedReflectionModel.reason;
+      const reflectionGate = incrementalStatus
+        ? describeReflectionGate(
+            incrementalStatus.activeBacklogTokens,
+            runtime.config.hybrid.reflectionThresholdTokens,
+            incrementalStatus.nextWindow.kind === "none",
+          )
+        : { eligible: false, label: `compatibility unavailable (${incrementalCompatibilityUnavailable})` };
 
       let contextSummary = "";
       const lastComp = comp.length > 0 ? comp[comp.length - 1] : null;

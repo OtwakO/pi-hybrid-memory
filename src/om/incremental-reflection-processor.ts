@@ -4,7 +4,7 @@ import {
   captureLifecycleAppendFence,
 } from "./memory-lifecycle-append.js";
 import type { MemoryFoldInput, MemoryFoldResult } from "./memory-fold.js";
-import { planNextReflectionWindow } from "./reflection-processor-plan.js";
+import { measureReflectionBacklog, planNextReflectionWindow } from "./reflection-processor-plan.js";
 import type { Entry } from "../types.js";
 
 interface ReflectionProcessorSession {
@@ -38,15 +38,19 @@ export const processNextReflectionWindow = async (input: {
   appendEntry(customType: string, data: unknown): void;
   compatibilityVersion: string;
   focusObservationTokens: number;
+  reflectionThresholdTokens: number;
   fold(foldInput: MemoryFoldInput): Promise<MemoryFoldResult>;
   foldInput: FoldInputDefaults;
 }): Promise<IncrementalReflectionOutcome> => {
   const entries = input.session.getBranch();
   const index = buildBranchMemoryIndex(entries);
-  const plan = planNextReflectionWindow({
+  const planningInput = {
     entries,
     index,
     compatibilityVersion: input.compatibilityVersion,
+  };
+  const plan = planNextReflectionWindow({
+    ...planningInput,
     focusObservationTokens: input.focusObservationTokens,
   });
   if (plan.kind === "none") return { outcome: "no-work" };
@@ -56,6 +60,15 @@ export const processNextReflectionWindow = async (input: {
       observationEntryId: plan.observationEntryId,
       observationCount: plan.observationCount,
     };
+  }
+  const backlog = measureReflectionBacklog(planningInput);
+  if (plan.focusObservations.length > 0
+    && backlog.activeObservationTokens < input.reflectionThresholdTokens) {
+    input.foldInput.params.telemetry?.recordMemoryLifecycle("reflector", "below-threshold", {
+      inputItems: backlog.activeObservationCount,
+      inputTokens: backlog.activeObservationTokens,
+    });
+    return { outcome: "deferred", reason: "below-threshold" };
   }
 
   const fence = captureLifecycleAppendFence(input.session, index);
@@ -81,9 +94,6 @@ export const processNextReflectionWindow = async (input: {
       canonicalObservationIds: index.activeObservationIds(),
     });
     if (!foldResult.ok) return { outcome: "failed", reason: foldResult.reason };
-    if (foldResult.outcome === "below-threshold") {
-      return { outcome: "deferred", reason: "below-threshold" };
-    }
     foldOutcome = foldResult.outcome;
   }
 

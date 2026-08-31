@@ -102,8 +102,9 @@ session_before_compact fires
         ▼
 [3] Replay durable incremental reflection state
     No reflector completion runs inside covered `/compact`.
-    Reflection inference is triggered after durable proactive observation progress,
-    uses bounded evidence handles, and persists through the generalized V6 lifecycle.
+    Reflection inference is triggered after durable proactive observation progress once active,
+    unconsidered evidence after the compatible frontier reaches reflectionThresholdTokens.
+    It uses bounded evidence handles and persists through the generalized V6 lifecycle.
     Compaction carries current reflections unchanged and performs only deterministic
     exact-duplicate observation retirement locally.
         │

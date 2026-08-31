@@ -1,7 +1,14 @@
 import { planReflectionContext } from "./reflection-context-plan.js";
 import { isObservationEntryData, OBSERVATION_CUSTOM_TYPE } from "../types.js";
+import { estimateStringTokens } from "./tokens.js";
 import type { BranchMemoryIndex } from "./branch-memory-index.js";
-import type { Entry, ObservationRecord } from "../types.js";
+import type { Entry, ObservationEntryData, ObservationRecord } from "../types.js";
+
+export interface ReflectionBacklog {
+  observationEntryCount: number;
+  activeObservationCount: number;
+  activeObservationTokens: number;
+}
 
 export type ReflectionProcessorPlan =
   | { kind: "none" }
@@ -17,15 +24,21 @@ export type ReflectionProcessorPlan =
       focusObservations: ObservationRecord[];
     };
 
-export const planNextReflectionWindow = (input: {
+type CanonicalObservationEntry = Entry & { data: ObservationEntryData };
+
+interface ReflectionBacklogSelection {
+  entries: CanonicalObservationEntry[];
+  activeObservationIds: ReadonlySet<string>;
+}
+
+const selectReflectionBacklog = (input: {
   entries: readonly Entry[];
   index: BranchMemoryIndex;
   compatibilityVersion: string;
-  focusObservationTokens: number;
-}): ReflectionProcessorPlan => {
+}): ReflectionBacklogSelection => {
   const activeObservationIds = input.index.activeObservationIds();
   const canonicalEntryIds = input.index.observationEntryIds();
-  const observationEntries = input.entries.filter(entry =>
+  const observationEntries = input.entries.filter((entry): entry is CanonicalObservationEntry =>
     entry.type === "custom"
     && entry.customType === OBSERVATION_CUSTOM_TYPE
     && canonicalEntryIds.has(entry.id)
@@ -36,7 +49,39 @@ export const planNextReflectionWindow = (input: {
   const frontierIndex = compatibleFrontier
     ? observationEntries.findIndex(entry => entry.id === compatibleFrontier)
     : -1;
-  const candidates = observationEntries.slice(frontierIndex + 1);
+  return {
+    entries: observationEntries.slice(frontierIndex + 1),
+    activeObservationIds,
+  };
+};
+
+export const measureReflectionBacklog = (input: {
+  entries: readonly Entry[];
+  index: BranchMemoryIndex;
+  compatibilityVersion: string;
+}): ReflectionBacklog => {
+  const backlog = selectReflectionBacklog(input);
+  const activeObservations = backlog.entries.flatMap(entry =>
+    entry.data.records.filter(record => backlog.activeObservationIds.has(record.id)));
+  return {
+    observationEntryCount: backlog.entries.length,
+    activeObservationCount: activeObservations.length,
+    activeObservationTokens: activeObservations.reduce(
+      (sum, observation) => sum + estimateStringTokens(observation.content),
+      0,
+    ),
+  };
+};
+
+export const planNextReflectionWindow = (input: {
+  entries: readonly Entry[];
+  index: BranchMemoryIndex;
+  compatibilityVersion: string;
+  focusObservationTokens: number;
+}): ReflectionProcessorPlan => {
+  const backlog = selectReflectionBacklog(input);
+  const candidates = backlog.entries;
+  const activeObservationIds = backlog.activeObservationIds;
   if (candidates.length === 0) return { kind: "none" };
 
   const selectedEntryIds: string[] = [];

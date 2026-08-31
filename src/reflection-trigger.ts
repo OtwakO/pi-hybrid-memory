@@ -47,6 +47,7 @@ export const startIncrementalReflection = (
         appendEntry,
         compatibilityVersion: incrementalReflectionCompatibilityVersion(model),
         focusObservationTokens: runtime.config.hybrid.maxSummaryTokens,
+        reflectionThresholdTokens: runtime.config.hybrid.reflectionThresholdTokens,
         fold: foldMemory,
         foldInput: {
           params: {
@@ -61,7 +62,6 @@ export const startIncrementalReflection = (
             ...DEFAULT_REFLECTION_HISTORY_BUDGETS,
             focusObservationTokens: runtime.config.hybrid.maxSummaryTokens,
           },
-          reflectionThresholdTokens: runtime.config.hybrid.reflectionThresholdTokens,
           targetSummaryTokens: runtime.config.hybrid.maxSummaryTokens,
           modelPort: createCompletionReflectionModel({
             complete: (selectedModel, context, options) =>

@@ -24,7 +24,7 @@ export type MemoryFoldFailureReason =
 export type MemoryFoldResult =
   | {
       ok: true;
-      outcome: "below-threshold" | "reflected" | "deliberate-empty" | "no-change";
+      outcome: "reflected" | "deliberate-empty" | "no-change";
       reflections: MemoryReflection[];
       observations: ObservationRecord[];
       retirements: ObservationRetirement[];
@@ -47,7 +47,6 @@ export interface MemoryFoldInput {
   focusObservations: ObservationRecord[];
   canonicalObservationIds: ReadonlySet<string>;
   contextBudgets: ReflectionContextBudgets;
-  reflectionThresholdTokens: number;
   targetSummaryTokens: number;
   modelPort: ReflectionModelPort;
 }
@@ -96,27 +95,6 @@ const failedFold = (
 export const foldMemory = async (input: MemoryFoldInput): Promise<MemoryFoldResult> => {
   const observations = [...input.observations];
   const reflections = [...input.reflections];
-  const observationTokens = observations.reduce(
-    (sum, observation) => sum + estimateStringTokens(observation.content),
-    0,
-  );
-
-  if (observationTokens < input.reflectionThresholdTokens) {
-    input.params.telemetry?.recordMemoryLifecycle("reflector", "below-threshold", {
-      inputItems: observations.length,
-      inputTokens: observationTokens,
-    });
-    const retirement = planExactDuplicateRetirements(observations, input.canonicalObservationIds);
-    return {
-      ok: true,
-      outcome: "below-threshold",
-      reflections,
-      observations: retirement.activeObservations,
-      retirements: retirement.retirements,
-      supersessions: [],
-    };
-  }
-
   const focusIds = new Set(input.focusObservations.map(observation => observation.id));
   const focusObservations = observations.filter(observation => focusIds.has(observation.id));
   if (focusObservations.length === 0) {

@@ -76,6 +76,7 @@ const run = (
   appendEntry: fixture.appendEntry,
   compatibilityVersion: "reflection-v1",
   focusObservationTokens: 2_000,
+  reflectionThresholdTokens: 0,
   fold,
   foldInput: {
     params: { model: { contextWindow: 32_000, maxTokens: 8_000 }, apiKey: "key" },
@@ -85,7 +86,6 @@ const run = (
       protectedObservationTokens: 1_000,
       recentObservationTokens: 320,
     },
-    reflectionThresholdTokens: 0,
     targetSummaryTokens: 16_000,
     modelPort: { propose: vi.fn() },
   },
@@ -130,18 +130,57 @@ describe("incremental reflection processor", () => {
     expect(fixture.appendEntry).toHaveBeenCalledOnce();
   });
 
-  it("does not persist below-threshold or failed folds", async () => {
-    const below = setup();
-    expect(await run(below, async (input) => ({
-      ok: true,
-      outcome: "below-threshold",
-      reflections: input.reflections,
-      observations: input.observations,
-      retirements: [],
-      supersessions: [],
-    }))).toEqual({ outcome: "deferred", reason: "below-threshold" });
-    expect(below.appendEntry).not.toHaveBeenCalled();
+  it("defers a small unconsidered backlog even when historical active memory is large", async () => {
+    const historical = { ...observation, content: "historical ".repeat(1_000) };
+    const recent = { ...observation, id: "cccccccccccc", content: "recent fact" };
+    const fixture = setup([historical]);
+    fixture.entries.push({
+      type: "custom",
+      id: "life0000",
+      customType: MEMORY_LIFECYCLE_CUSTOM_TYPE,
+      data: {
+        type: "observational-memory",
+        version: 6,
+        generation: { inputFingerprint: "0".repeat(64) },
+        reflectionProgress: {
+          consideredThroughObservationEntryId: "obsentry1",
+          compatibilityVersion: "reflection-v1",
+        },
+        reflectionsAdded: [],
+        observationsRetired: [],
+        reflectionsSuperseded: [],
+      },
+    });
+    fixture.entries.push({ ...observationEntry([recent]), id: "obsentry2" });
+    fixture.setLeafId("obsentry2");
+    const fold = vi.fn();
 
+    const result = await processNextReflectionWindow({
+      session: fixture.session,
+      appendEntry: fixture.appendEntry,
+      compatibilityVersion: "reflection-v1",
+      focusObservationTokens: 2_000,
+      reflectionThresholdTokens: 100,
+      fold,
+      foldInput: {
+        params: { model: { contextWindow: 32_000, maxTokens: 8_000 }, apiKey: "key" },
+        contextBudgets: {
+          reflectionTokens: 256,
+          focusObservationTokens: 2_000,
+          protectedObservationTokens: 1_000,
+          recentObservationTokens: 320,
+        },
+        targetSummaryTokens: 16_000,
+        modelPort: { propose: vi.fn() },
+      },
+    });
+
+    expect(result).toEqual({ outcome: "deferred", reason: "below-threshold" });
+    expect(fold).not.toHaveBeenCalled();
+    expect(fixture.appendEntry).not.toHaveBeenCalled();
+  });
+
+  it("does not persist failed folds", async () => {
     const failed = setup();
     expect(await run(failed, async (input) => ({
       ok: false,
@@ -197,6 +236,7 @@ describe("incremental reflection processor", () => {
       appendEntry: blocked.appendEntry,
       compatibilityVersion: "reflection-v1",
       focusObservationTokens: 50,
+      reflectionThresholdTokens: 0,
       fold: blockedFold,
       foldInput: {
         params: { model: { contextWindow: 32_000, maxTokens: 8_000 }, apiKey: "key" },
@@ -206,7 +246,6 @@ describe("incremental reflection processor", () => {
           protectedObservationTokens: 1_000,
           recentObservationTokens: 320,
         },
-        reflectionThresholdTokens: 0,
         targetSummaryTokens: 16_000,
         modelPort: { propose: vi.fn() },
       },

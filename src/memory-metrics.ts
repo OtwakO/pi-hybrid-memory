@@ -60,12 +60,14 @@ export const buildMemoryMetrics = (state: CurrentBranchMemory): MemoryMetrics =>
 };
 
 export const describeReflectionGate = (
-  metrics: MemoryMetrics,
+  backlogTokens: number,
   thresholdTokens: number,
+  caughtUp = false,
 ): ReflectionGateStatus => {
-  const progress = `~${metrics.observationPoolTokens.toLocaleString()} / ${thresholdTokens.toLocaleString()} tokens`;
-  if (metrics.observationPoolTokens < thresholdTokens) {
-    return { eligible: false, label: `not yet eligible (${progress})` };
+  if (caughtUp) return { eligible: false, label: "caught up" };
+  const progress = `~${backlogTokens.toLocaleString()} / ${thresholdTokens.toLocaleString()} unconsidered tokens`;
+  if (backlogTokens < thresholdTokens) {
+    return { eligible: false, label: `waiting (${progress})` };
   }
   return { eligible: true, label: `eligible for incremental reflection (${progress})` };
 };

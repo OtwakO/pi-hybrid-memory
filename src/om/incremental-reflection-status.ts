@@ -1,5 +1,5 @@
 import type { BranchMemoryIndex } from "./branch-memory-index.js";
-import { planNextReflectionWindow } from "./reflection-processor-plan.js";
+import { measureReflectionBacklog, planNextReflectionWindow } from "./reflection-processor-plan.js";
 import { isObservationEntryData, OBSERVATION_CUSTOM_TYPE } from "../types.js";
 import type { Entry } from "../types.js";
 
@@ -8,6 +8,8 @@ export interface IncrementalReflectionStatus {
   totalObservationEntries: number;
   consideredObservationEntries: number;
   remainingObservationEntries: number;
+  activeBacklogObservationCount: number;
+  activeBacklogTokens: number;
   nextWindow:
     | { kind: "none" }
     | { kind: "blocked"; observationEntryId: string; observationCount: number }
@@ -40,12 +42,15 @@ export const buildIncrementalReflectionStatus = (input: {
     : -1;
   const consideredObservationEntries = Math.max(0, frontierIndex + 1);
   const plan = planNextReflectionWindow(input);
+  const backlog = measureReflectionBacklog(input);
 
   return {
     ...(compatibleFrontierEntryId ? { compatibleFrontierEntryId } : {}),
     totalObservationEntries: observationEntries.length,
     consideredObservationEntries,
     remainingObservationEntries: observationEntries.length - consideredObservationEntries,
+    activeBacklogObservationCount: backlog.activeObservationCount,
+    activeBacklogTokens: backlog.activeObservationTokens,
     nextWindow: plan.kind === "work"
       ? {
           kind: "work",

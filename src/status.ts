@@ -30,7 +30,6 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
       const compPercentage = runtime.config.hybrid.compactionThresholdPercentage;
       const contextUsage = ctx.getContextUsage();
       const refThreshold = runtime.config.hybrid.reflectionThresholdTokens;
-      const reflectionGate = describeReflectionGate(memoryMetrics, refThreshold);
       const resolvedReflectionModel = runtime.resolveModel(ctx);
       const incrementalStatus = resolvedReflectionModel.ok
         ? buildIncrementalReflectionStatus({
@@ -48,7 +47,19 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
       const compPct = contextUsage?.tokens === null || contextUsage?.tokens === undefined
         ? 0
         : Math.min(100, Math.round((contextUsage.tokens / compThreshold) * 100));
-      const refPct = Math.min(100, Math.round((memoryMetrics.observationPoolTokens / refThreshold) * 100));
+      const reflectionBacklogTokens = incrementalStatus?.activeBacklogTokens;
+      const refPct = reflectionBacklogTokens === undefined
+        ? 0
+        : Math.min(100, Math.round((reflectionBacklogTokens / refThreshold) * 100));
+      const reflectionState = incrementalStatus
+        ? incrementalStatus.nextWindow.kind === "none"
+          ? "caught up"
+          : incrementalStatus.nextWindow.kind === "blocked"
+            ? `blocked at ${incrementalStatus.nextWindow.observationEntryId}`
+            : incrementalStatus.activeBacklogTokens < refThreshold
+              ? `waiting (~${incrementalStatus.activeBacklogTokens.toLocaleString()} / ${refThreshold.toLocaleString()} unconsidered tokens)`
+              : `eligible (~${incrementalStatus.activeBacklogTokens.toLocaleString()} / ${refThreshold.toLocaleString()} unconsidered tokens)`
+        : `compatibility unavailable (${incrementalCompatibilityUnavailable})`;
       const contextTokens = contextUsage?.tokens;
       const nextCompaction = compPercentage !== null
         ? contextTokens === null || contextTokens === undefined
@@ -65,7 +76,7 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
       const lines = [
         "── Memory ──",
         `Reflections:   ~${memoryMetrics.reflectionTokens.toLocaleString()} tokens (${memoryMetrics.reflectionCount} ${refLabel})`,
-        `  reflector    ${reflectionGate.label}`,
+        `  reflector    ${reflectionState}`,
         `Observations:`,
         `  committed    ~${memoryMetrics.committedObservationTokens.toLocaleString()} tokens (${memoryMetrics.committedObservationCount} ${cObsLabel})`,
         `  pending      ~${memoryMetrics.pendingObservationTokens.toLocaleString()} tokens (${memoryMetrics.pendingObservationCount} ${pObsLabel})`,
@@ -74,13 +85,20 @@ export function registerStatusCommand(pi: ExtensionAPI, runtime: Runtime): void 
         "── Activity ──",
         `Next observation: ~${sinceBound.toLocaleString()} / ${obsThreshold.toLocaleString()} tokens (${obsPct}%)`,
         `Next compaction:  ${nextCompaction}`,
-        `Next reflection:  ~${memoryMetrics.observationPoolTokens.toLocaleString()} / ${refThreshold.toLocaleString()} tokens (${refPct}%)`,
+        `Next reflection:  ${incrementalStatus?.nextWindow.kind === "none"
+          ? "caught up"
+          : incrementalStatus?.nextWindow.kind === "blocked"
+            ? `blocked at ${incrementalStatus.nextWindow.observationEntryId}`
+            : reflectionBacklogTokens === undefined
+              ? "compatibility unavailable"
+              : `~${reflectionBacklogTokens.toLocaleString()} / ${refThreshold.toLocaleString()} unconsidered tokens (${refPct}%)`}`,
         "",
         "── Incremental reflection ──",
         ...(incrementalStatus
           ? [
               `Frontier: ${incrementalStatus.compatibleFrontierEntryId ?? "none for current policy"}`,
               `Journal: ${incrementalStatus.consideredObservationEntries.toLocaleString()} / ${incrementalStatus.totalObservationEntries.toLocaleString()} observation entries considered; ${incrementalStatus.remainingObservationEntries.toLocaleString()} remaining`,
+              `Backlog: ~${incrementalStatus.activeBacklogTokens.toLocaleString()} tokens (${incrementalStatus.activeBacklogObservationCount.toLocaleString()} active observation(s))`,
               incrementalStatus.nextWindow.kind === "work"
                 ? `Next window: ${incrementalStatus.nextWindow.observationEntryCount} entry(s), ${incrementalStatus.nextWindow.focusObservationCount} active observation(s), through ${incrementalStatus.nextWindow.targetObservationEntryId}`
                 : incrementalStatus.nextWindow.kind === "blocked"

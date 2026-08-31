@@ -25,7 +25,6 @@ const input = (port: ReflectionModelPort) => ({
   observations: [observation],
   focusObservations: [observation],
   canonicalObservationIds: new Set([observation.id]),
-  reflectionThresholdTokens: 0,
   targetSummaryTokens: 16_000,
   contextBudgets: {
     reflectionTokens: 256,
@@ -37,46 +36,6 @@ const input = (port: ReflectionModelPort) => ({
 });
 
 describe("foldMemory", () => {
-  it("retires exact duplicates below the reflection threshold without calling the model", async () => {
-    const duplicate = { ...observation, id: "bbbbbbbbbbbb", content: "  durable fact\r\n" };
-    const port = modelPort({ ok: false, reason: "error" });
-
-    const result = await foldMemory({
-      ...input(port),
-      observations: [observation, duplicate],
-      canonicalObservationIds: new Set([observation.id, duplicate.id]),
-      reflectionThresholdTokens: Number.MAX_SAFE_INTEGER,
-    });
-
-    expect(port.propose).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      ok: true,
-      observations: [observation],
-      retirements: [{
-        observationId: duplicate.id,
-        preservedByObservationIds: [observation.id],
-      }],
-    });
-  });
-
-  it("skips model work below the reflection threshold", async () => {
-    const port = modelPort({ ok: false, reason: "error" });
-
-    const result = await foldMemory({
-      ...input(port),
-      reflectionThresholdTokens: Number.MAX_SAFE_INTEGER,
-    });
-
-    expect(result).toEqual({
-      ok: true,
-      outcome: "below-threshold",
-      reflections: [],
-      observations: [observation],
-      retirements: [], supersessions: [],
-    });
-    expect(port.propose).not.toHaveBeenCalled();
-  });
-
   it.each(["missing-tool-call", "timeout"] as const)(
     "retains every observation when reflection fails with %s",
     async (reason) => {

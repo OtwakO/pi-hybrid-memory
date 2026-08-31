@@ -56,16 +56,16 @@ describe("incremental reflection trigger", () => {
       session: ctx.sessionManager,
       appendEntry,
       compatibilityVersion: incrementalReflectionCompatibilityVersion(model as never),
-      focusObservationTokens: 12_000,
-      foldInput: expect.objectContaining({
+       focusObservationTokens: 12_000,
+       reflectionThresholdTokens: 3_000,
+       foldInput: expect.objectContaining({
         params: expect.objectContaining({
           model,
           signal: expect.any(AbortSignal),
           cacheOptions: expect.any(Object),
         }),
-        contextBudgets: expect.objectContaining({ focusObservationTokens: 12_000 }),
-        reflectionThresholdTokens: 3_000,
-        targetSummaryTokens: 12_000,
+         contextBudgets: expect.objectContaining({ focusObservationTokens: 12_000 }),
+         targetSummaryTokens: 12_000,
       }),
     }));
   });

@@ -66,6 +66,8 @@ describe("incremental reflection status", () => {
       totalObservationEntries: 2,
       consideredObservationEntries: 1,
       remainingObservationEntries: 1,
+      activeBacklogObservationCount: 1,
+      activeBacklogTokens: expect.any(Number),
       nextWindow: {
         kind: "work",
         targetObservationEntryId: "obsentry2",
