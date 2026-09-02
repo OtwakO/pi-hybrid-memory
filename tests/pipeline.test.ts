@@ -466,6 +466,25 @@ describe("mergePipelines", () => {
     expect(result.summary).toContain("[high] high-value fact");
   });
 
+  it("keeps the newest fitting observations within the same relevance tier", () => {
+    const observations = [
+      { id: "low-oldest01", content: "oldest ".repeat(120), timestamp: "1", relevance: "low" as const },
+      { id: "low-middle01", content: "middle ".repeat(40), timestamp: "2", relevance: "low" as const },
+      { id: "low-newest01", content: "newest compact fact", timestamp: "3", relevance: "low" as const },
+    ];
+
+    const result = mergePipelines({
+      observations,
+      reflections: [],
+      vccSummary: "",
+      settings: { maxSummaryTokens: 140 },
+    });
+
+    expect(result.summary).not.toContain("oldest ");
+    expect(result.summary).toContain("middle ");
+    expect(result.summary).toContain("newest compact fact");
+  });
+
   it("avoids double-rendering support only when a reflection exactly preserves it under pressure", () => {
     const preserved = {
       id: "preserved001",
@@ -532,6 +551,32 @@ describe("mergePipelines", () => {
     expect(result.trimmed).toBe(true);
     expect(result.protectedOverflow).toBe(true);
     expect(result.summary).toContain("Projection");
+  });
+
+  it("bounds a large projection without starving the event loop for seconds", () => {
+    const observations = Array.from({ length: 4_300 }, (_, index) => ({
+      id: `large${index.toString().padStart(7, "0")}`,
+      content: `Observation ${index}: ${"durable context ".repeat(25)}`,
+      timestamp: "now",
+      relevance: (["low", "medium", "high", "critical"] as const)[index % 4],
+    }));
+    const reflections = Array.from({ length: 600 }, (_, index) => ({
+      id: `reflect${index.toString().padStart(5, "0")}`,
+      content: `Reflection ${index}: ${"preserved context ".repeat(50)}`,
+      supportingObservationIds: [],
+    }));
+    const started = performance.now();
+
+    const result = mergePipelines({
+      observations,
+      reflections,
+      vccSummary: "[Session Goal]\n- Keep the active task",
+      settings: { maxSummaryTokens: 16_000 },
+    });
+
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(result.tokenCount).toBeLessThanOrEqual(16_000);
+    expect(result.trimmed).toBe(true);
   });
 
   it("does not trim when under budget", () => {

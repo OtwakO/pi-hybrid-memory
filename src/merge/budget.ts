@@ -196,8 +196,8 @@ const dropOldestSectionLine = (
 };
 
 export const applySummaryBudget = (input: BudgetInput): BudgetResult => {
-  const observations = [...input.observations];
-  const reflections = [...input.reflections];
+  let observations = [...input.observations];
+  let reflections = [...input.reflections];
   const vcc = parseVcc(input.vccSummary);
   const omittedObservationIds: string[] = [];
   const omittedReflectionIds: string[] = [];
@@ -206,21 +206,27 @@ export const applySummaryBudget = (input: BudgetInput): BudgetResult => {
   let trimmed = false;
   let protectedOverflow = false;
 
-  const render = () => {
+  const render = (override?: {
+    observations?: ObservationRecord[];
+    reflections?: MemoryReflection[];
+    omittedObservationIds?: string[];
+    omittedReflectionIds?: string[];
+    omittedLegacyReflections?: number;
+  }) => {
     const renderedVcc = renderVcc(vcc);
     const vccSummary = renderedVcc || (input.vccSummary && omittedStructuralItems > 0
       ? `[Projection Pressure]\n- ${omittedStructuralItems} prior session-state items omitted by hard ceiling.`
       : "");
     const compactHeader = (header: string): string => `${header.split("\n", 1)[0]}\n`;
     const notice = omissionNotice(
-      omittedObservationIds,
-      omittedReflectionIds,
-      omittedLegacyReflections,
+      override?.omittedObservationIds ?? omittedObservationIds,
+      override?.omittedReflectionIds ?? omittedReflectionIds,
+      override?.omittedLegacyReflections ?? omittedLegacyReflections,
       omittedStructuralItems,
     );
     const summary = compose(
-      reflections,
-      observations,
+      override?.reflections ?? reflections,
+      override?.observations ?? observations,
       vccSummary,
       trimmed ? compactHeader(input.memoryHeader) : input.memoryHeader,
       input.vccHeader,
@@ -242,42 +248,93 @@ export const applySummaryBudget = (input: BudgetInput): BudgetResult => {
     omittedStructuralItems++;
     return true;
   };
-  const dropObservation = (relevance: Relevance): boolean => {
-    const index = observations.findIndex(observation => observation.relevance === relevance);
-    if (index < 0) return false;
-    omittedObservationIds.push(observations[index].id);
-    observations.splice(index, 1);
-    return true;
+  const trimObservationClass = (
+    matches: (observation: ObservationRecord) => boolean,
+    trimsProtected = false,
+  ): void => {
+    if (current.tokenCount <= input.maxTokens) return;
+    const candidates = observations.filter(matches);
+    if (candidates.length === 0) return;
+    trimmed = true;
+    if (trimsProtected) protectedOverflow = true;
+    let low = 1;
+    let high = candidates.length;
+    let minimum = candidates.length;
+    while (low <= high) {
+      const count = Math.floor((low + high) / 2);
+      const removedIds = candidates.slice(0, count).map(observation => observation.id);
+      const removedIdSet = new Set(removedIds);
+      const candidateObservations = observations.filter(observation => !removedIdSet.has(observation.id));
+      const candidate = render({
+        observations: candidateObservations,
+        omittedObservationIds: [...omittedObservationIds, ...removedIds],
+      });
+      if (candidate.tokenCount <= input.maxTokens) {
+        minimum = count;
+        high = count - 1;
+      } else {
+        low = count + 1;
+      }
+    }
+    const removed = candidates.slice(0, minimum);
+    const removedIds = new Set(removed.map(observation => observation.id));
+    observations = observations.filter(observation => !removedIds.has(observation.id));
+    omittedObservationIds.push(...removed.map(observation => observation.id));
+    current = render();
+  };
+  const trimReflectionPrefix = (): void => {
+    if (current.tokenCount <= input.maxTokens || reflections.length === 0) return;
+    trimmed = true;
+    protectedOverflow = true;
+    let low = 1;
+    let high = reflections.length;
+    let minimum = reflections.length;
+    while (low <= high) {
+      const count = Math.floor((low + high) / 2);
+      const removed = reflections.slice(0, count);
+      const candidateReflectionIds = [...omittedReflectionIds];
+      let candidateLegacy = omittedLegacyReflections;
+      for (const reflection of removed) {
+        if (typeof reflection === "string") candidateLegacy++;
+        else candidateReflectionIds.push(reflection.id);
+      }
+      const candidate = render({
+        reflections: reflections.slice(count),
+        omittedReflectionIds: candidateReflectionIds,
+        omittedLegacyReflections: candidateLegacy,
+      });
+      if (candidate.tokenCount <= input.maxTokens) {
+        minimum = count;
+        high = count - 1;
+      } else {
+        low = count + 1;
+      }
+    }
+    const removed = reflections.slice(0, minimum);
+    reflections = reflections.slice(minimum);
+    for (const reflection of removed) {
+      if (typeof reflection === "string") omittedLegacyReflections++;
+      else omittedReflectionIds.push(reflection.id);
+    }
+    current = render();
   };
 
   trimWhileOver(() => dropStructural(() => dropOldestTranscriptLine(vcc)));
 
   const exactlyPreserved = exactlyPreservedObservationIds(reflections, observations);
-  trimWhileOver(() => {
-    const index = observations.findIndex(observation => exactlyPreserved.has(observation.id));
-    if (index < 0) return false;
-    omittedObservationIds.push(observations[index].id);
-    observations.splice(index, 1);
-    return true;
-  }, true);
+  trimObservationClass(observation => exactlyPreserved.has(observation.id), true);
 
-  trimWhileOver(() => dropObservation("low"));
-  trimWhileOver(() => dropObservation("medium"));
+  trimObservationClass(observation => observation.relevance === "low");
+  trimObservationClass(observation => observation.relevance === "medium");
   trimWhileOver(() => dropStructural(() => dropOldestSectionLine(vcc, "Files And Changes")));
   trimWhileOver(() => dropStructural(() => dropOldestSectionLine(vcc, "Commits")));
   trimWhileOver(() => dropStructural(() => dropOldestSectionLine(vcc, "User Preferences")));
   trimWhileOver(() => dropStructural(() => dropOldestSectionLine(vcc, "Session Goal")));
-  trimWhileOver(() => dropObservation("high"));
+  trimObservationClass(observation => observation.relevance === "high");
 
   trimWhileOver(() => dropStructural(() => dropOldestSectionLine(vcc, "Outstanding Context")), true);
-  trimWhileOver(() => dropObservation("critical"), true);
-  trimWhileOver(() => {
-    if (reflections.length === 0) return false;
-    const reflection = reflections.shift()!;
-    if (typeof reflection === "string") omittedLegacyReflections++;
-    else omittedReflectionIds.push(reflection.id);
-    return true;
-  }, true);
+  trimObservationClass(observation => observation.relevance === "critical", true);
+  trimReflectionPrefix();
   trimWhileOver(() => {
     if (vcc.passthroughSections.length === 0) return false;
     vcc.passthroughSections.shift();
